@@ -1,5 +1,6 @@
 pub mod classifier;
 pub mod http;
+pub mod oracle;
 pub mod payload;
 pub mod refs;
 pub mod vector;

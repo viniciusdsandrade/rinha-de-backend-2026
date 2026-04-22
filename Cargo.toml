@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "prepare_refs"
 path = "tools/prepare_refs.rs"
 
+[[bin]]
+name = "oracle_check"
+path = "tools/oracle_check.rs"
+
 [dependencies]
 axum = "0.8.6"
 flate2 = "1.1.5"

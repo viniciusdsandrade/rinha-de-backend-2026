@@ -76,3 +76,51 @@ async fn fraud_score_endpoint_classifies_official_payload() {
         }
     );
 }
+
+#[tokio::test]
+async fn malformed_json_returns_bad_request() {
+    let response = app(classifier())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/fraud-score")
+                .header("content-type", "application/json")
+                .body(Body::from("{"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn classifier_error_returns_safe_fallback() {
+    let mut payload = payload("tx-1329056812");
+    payload.transaction.requested_at = "invalid-date".to_string();
+    let request_body = serde_json::to_vec(&payload).unwrap();
+
+    let response = app(classifier())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/fraud-score")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let actual: Classification = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        actual,
+        Classification {
+            approved: true,
+            fraud_score: 0.0,
+        }
+    );
+}
