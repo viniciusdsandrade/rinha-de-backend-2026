@@ -14,7 +14,7 @@ const FLOAT_SIZE_BYTES: usize = std::mem::size_of::<f32>();
 #[derive(Debug, Clone)]
 pub struct ReferenceSet {
     dims: [Vec<f32>; DIMENSIONS],
-    labels: Vec<bool>,
+    labels: Vec<u8>,
 }
 
 impl ReferenceSet {
@@ -68,7 +68,7 @@ impl ReferenceSet {
             }
         }
 
-        let labels = label_bytes.into_iter().map(|value| value != 0).collect();
+        let labels = label_bytes;
 
         Ok(Self { dims, labels })
     }
@@ -93,7 +93,7 @@ impl ReferenceSet {
 
         for label in &self.labels {
             labels_file
-                .write_all(&[u8::from(*label)])
+                .write_all(&[*label])
                 .map_err(|error| format!("falha ao escrever labels.bin: {error}"))?;
         }
 
@@ -108,8 +108,13 @@ impl ReferenceSet {
         self.labels.is_empty()
     }
 
-    pub fn labels(&self) -> &[bool] {
+    pub fn labels(&self) -> &[u8] {
         &self.labels
+    }
+
+    #[inline(always)]
+    pub fn is_fraud(&self, index: usize) -> bool {
+        self.labels[index] != 0
     }
 
     pub fn dim(&self, index: usize) -> &[f32] {
@@ -142,7 +147,7 @@ impl ReferenceSet {
             for (dim_index, value) in entry.vector.into_iter().enumerate() {
                 dims[dim_index].push(value);
             }
-            labels.push(entry.label == "fraud");
+            labels.push(u8::from(entry.label == "fraud"));
         }
 
         Ok(Self { dims, labels })

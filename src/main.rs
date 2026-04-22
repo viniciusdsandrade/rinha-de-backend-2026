@@ -3,7 +3,7 @@ use std::{env, net::SocketAddr, process::ExitCode};
 use rinha_backend_2026::{Classifier, ReferenceSet, http::app};
 use tokio::net::TcpListener;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
@@ -19,8 +19,7 @@ async fn run() -> Result<(), String> {
         env::var("REFERENCES_PATH").unwrap_or_else(|_| "resources/references.json.gz".to_string());
     let references_bin_path = env::var("REFERENCES_BIN_PATH").ok();
     let labels_bin_path = env::var("LABELS_BIN_PATH").ok();
-    let bind_addr =
-        env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+    let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
 
     let refs = match (references_bin_path.as_deref(), labels_bin_path.as_deref()) {
         (Some(references_bin), Some(labels_bin)) => {
@@ -30,7 +29,7 @@ async fn run() -> Result<(), String> {
         _ => {
             return Err(
                 "REFERENCES_BIN_PATH e LABELS_BIN_PATH devem ser informados juntos".to_string(),
-            )
+            );
         }
     };
     let classifier = Classifier::new(refs);

@@ -23,7 +23,11 @@ pub fn evaluate_dataset(
     let mut compared = 0usize;
     let mut mismatches = 0usize;
 
-    for entry in dataset.entries.into_iter().take(limit.unwrap_or(usize::MAX)) {
+    for entry in dataset
+        .entries
+        .into_iter()
+        .take(limit.unwrap_or(usize::MAX))
+    {
         let actual = classifier.classify(&entry.request)?;
         compared += 1;
 

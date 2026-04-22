@@ -14,7 +14,9 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let mut args = env::args().skip(1);
-    let dataset_path = args.next().unwrap_or_else(|| "test/test-data.json".to_string());
+    let dataset_path = args
+        .next()
+        .unwrap_or_else(|| "test/test-data.json".to_string());
 
     let mut limit = None;
     while let Some(arg) = args.next() {
@@ -44,7 +46,7 @@ fn run() -> Result<(), String> {
         _ => {
             return Err(
                 "REFERENCES_BIN_PATH e LABELS_BIN_PATH devem ser informados juntos".to_string(),
-            )
+            );
         }
     };
 
