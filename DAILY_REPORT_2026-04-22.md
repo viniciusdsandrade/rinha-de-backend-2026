@@ -205,3 +205,223 @@ Motivos:
 ## Próximo passo sugerido
 
 Com o gargalo estrutural de CPU caps removido do caminho local, as próximas otimizações só valem se aumentarem o `raw_score` acima da faixa atual de `14295-14305` sem reintroduzir regressão arquitetural no stack.
+
+## Rodada extra após estabilizar o compose
+
+Com o `p99` já abaixo do alvo de `10ms`, a busca passou a ser exclusivamente por aumento de `raw_score`. Nesta fase, cada hipótese só poderia entrar se mostrasse ganho repetível acima do estado aceito.
+
+### 1. Resposta HTTP estática para os 6 estados possíveis
+
+Objetivo:
+
+- eliminar serialização dinâmica de `Classification` por request
+- manter o mesmo contrato JSON e o mesmo fallback seguro
+- reduzir custo do handler sem tocar na classificação
+
+Arquivos alterados:
+
+- `src/http.rs`
+
+Validação funcional:
+
+- `cargo test` passou
+
+Benchmark oficial de 3 rodadas:
+
+- rodada 1:
+  - `final_score`: `14290`
+  - `raw_score`: `14290`
+  - `p99`: `6.22ms`
+  - `med`: `2.37ms`
+  - `p90`: `3.12ms`
+- rodada 2:
+  - `final_score`: `14327`
+  - `raw_score`: `14327`
+  - `p99`: `4.23ms`
+  - `med`: `2.32ms`
+  - `p90`: `2.89ms`
+- rodada 3:
+  - `final_score`: `14323`
+  - `raw_score`: `14323`
+  - `p99`: `4.29ms`
+  - `med`: `2.36ms`
+  - `p90`: `2.91ms`
+
+Decisão:
+
+- aceita
+- mediana subiu de `14295` para `14323`
+- melhoria pequena em termos absolutos, mas repetível e acima do estado anterior
+
+### 2. Parser inbound borrowed/minimalista
+
+Objetivo:
+
+- reduzir alocação de strings no parse do request
+- manter a mesma lógica de vetorização via paridade explícita com o payload owned
+
+Arquivos temporariamente alterados:
+
+- `src/payload.rs`
+- `src/vector.rs`
+- `src/classifier.rs`
+- `src/http.rs`
+- `tests/official_examples.rs`
+
+Validação funcional:
+
+- `cargo test` passou
+
+Evidência de benchmark:
+
+- o primeiro run do `k6` fechou em:
+  - `final_score`: `14307`
+  - `raw_score`: `14307`
+  - `p99`: `4.63ms`
+  - `med`: `2.36ms`
+  - `p90`: `3.05ms`
+- o script não concluiu as 3 rodadas de forma limpa nessa tentativa, e o único run completo já ficou abaixo do baseline aceito
+
+Decisão:
+
+- rejeitada
+- complexidade maior, sem sinal de ganho suficiente
+
+### 3. `nginx` com `worker_processes 2`
+
+Objetivo:
+
+- aumentar a concorrência do load balancer
+- atacar o pequeno gap restante entre o stack compose e o teto local observado
+
+Arquivo temporariamente alterado:
+
+- `nginx.conf`
+
+Benchmark oficial de 3 rodadas:
+
+- rodada 1:
+  - `final_score`: `14286`
+  - `raw_score`: `14286`
+  - `p99`: `4.47ms`
+- rodada 2:
+  - `final_score`: `14299`
+  - `raw_score`: `14299`
+  - `p99`: `4.44ms`
+- rodada 3:
+  - `final_score`: `14294`
+  - `raw_score`: `14294`
+  - `p99`: `4.42ms`
+
+Decisão:
+
+- rejeitada
+- pior que o estado aceito com `worker_processes 1`
+
+### 4. Runtime Tokio multi-thread com 2 workers por API
+
+Objetivo:
+
+- permitir paralelismo real dentro de cada instância de API
+- testar se bursts locais ainda estavam gerando fila demais no runtime single-thread
+
+Arquivos temporariamente alterados:
+
+- `src/main.rs`
+- `Cargo.toml`
+
+Validação funcional:
+
+- `cargo test` passou após habilitar `rt-multi-thread`
+
+Screening do benchmark oficial:
+
+- `final_score`: `14324`
+- `raw_score`: `14324`
+- `p99`: `5.13ms`
+- `med`: `2.21ms`
+- `p90`: `2.82ms`
+
+Decisão:
+
+- rejeitada
+- ganho pequeno demais para justificar a mudança de runtime
+
+### 5. Quatro APIs atrás do mesmo load balancer
+
+Objetivo:
+
+- aumentar a quantidade de workers reais por trás do LB
+- testar se mais instâncias fechariam o gap restante até o teto local
+
+Arquivos temporariamente alterados:
+
+- `docker-compose.yml`
+- `nginx.conf`
+
+Validação funcional:
+
+- `cargo test` passou
+- `docker compose config -q` passou
+
+Screening do benchmark oficial:
+
+- `final_score`: `14295`
+- `raw_score`: `14295`
+- `p99`: `4.57ms`
+- `med`: `2.27ms`
+- `p90`: `2.81ms`
+
+Decisão:
+
+- rejeitada
+- não superou nem o estado aceito com 2 APIs
+
+### 6. HAProxy em L4 no lugar do `nginx stream`
+
+Objetivo:
+
+- atacar o último overhead remanescente do load balancer
+- comparar outro proxy L4 mantendo duas APIs e UDS
+
+Arquivos temporariamente alterados:
+
+- `docker-compose.yml`
+- `haproxy.cfg`
+
+Validação funcional:
+
+- `docker compose config -q` passou
+
+Screening do benchmark oficial:
+
+- `final_score`: `14323`
+- `raw_score`: `14323`
+- `p99`: `4.32ms`
+- `med`: `2.28ms`
+- `p90`: `2.83ms`
+
+Decisão:
+
+- rejeitada
+- empatou com o melhor estado aceito, sem vantagem suficiente para justificar a troca do balanceador
+
+## Estado vencedor ao fim da rodada
+
+O melhor estado conhecido após toda a sequência de hoje ficou assim:
+
+- limites de CPU removidos do `docker-compose.yml`
+- limites de memória mantidos
+- `nginx stream` com 2 APIs via UDS
+- runtime single-thread nas APIs
+- resposta HTTP estática no handler
+
+Métrica de referência desse estado:
+
+- mediana aceita: `final_score 14323`
+- `raw_score 14323`
+- `p99 4.29ms`
+- `med 2.36ms`
+- `p90 2.91ms`
+- `100%` de acurácia
+- `0` `http_errors`
