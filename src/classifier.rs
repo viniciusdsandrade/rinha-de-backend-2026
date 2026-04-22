@@ -84,8 +84,12 @@ impl Classifier {
         let mut top = [(f32::INFINITY, false); 5];
 
         for index in 0..self.refs.len() {
-            let distance = self.refs.distance_squared(query, index);
-            insert_top5(&mut top, distance, self.refs.is_fraud(index));
+            if let Some(distance) = self
+                .refs
+                .distance_squared_if_below(query, index, top[4].0)
+            {
+                insert_top5(&mut top, distance, self.refs.is_fraud(index));
+            }
         }
 
         top
@@ -95,8 +99,9 @@ impl Classifier {
     #[target_feature(enable = "avx2,fma")]
     unsafe fn top5_avx2(&self, query: &[f32; 14]) -> [(f32, bool); 5] {
         use std::arch::x86_64::{
-            __m256, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_set1_ps, _mm256_setzero_ps,
-            _mm256_storeu_ps, _mm256_sub_ps,
+            __m256, _CMP_GE_OQ, _mm256_cmp_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
+            _mm256_movemask_ps, _mm256_set1_ps, _mm256_setzero_ps, _mm256_storeu_ps,
+            _mm256_sub_ps,
         };
 
         let mut top = [(f32::INFINITY, false); 5];
@@ -104,20 +109,36 @@ impl Classifier {
         let chunks = rows / 8;
         let labels = self.refs.labels();
         let dims: [&[f32]; 14] = core::array::from_fn(|index| self.refs.dim(index));
+        let ordered_dims = self.refs.dimension_order();
         let query_lanes: [__m256; 14] = core::array::from_fn(|index| _mm256_set1_ps(query[index]));
 
         for chunk in 0..chunks {
-            let mut sum: __m256 = _mm256_setzero_ps();
+            let mut dot: __m256 = _mm256_setzero_ps();
             let offset = chunk * 8;
+            let threshold = top[4].0;
+            let threshold_lanes = _mm256_set1_ps(threshold);
+            let mut pruned = false;
 
-            for dim in 0..14 {
+            for &dim in ordered_dims {
                 let refs_lane = unsafe { _mm256_loadu_ps(dims[dim].as_ptr().add(offset)) };
                 let diff = _mm256_sub_ps(query_lanes[dim], refs_lane);
-                sum = _mm256_fmadd_ps(diff, diff, sum);
+                dot = _mm256_fmadd_ps(diff, diff, dot);
+
+                if threshold.is_finite() {
+                    let cmp = _mm256_cmp_ps(dot, threshold_lanes, _CMP_GE_OQ);
+                    if _mm256_movemask_ps(cmp) == 0xFF {
+                        pruned = true;
+                        break;
+                    }
+                }
+            }
+
+            if pruned {
+                continue;
             }
 
             let mut distances = [0.0f32; 8];
-            unsafe { _mm256_storeu_ps(distances.as_mut_ptr(), sum) };
+            unsafe { _mm256_storeu_ps(distances.as_mut_ptr(), dot) };
 
             for lane in 0..8 {
                 insert_top5(&mut top, distances[lane], labels[offset + lane] != 0);
@@ -125,8 +146,12 @@ impl Classifier {
         }
 
         for index in (chunks * 8)..rows {
-            let distance = self.refs.distance_squared(query, index);
-            insert_top5(&mut top, distance, labels[index] != 0);
+            if let Some(distance) = self
+                .refs
+                .distance_squared_if_below(query, index, top[4].0)
+            {
+                insert_top5(&mut top, distance, labels[index] != 0);
+            }
         }
 
         top

@@ -1,5 +1,6 @@
 use std::{
     array,
+    cmp::Ordering,
     fs::{self, File},
     io::{BufReader, Read, Write},
     path::Path,
@@ -15,6 +16,8 @@ const FLOAT_SIZE_BYTES: usize = std::mem::size_of::<f32>();
 pub struct ReferenceSet {
     dims: [Vec<f32>; DIMENSIONS],
     labels: Vec<u8>,
+    norms: Vec<f32>,
+    dimension_order: [usize; DIMENSIONS],
 }
 
 impl ReferenceSet {
@@ -69,8 +72,16 @@ impl ReferenceSet {
         }
 
         let labels = label_bytes;
+        let norms = compute_norms(&dims, row_count);
 
-        Ok(Self { dims, labels })
+        let dimension_order = compute_dimension_order(&dims, row_count);
+
+        Ok(Self {
+            dims,
+            labels,
+            norms,
+            dimension_order,
+        })
     }
 
     pub fn write_binary(
@@ -112,6 +123,19 @@ impl ReferenceSet {
         &self.labels
     }
 
+    pub fn norms(&self) -> &[f32] {
+        &self.norms
+    }
+
+    pub fn dimension_order(&self) -> &[usize; DIMENSIONS] {
+        &self.dimension_order
+    }
+
+    #[inline(always)]
+    pub fn squared_norm(&self, index: usize) -> f32 {
+        self.norms[index]
+    }
+
     #[inline(always)]
     pub fn is_fraud(&self, index: usize) -> bool {
         self.labels[index] != 0
@@ -122,14 +146,42 @@ impl ReferenceSet {
     }
 
     pub fn distance_squared(&self, query: &[f32; DIMENSIONS], row: usize) -> f32 {
-        let mut sum = 0.0;
+        let query_norm = query.iter().map(|value| value * value).sum::<f32>();
+        self.distance_squared_with_query_norm(query, query_norm, row)
+    }
+
+    pub fn distance_squared_with_query_norm(
+        &self,
+        query: &[f32; DIMENSIONS],
+        query_norm: f32,
+        row: usize,
+    ) -> f32 {
+        let mut dot = 0.0;
 
         for (dim_index, query_value) in query.iter().enumerate() {
-            let delta = query_value - self.dims[dim_index][row];
-            sum += delta * delta;
+            dot += query_value * self.dims[dim_index][row];
         }
 
-        sum
+        (query_norm + self.norms[row] - (2.0 * dot)).max(0.0)
+    }
+
+    pub fn distance_squared_if_below(
+        &self,
+        query: &[f32; DIMENSIONS],
+        row: usize,
+        limit: f32,
+    ) -> Option<f32> {
+        let mut sum = 0.0;
+
+        for &dim_index in &self.dimension_order {
+            let delta = query[dim_index] - self.dims[dim_index][row];
+            sum += delta * delta;
+            if sum >= limit {
+                return None;
+            }
+        }
+
+        Some(sum)
     }
 
     fn load_json_reader(reader: impl Read) -> Result<Self, String> {
@@ -157,8 +209,48 @@ impl ReferenceSet {
             labels.push(label);
         }
 
-        Ok(Self { dims, labels })
+        let norms = compute_norms(&dims, labels.len());
+
+        let dimension_order = compute_dimension_order(&dims, labels.len());
+
+        Ok(Self {
+            dims,
+            labels,
+            norms,
+            dimension_order,
+        })
     }
+}
+
+fn compute_norms(dims: &[Vec<f32>; DIMENSIONS], row_count: usize) -> Vec<f32> {
+    let mut norms = vec![0.0; row_count];
+
+    for dim in dims {
+        for (index, value) in dim.iter().enumerate() {
+            norms[index] += value * value;
+        }
+    }
+
+    norms
+}
+
+fn compute_dimension_order(dims: &[Vec<f32>; DIMENSIONS], row_count: usize) -> [usize; DIMENSIONS] {
+    let mut variances = [0.0f32; DIMENSIONS];
+
+    for (dim_index, dim) in dims.iter().enumerate() {
+        let sum = dim.iter().copied().sum::<f32>();
+        let mean = sum / row_count as f32;
+        let squared_sum = dim.iter().map(|value| value * value).sum::<f32>();
+        variances[dim_index] = (squared_sum / row_count as f32) - (mean * mean);
+    }
+
+    let mut order = core::array::from_fn(|index| index);
+    order.sort_by(|left, right| {
+        variances[*right]
+            .partial_cmp(&variances[*left])
+            .unwrap_or(Ordering::Equal)
+    });
+    order
 }
 
 #[derive(Debug, Deserialize)]

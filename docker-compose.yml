@@ -4,10 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: rinha-backend-2026-api:local
-    cpus: "0.475"
     expose:
       - "3000"
-    mem_limit: "165MB"
     networks:
       - backend
     deploy:
@@ -21,11 +19,9 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
-    cpus: "0.05"
     depends_on:
       - api1
       - api2
-    mem_limit: "20MB"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
