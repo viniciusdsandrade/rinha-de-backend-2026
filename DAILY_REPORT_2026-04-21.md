@@ -156,6 +156,15 @@ Ao fim da rodada:
 - `origin/submission` passou a apontar para o commit `146843b`
 - a branch remota antiga `origin/impl/rust-baseline` foi removida
 
+## Publicação
+
+Após o fechamento desta rodada:
+
+- o daily report foi movido para a raiz do repositório em `DAILY_REPORT_2026-04-21.md`
+- a branch `submission` foi publicada no fork `viniciusdsandrade/rinha-de-backend-2026`
+- foi aberto o PR `#1` de `submission` para `main` no próprio fork:
+  - `https://github.com/viniciusdsandrade/rinha-de-backend-2026/pull/1`
+
 ## Próximo passo sugerido
 
 Testar hipóteses mais localizadas e menos disruptivas que atuem no hot path sem trocar a infraestrutura principal, por exemplo:
