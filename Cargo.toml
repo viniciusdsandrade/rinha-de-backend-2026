@@ -18,6 +18,7 @@ path = "tools/oracle_check.rs"
 [dependencies]
 axum = "0.8.6"
 flate2 = "1.1.5"
+mimalloc = { version = "0.1.48", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 sonic-rs = "0.5.8"

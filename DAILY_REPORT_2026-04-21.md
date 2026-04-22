@@ -531,3 +531,179 @@ Decisão:
 - aceita provisoriamente
 - houve variância alta, mas a mediana melhorou de forma relevante frente ao estado da etapa 9 e dois dos três cenários ficaram muito acima do baseline re-freezado
 - este passou a ser o melhor estado corrente antes do item 5 da sequência
+
+### 11. PGO sobre o melhor estado vindo de `2-4`
+
+Objetivo:
+
+- testar se `profile-guided optimization` do `rustc` entregaria ganho real no binário já melhorado por normas pré-computadas e PDE
+- evitar integrar PGO ao `docker-compose` sem antes ver uma melhora concreta em um screening controlado
+
+Estratégia adotada:
+
+- o workflow foi montado seguindo a documentação oficial do `rustc`
+- em vez de integrar PGO diretamente no Docker, foi feito um screening em servidor direto no host, ouvindo em `127.0.0.1:9999`
+- primeiro foi medido o release normal, depois foi gerado um binário instrumentado com `-Cprofile-generate`, treinado com a própria carga oficial do `k6`, mesclado com `llvm-profdata`, e por fim recompilado com `-Cprofile-use`
+
+Baseline direto sem PGO:
+
+- `final_score`: `14355`
+- `raw_score`: `14355`
+- `p99`: `1.71ms`
+- `med`: `0.96ms`
+- `p90`: `1.21ms`
+- `http_errors`: `0`
+
+Treino instrumentado:
+
+- `k6` oficial contra o binário instrumentado
+- profile merge com `llvm-profdata`
+- build otimizada com `-Cprofile-use=/tmp/rinha-pgo/merged.profdata`
+
+Resultado direto com PGO:
+
+- `final_score`: `14355`
+- `raw_score`: `14355`
+- `p99`: `1.70ms`
+- `med`: `0.98ms`
+- `p90`: `1.21ms`
+- `http_errors`: `0`
+
+Decisão:
+
+- rejeitada
+- o `final_score` ficou idêntico e o ganho de `p99` foi marginal demais (`1.71ms -> 1.70ms`)
+- como o objetivo desta rodada era só aceitar melhora inquestionável, o PGO não justificou integração adicional no compose
+
+### 12. UDS no `nginx stream`
+
+Objetivo:
+
+- reduzir overhead do transporte interno entre `nginx` e as duas APIs
+- manter a topologia vencedora com `nginx stream`
+- atacar o grande gap observado entre o binário direto e o cenário completo em Docker
+
+Mudanças incorporadas nesta etapa:
+
+- `src/main.rs`
+- `docker-compose.yml`
+- `nginx.conf`
+
+Estratégia:
+
+- suporte a `UNIX_SOCKET_PATH` no binário principal, com precedência sobre `BIND_ADDR`
+- criação do diretório do socket, remoção de socket antigo e `chmod 777` explícito
+- volume nomeado compartilhado `sockets`
+- `nginx stream` apontando para `unix:/sockets/api1.sock` e `unix:/sockets/api2.sock`
+
+Validação funcional:
+
+- novos testes unitários para a seleção do listener em `src/main.rs`
+- `cargo test` passou
+- `docker --context default compose config -q` passou
+- `curl http://127.0.0.1:9999/ready`: `204`
+- verificação manual dentro dos containers confirmou ambos os sockets com permissão `777` e visíveis também pelo `nginx`
+
+Resultado oficial:
+
+- rodada 1:
+  - `final_score`: `4620.86`
+  - `raw_score`: `14016`
+  - `p99`: `30.33ms`
+  - `med`: `1.58ms`
+  - `p90`: `2.94ms`
+- rodada 2:
+  - `final_score`: `2762.73`
+  - `raw_score`: `13974`
+  - `p99`: `50.58ms`
+  - `med`: `1.54ms`
+  - `p90`: `2.97ms`
+- rodada 3:
+  - `final_score`: `3084.79`
+  - `raw_score`: `13934`
+  - `p99`: `45.17ms`
+  - `med`: `1.58ms`
+  - `p90`: `3.30ms`
+
+Decisão:
+
+- aceita
+- apesar da variância, a mediana melhorou de forma forte frente ao melhor baseline anterior desta madrugada
+- a melhora veio no eixo que mais interessava para o cenário completo: `p99` e score do `k6` oficial
+
+### 13. `mimalloc` como screening tardio
+
+Objetivo:
+
+- verificar se ainda havia ganho sustentável trocando apenas o alocador global do binário principal
+- fazer isso depois do UDS já aceito, para medir o efeito sobre o estado quase final da solução
+
+Mudanças incorporadas nesta etapa:
+
+- `Cargo.toml`
+- `Cargo.lock`
+- `src/main.rs`
+
+Estratégia:
+
+- inclusão da crate `mimalloc`
+- `#[global_allocator]` aplicado apenas no binário principal
+- nenhuma mudança no algoritmo, parser, protocolo ou topologia
+
+Validação funcional:
+
+- `cargo test` passou
+- `docker --context default compose config -q` passou
+- `curl http://127.0.0.1:9999/ready`: `204`
+
+Resultado oficial:
+
+- rodada 1:
+  - `final_score`: `3782.95`
+  - `raw_score`: `14069`
+  - `p99`: `37.19ms`
+  - `med`: `1.56ms`
+  - `p90`: `3.29ms`
+- rodada 2:
+  - `final_score`: `3659.65`
+  - `raw_score`: `14041`
+  - `p99`: `38.37ms`
+  - `med`: `1.54ms`
+  - `p90`: `2.90ms`
+- rodada 3:
+  - `final_score`: `3514.31`
+  - `raw_score`: `13943`
+  - `p99`: `39.67ms`
+  - `med`: `1.58ms`
+  - `p90`: `3.00ms`
+
+Decisão:
+
+- aceita
+- a mediana ficou consistentemente acima da mediana do UDS puro
+- o `p99` mediano também caiu de forma material, então esta hipótese passou no critério de ganho sustentável
+
+## Melhor estado ao fim da sequência
+
+Ao fim da sequência de 7 itens, o melhor estado aceito ficou com:
+
+- kernel exato com normas pré-computadas
+- PDE exata com early abort
+- transporte interno `nginx stream -> APIs` por Unix domain sockets
+- `mimalloc` no binário principal
+
+Melhor faixa medida desta rodada final:
+
+- mediana do UDS + `mimalloc`:
+  - `final_score`: `3659.65`
+  - `raw_score`: `14041`
+  - `p99`: `38.37ms`
+  - `med`: `1.56ms`
+  - `p90`: `2.90ms`
+  - `http_errors`: `0`
+
+Leitura final:
+
+- o grande salto sustentável veio do transporte interno por UDS
+- `mimalloc` agregou um ganho adicional mensurável sobre esse novo baseline
+- PGO não passou do filtro de relevância
