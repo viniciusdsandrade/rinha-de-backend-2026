@@ -425,3 +425,25 @@ Métrica de referência desse estado:
 - `p90 2.91ms`
 - `100%` de acurácia
 - `0` `http_errors`
+
+## Publicação e estado atual da branch
+
+Publicações relevantes da rodada de otimização em `submission`:
+
+- `7c98bfd` — `remove compose cpu caps`
+- `b43420c` — `optimize http response path`
+
+Esses dois commits concentram as mudanças aceitas por performance desta rodada:
+
+- remoção dos `cpu caps` do `docker-compose.yml`
+- resposta HTTP estática no handler
+
+Depois disso, a branch continuou andando com commits documentais:
+
+- `c6510ef` — `improve formatting in README for better readability`
+- `d77aa4e` — `add initial implementation of backend fraud detection plan`
+
+Observação importante:
+
+- esses dois commits posteriores são documentais e não alteram o runtime vencedor medido neste report
+- por isso, a métrica de referência da solução continua sendo a do estado aceito acima (`raw_score 14323`, `p99 4.29ms`)
