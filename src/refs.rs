@@ -147,7 +147,14 @@ impl ReferenceSet {
             for (dim_index, value) in entry.vector.into_iter().enumerate() {
                 dims[dim_index].push(value);
             }
-            labels.push(u8::from(entry.label == "fraud"));
+            let label = match entry.label.as_str() {
+                "fraud" => 1,
+                "legit" => 0,
+                other => {
+                    return Err(format!("label de referência inválida: {other}"));
+                }
+            };
+            labels.push(label);
         }
 
         Ok(Self { dims, labels })
@@ -158,4 +165,18 @@ impl ReferenceSet {
 struct ReferenceEntry {
     vector: Vec<f32>,
     label: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReferenceSet;
+
+    #[test]
+    fn rejects_unknown_labels() {
+        let json = r#"[{"vector":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"label":"fruad"}]"#;
+
+        let error = ReferenceSet::load_json_reader(json.as_bytes()).unwrap_err();
+
+        assert!(error.contains("label de referência inválida: fruad"));
+    }
 }

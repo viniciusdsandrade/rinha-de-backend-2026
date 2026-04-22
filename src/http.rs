@@ -10,11 +10,11 @@ use axum::{
 
 use crate::{Classification, Classifier, Payload};
 
-pub fn app(_classifier: Classifier) -> Router {
+pub fn app(classifier: Classifier) -> Router {
     Router::new()
         .route("/ready", get(ready))
         .route("/fraud-score", post(fraud_score))
-        .with_state(Arc::new(_classifier))
+        .with_state(Arc::new(classifier))
 }
 
 async fn ready() -> StatusCode {
