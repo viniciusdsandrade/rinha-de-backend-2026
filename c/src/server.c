@@ -18,20 +18,111 @@
 
 #define MAX_EVENTS 256
 #define READ_CAPACITY 16384
-#define WRITE_CAPACITY 512
 #define LISTEN_BACKLOG 4096
 
-typedef struct {
+typedef struct Connection {
     int fd;
     size_t read_len;
     size_t write_pos;
     size_t write_len;
+    const char *write_ptr;
+    struct Connection *free_next;
     char read_buf[READ_CAPACITY];
-    char write_buf[WRITE_CAPACITY];
 } Connection;
 
 static ReferenceSet g_refs;
 static int g_use_scalar_search = 0;
+static Connection *g_free_connections = NULL;
+
+static const char RESPONSE_READY[] =
+    "HTTP/1.1 204 No Content\r\n"
+    "Connection: keep-alive\r\n"
+    "Content-Length: 0\r\n"
+    "\r\n";
+
+static const char RESPONSE_400[] =
+    "HTTP/1.1 400 Bad Request\r\n"
+    "Connection: keep-alive\r\n"
+    "Content-Length: 0\r\n"
+    "\r\n";
+
+static const char RESPONSE_404[] =
+    "HTTP/1.1 404 Not Found\r\n"
+    "Connection: keep-alive\r\n"
+    "Content-Length: 0\r\n"
+    "\r\n";
+
+static const char RESPONSE_500[] =
+    "HTTP/1.1 500 Internal Server Error\r\n"
+    "Connection: keep-alive\r\n"
+    "Content-Length: 0\r\n"
+    "\r\n";
+
+static const char RESPONSE_JSON_0[] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 35\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":true,\"fraud_score\":0.0}";
+
+static const char RESPONSE_JSON_1[] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 35\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":true,\"fraud_score\":0.2}";
+
+static const char RESPONSE_JSON_2[] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 35\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":true,\"fraud_score\":0.4}";
+
+static const char RESPONSE_JSON_3[] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 36\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":false,\"fraud_score\":0.6}";
+
+static const char RESPONSE_JSON_4[] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 36\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":false,\"fraud_score\":0.8}";
+
+static const char RESPONSE_JSON_5[] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 36\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":false,\"fraud_score\":1.0}";
+
+static const char *const CLASSIFICATION_RESPONSES[6] = {
+    RESPONSE_JSON_0,
+    RESPONSE_JSON_1,
+    RESPONSE_JSON_2,
+    RESPONSE_JSON_3,
+    RESPONSE_JSON_4,
+    RESPONSE_JSON_5,
+};
+
+static const size_t CLASSIFICATION_RESPONSE_LENGTHS[6] = {
+    sizeof(RESPONSE_JSON_0) - 1,
+    sizeof(RESPONSE_JSON_1) - 1,
+    sizeof(RESPONSE_JSON_2) - 1,
+    sizeof(RESPONSE_JSON_3) - 1,
+    sizeof(RESPONSE_JSON_4) - 1,
+    sizeof(RESPONSE_JSON_5) - 1,
+};
 
 static const char *env_or_default(const char *key, const char *fallback) {
     const char *value = getenv(key);
@@ -190,7 +281,13 @@ static void close_connection(int epoll_fd, Connection *conn) {
     }
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, conn->fd, NULL);
     close(conn->fd);
-    free(conn);
+    conn->fd = -1;
+    conn->read_len = 0;
+    conn->write_pos = 0;
+    conn->write_len = 0;
+    conn->write_ptr = NULL;
+    conn->free_next = g_free_connections;
+    g_free_connections = conn;
 }
 
 static int update_connection_events(int epoll_fd, Connection *conn) {
@@ -273,46 +370,32 @@ static int request_matches(const char *headers, size_t header_len, const char *m
 }
 
 static void queue_raw(Connection *conn, const char *data, size_t len) {
-    if (len > WRITE_CAPACITY) {
-        len = WRITE_CAPACITY;
-    }
-    memcpy(conn->write_buf, data, len);
+    conn->write_ptr = data;
     conn->write_pos = 0;
     conn->write_len = len;
 }
 
 static void queue_status(Connection *conn, const char *status) {
-    const int len = snprintf(
-        conn->write_buf,
-        WRITE_CAPACITY,
-        "HTTP/1.1 %s\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n",
-        status
-    );
-    conn->write_pos = 0;
-    conn->write_len = len > 0 ? (size_t)len : 0;
+    if (strcmp(status, "400 Bad Request") == 0) {
+        queue_raw(conn, RESPONSE_400, sizeof(RESPONSE_400) - 1);
+    } else if (strcmp(status, "404 Not Found") == 0) {
+        queue_raw(conn, RESPONSE_404, sizeof(RESPONSE_404) - 1);
+    } else {
+        queue_raw(conn, RESPONSE_500, sizeof(RESPONSE_500) - 1);
+    }
 }
 
-static void queue_json(Connection *conn, const char *body, size_t body_len) {
-    const int header_len = snprintf(
-        conn->write_buf,
-        WRITE_CAPACITY,
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %zu\r\nConnection: keep-alive\r\n\r\n",
-        body_len
-    );
-    if (header_len <= 0 || (size_t)header_len + body_len > WRITE_CAPACITY) {
-        queue_status(conn, "500 Internal Server Error");
-        return;
+static void queue_classification(Connection *conn, const Classification *classification) {
+    uint8_t bucket = classification->fraud_count;
+    if (bucket > 5) {
+        bucket = 0;
     }
-    memcpy(conn->write_buf + header_len, body, body_len);
-    conn->write_pos = 0;
-    conn->write_len = (size_t)header_len + body_len;
+    queue_raw(conn, CLASSIFICATION_RESPONSES[bucket], CLASSIFICATION_RESPONSE_LENGTHS[bucket]);
 }
 
 static int process_one_request(Connection *conn, const char *headers, size_t header_len, const char *body, size_t body_len) {
     if (request_matches(headers, header_len, "GET", "/ready")) {
-        static const char ready_response[] =
-            "HTTP/1.1 204 No Content\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n";
-        queue_raw(conn, ready_response, sizeof(ready_response) - 1);
+        queue_raw(conn, RESPONSE_READY, sizeof(RESPONSE_READY) - 1);
         return 1;
     }
 
@@ -336,9 +419,7 @@ static int process_one_request(Connection *conn, const char *headers, size_t hea
         classification.fraud_count = 0;
     }
 
-    size_t json_len = 0;
-    const char *json = classification_json(&classification, &json_len);
-    queue_json(conn, json, json_len);
+    queue_classification(conn, &classification);
     return 1;
 }
 
@@ -410,7 +491,7 @@ static int handle_read(Connection *conn) {
 
 static int handle_write(Connection *conn) {
     while (conn->write_pos < conn->write_len) {
-        const ssize_t n = write(conn->fd, conn->write_buf + conn->write_pos, conn->write_len - conn->write_pos);
+        const ssize_t n = write(conn->fd, conn->write_ptr + conn->write_pos, conn->write_len - conn->write_pos);
         if (n > 0) {
             conn->write_pos += (size_t)n;
             continue;
@@ -426,14 +507,35 @@ static int handle_write(Connection *conn) {
 
     conn->write_pos = 0;
     conn->write_len = 0;
+    conn->write_ptr = NULL;
     return process_requests(conn);
+}
+
+static Connection *alloc_connection(void) {
+    Connection *conn = g_free_connections;
+    if (conn != NULL) {
+        g_free_connections = conn->free_next;
+    } else {
+        conn = (Connection *)malloc(sizeof(Connection));
+        if (conn == NULL) {
+            return NULL;
+        }
+    }
+
+    conn->fd = -1;
+    conn->read_len = 0;
+    conn->write_pos = 0;
+    conn->write_len = 0;
+    conn->write_ptr = NULL;
+    conn->free_next = NULL;
+    return conn;
 }
 
 static int accept_connections(int epoll_fd, int listen_fd) {
     for (;;) {
         const int fd = accept4(listen_fd, NULL, NULL, SOCK_NONBLOCK);
         if (fd >= 0) {
-            Connection *conn = (Connection *)calloc(1, sizeof(Connection));
+            Connection *conn = alloc_connection();
             if (conn == NULL) {
                 close(fd);
                 continue;
