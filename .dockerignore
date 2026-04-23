@@ -1,0 +1,6 @@
+.git
+.gitignore
+.idea
+AGENTS.md
+target
+cpp/build
