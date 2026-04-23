@@ -293,6 +293,39 @@ Conclusão da retomada:
 - o próximo passo não deve ser tuning de código
 - o próximo passo deve ser estabilizar o ambiente de benchmark e revalidar o baseline atual
 
+### Sanidade adicional após limpeza do Docker Desktop
+
+Depois de parar os containers externos, foi feita uma nova sanidade no Docker Desktop para verificar se o ambiente havia
+voltado ao regime normal.
+
+Resultado:
+
+- diretório: `/tmp/rinha-bench-rust-x86-64-v3-desktop-sanity2-20260423-184246`
+- o `k6` foi morto pelo sistema operacional antes de gerar `test/results.json`
+- código de saída observado no shell: `137`
+- log do `k6` antes da morte:
+    - `13453 complete`
+    - `0 interrupted iterations`
+    - execução passou de `1m34s` sem finalizar o processo de forma saudável
+- estado do host no momento:
+    - `uptime`: cerca de `15min`
+    - `load average`: `89.67, 35.97, 14.28`
+    - `Swap`: `4.0GiB / 4.0GiB`
+
+Confirmação via kernel log:
+
+- horário: `2026-04-23 18:45:45`
+- evento: `Out of memory`
+- processo morto: `k6`
+- `pid`: `28323`
+- `anon-rss`: aproximadamente `3.9GiB`
+
+Interpretação:
+
+- a sanidade adicional confirmou que o ambiente estava sob OOM real
+- qualquer benchmark executado nesse estado é inválido para comparar implementações
+- a próxima etapa técnica deve ser recuperar memória/ambiente antes de medir performance novamente
+
 ## Estado final
 
 Branch:
