@@ -4,3 +4,4 @@ resources/references.json
 .env
 test/results.json
 target/
+c/build/

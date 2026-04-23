@@ -1,5 +1,6 @@
 .git
 target
+c/build
 docs
 test/results.json
 participants
@@ -8,4 +9,3 @@ visualization
 data-generator
 .claude
 AGENTS.md
-

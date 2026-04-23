@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: rinha-backend-2026-api:local
+    image: rinha-backend-2026-c-api:local
     environment:
       UNIX_SOCKET_PATH: /sockets/api1.sock
     networks:

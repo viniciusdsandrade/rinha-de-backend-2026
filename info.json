@@ -1,0 +1,17 @@
+{
+    "participants": [
+        "Vinícius Andrade"
+    ],
+    "social": [
+        "https://github.com/viniciusdsandrade"
+    ],
+    "source-code-repo": "https://github.com/viniciusdsandrade/rinha-de-backend-2026",
+    "stack": [
+        "c",
+        "epoll",
+        "nginx",
+        "avx2",
+        "fma"
+    ],
+    "open_to_work": true
+}
