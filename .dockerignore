@@ -1,0 +1,11 @@
+.git
+target
+docs
+test/results.json
+participants
+misc
+visualization
+data-generator
+.claude
+AGENTS.md
+
