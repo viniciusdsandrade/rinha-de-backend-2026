@@ -2,7 +2,8 @@
 
 ## Contexto
 
-Rodada focada em explicar a regressão brutal do baseline histórico sob `docker compose` e aplicar somente a menor mudança com ganho real, repetível e sustentável na branch `submission`.
+Rodada focada em explicar a regressão brutal do baseline histórico sob `docker compose` e aplicar somente a menor
+mudança com ganho real, repetível e sustentável na branch `submission`.
 
 Premissas desta rodada:
 
@@ -32,23 +33,23 @@ Resultado do `146843b` direto no host:
 Resultado do `146843b` via `docker compose`, em 3 rodadas:
 
 - rodada 1:
-  - `final_score`: `623.59`
-  - `raw_score`: `11343`
-  - `p99`: `181.90ms`
-  - `med`: `2.81ms`
-  - `p90`: `71.87ms`
+    - `final_score`: `623.59`
+    - `raw_score`: `11343`
+    - `p99`: `181.90ms`
+    - `med`: `2.81ms`
+    - `p90`: `71.87ms`
 - rodada 2:
-  - `final_score`: `695.95`
-  - `raw_score`: `11632`
-  - `p99`: `167.14ms`
-  - `med`: `3.42ms`
-  - `p90`: `71.16ms`
+    - `final_score`: `695.95`
+    - `raw_score`: `11632`
+    - `p99`: `167.14ms`
+    - `med`: `3.42ms`
+    - `p90`: `71.16ms`
 - rodada 3:
-  - `final_score`: `742.94`
-  - `raw_score`: `11894`
-  - `p99`: `160.09ms`
-  - `med`: `3.07ms`
-  - `p90`: `63.91ms`
+    - `final_score`: `742.94`
+    - `raw_score`: `11894`
+    - `p99`: `160.09ms`
+    - `med`: `3.07ms`
+    - `p90`: `63.91ms`
 
 Conclusão inicial:
 
@@ -68,32 +69,32 @@ Foi montada uma matriz de cenários para separar custo de:
 Medianas observadas:
 
 - `direct-host`
-  - `final_score`: `14354`
-  - `p99`: `1.65ms`
+    - `final_score`: `14354`
+    - `p99`: `1.65ms`
 - `single-api-container`
-  - `final_score`: `14326`
-  - `p99`: `4.21ms`
+    - `final_score`: `14326`
+    - `p99`: `4.21ms`
 - `nginx-tcp-1`
-  - `final_score`: `14306`
-  - `p99`: `4.34ms`
+    - `final_score`: `14306`
+    - `p99`: `4.34ms`
 - `nginx-tcp-2`
-  - `final_score`: `14304`
-  - `p99`: `4.63ms`
+    - `final_score`: `14304`
+    - `p99`: `4.63ms`
 - `orig-compose-146843b`
-  - `final_score`: `602.11`
-  - `p99`: `169.27ms`
+    - `final_score`: `602.11`
+    - `p99`: `169.27ms`
 - `nginx-tcp-2-limits`
-  - `final_score`: `727.88`
-  - `p99`: `145.12ms`
+    - `final_score`: `727.88`
+    - `p99`: `145.12ms`
 - `nginx-uds-2-limits`
-  - `final_score`: `825.62`
-  - `p99`: `132.59ms`
+    - `final_score`: `825.62`
+    - `p99`: `132.59ms`
 - `nginx-tcp-2-cpuonly`
-  - `final_score`: `833.78`
-  - `p99`: `128.12ms`
+    - `final_score`: `833.78`
+    - `p99`: `128.12ms`
 - `nginx-tcp-2-memonly`
-  - `final_score`: `14295`
-  - `p99`: `4.35ms`
+    - `final_score`: `14295`
+    - `p99`: `4.35ms`
 
 Conclusão causal:
 
@@ -109,23 +110,23 @@ Antes da correção, o HEAD atual da `submission` ainda carregava limites de CPU
 Benchmark oficial de 3 rodadas nesse estado:
 
 - rodada 1:
-  - `final_score`: `835.86`
-  - `raw_score`: `10885`
-  - `p99`: `130.22ms`
-  - `med`: `3.44ms`
-  - `p90`: `62.38ms`
+    - `final_score`: `835.86`
+    - `raw_score`: `10885`
+    - `p99`: `130.22ms`
+    - `med`: `3.44ms`
+    - `p90`: `62.38ms`
 - rodada 2:
-  - `final_score`: `1239.67`
-  - `raw_score`: `11215`
-  - `p99`: `90.47ms`
-  - `med`: `3.21ms`
-  - `p90`: `61.29ms`
+    - `final_score`: `1239.67`
+    - `raw_score`: `11215`
+    - `p99`: `90.47ms`
+    - `med`: `3.21ms`
+    - `p90`: `61.29ms`
 - rodada 3:
-  - `final_score`: `880.65`
-  - `raw_score`: `11120`
-  - `p99`: `126.27ms`
-  - `med`: `3.90ms`
-  - `p90`: `63.30ms`
+    - `final_score`: `880.65`
+    - `raw_score`: `11120`
+    - `p99`: `126.27ms`
+    - `med`: `3.90ms`
+    - `p90`: `63.30ms`
 
 Mediana prática do estado com CPU caps:
 
@@ -157,23 +158,23 @@ Justificativa:
 Benchmark oficial de 3 rodadas no novo estado:
 
 - rodada 1:
-  - `final_score`: `14285`
-  - `raw_score`: `14285`
-  - `p99`: `4.69ms`
-  - `med`: `2.35ms`
-  - `p90`: `2.92ms`
+    - `final_score`: `14285`
+    - `raw_score`: `14285`
+    - `p99`: `4.69ms`
+    - `med`: `2.35ms`
+    - `p90`: `2.92ms`
 - rodada 2:
-  - `final_score`: `14295`
-  - `raw_score`: `14295`
-  - `p99`: `4.65ms`
-  - `med`: `2.31ms`
-  - `p90`: `2.90ms`
+    - `final_score`: `14295`
+    - `raw_score`: `14295`
+    - `p99`: `4.65ms`
+    - `med`: `2.31ms`
+    - `p90`: `2.90ms`
 - rodada 3:
-  - `final_score`: `14305`
-  - `raw_score`: `14305`
-  - `p99`: `4.52ms`
-  - `med`: `2.37ms`
-  - `p90`: `2.91ms`
+    - `final_score`: `14305`
+    - `raw_score`: `14305`
+    - `p99`: `4.52ms`
+    - `med`: `2.37ms`
+    - `p90`: `2.91ms`
 
 Mediana prática do estado aceito:
 
@@ -204,11 +205,13 @@ Motivos:
 
 ## Próximo passo sugerido
 
-Com o gargalo estrutural de CPU caps removido do caminho local, as próximas otimizações só valem se aumentarem o `raw_score` acima da faixa atual de `14295-14305` sem reintroduzir regressão arquitetural no stack.
+Com o gargalo estrutural de CPU caps removido do caminho local, as próximas otimizações só valem se aumentarem o
+`raw_score` acima da faixa atual de `14295-14305` sem reintroduzir regressão arquitetural no stack.
 
 ## Rodada extra após estabilizar o compose
 
-Com o `p99` já abaixo do alvo de `10ms`, a busca passou a ser exclusivamente por aumento de `raw_score`. Nesta fase, cada hipótese só poderia entrar se mostrasse ganho repetível acima do estado aceito.
+Com o `p99` já abaixo do alvo de `10ms`, a busca passou a ser exclusivamente por aumento de `raw_score`. Nesta fase,
+cada hipótese só poderia entrar se mostrasse ganho repetível acima do estado aceito.
 
 ### 1. Resposta HTTP estática para os 6 estados possíveis
 
@@ -229,23 +232,23 @@ Validação funcional:
 Benchmark oficial de 3 rodadas:
 
 - rodada 1:
-  - `final_score`: `14290`
-  - `raw_score`: `14290`
-  - `p99`: `6.22ms`
-  - `med`: `2.37ms`
-  - `p90`: `3.12ms`
+    - `final_score`: `14290`
+    - `raw_score`: `14290`
+    - `p99`: `6.22ms`
+    - `med`: `2.37ms`
+    - `p90`: `3.12ms`
 - rodada 2:
-  - `final_score`: `14327`
-  - `raw_score`: `14327`
-  - `p99`: `4.23ms`
-  - `med`: `2.32ms`
-  - `p90`: `2.89ms`
+    - `final_score`: `14327`
+    - `raw_score`: `14327`
+    - `p99`: `4.23ms`
+    - `med`: `2.32ms`
+    - `p90`: `2.89ms`
 - rodada 3:
-  - `final_score`: `14323`
-  - `raw_score`: `14323`
-  - `p99`: `4.29ms`
-  - `med`: `2.36ms`
-  - `p90`: `2.91ms`
+    - `final_score`: `14323`
+    - `raw_score`: `14323`
+    - `p99`: `4.29ms`
+    - `med`: `2.36ms`
+    - `p90`: `2.91ms`
 
 Decisão:
 
@@ -275,12 +278,13 @@ Validação funcional:
 Evidência de benchmark:
 
 - o primeiro run do `k6` fechou em:
-  - `final_score`: `14307`
-  - `raw_score`: `14307`
-  - `p99`: `4.63ms`
-  - `med`: `2.36ms`
-  - `p90`: `3.05ms`
-- o script não concluiu as 3 rodadas de forma limpa nessa tentativa, e o único run completo já ficou abaixo do baseline aceito
+    - `final_score`: `14307`
+    - `raw_score`: `14307`
+    - `p99`: `4.63ms`
+    - `med`: `2.36ms`
+    - `p90`: `3.05ms`
+- o script não concluiu as 3 rodadas de forma limpa nessa tentativa, e o único run completo já ficou abaixo do baseline
+  aceito
 
 Decisão:
 
@@ -301,17 +305,17 @@ Arquivo temporariamente alterado:
 Benchmark oficial de 3 rodadas:
 
 - rodada 1:
-  - `final_score`: `14286`
-  - `raw_score`: `14286`
-  - `p99`: `4.47ms`
+    - `final_score`: `14286`
+    - `raw_score`: `14286`
+    - `p99`: `4.47ms`
 - rodada 2:
-  - `final_score`: `14299`
-  - `raw_score`: `14299`
-  - `p99`: `4.44ms`
+    - `final_score`: `14299`
+    - `raw_score`: `14299`
+    - `p99`: `4.44ms`
 - rodada 3:
-  - `final_score`: `14294`
-  - `raw_score`: `14294`
-  - `p99`: `4.42ms`
+    - `final_score`: `14294`
+    - `raw_score`: `14294`
+    - `p99`: `4.42ms`
 
 Decisão:
 
