@@ -1,13 +1,10 @@
-use std::{
-    env, fs,
-    net::SocketAddr,
-    os::unix::fs::PermissionsExt,
-    path::Path,
-    process::ExitCode,
-};
+use std::{env, fs, net::SocketAddr, os::unix::fs::PermissionsExt, path::Path, process::ExitCode};
 
 use mimalloc::MiMalloc;
-use rinha_backend_2026::{Classifier, ReferenceSet, http::app};
+use rinha_backend_2026::{
+    Classifier, ReferenceSet,
+    http::{serve_tcp, serve_unix},
+};
 use tokio::net::{TcpListener, UnixListener};
 
 #[global_allocator]
@@ -50,7 +47,6 @@ async fn run() -> Result<(), String> {
         }
     };
     let classifier = Classifier::new(refs);
-    let app = app(classifier);
 
     match listener_config(&bind_addr, unix_socket_path.as_deref())? {
         ListenerConfig::Tcp(addr) => {
@@ -58,16 +54,20 @@ async fn run() -> Result<(), String> {
                 .await
                 .map_err(|error| format!("falha ao abrir listener em {bind_addr}: {error}"))?;
 
-            axum::serve(listener, app)
-                .await
-                .map_err(|error| format!("falha no servidor HTTP: {error}"))
+            serve_tcp(listener, classifier).await
         }
-        ListenerConfig::Unix(path) => serve_unix_socket(&path, app).await,
+        ListenerConfig::Unix(path) => serve_unix_socket(&path, classifier).await,
     }
 }
 
-fn listener_config(bind_addr: &str, unix_socket_path: Option<&str>) -> Result<ListenerConfig, String> {
-    if let Some(path) = unix_socket_path.map(str::trim).filter(|path| !path.is_empty()) {
+fn listener_config(
+    bind_addr: &str,
+    unix_socket_path: Option<&str>,
+) -> Result<ListenerConfig, String> {
+    if let Some(path) = unix_socket_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
         return Ok(ListenerConfig::Unix(path.to_string()));
     }
 
@@ -77,10 +77,7 @@ fn listener_config(bind_addr: &str, unix_socket_path: Option<&str>) -> Result<Li
     Ok(ListenerConfig::Tcp(addr))
 }
 
-async fn serve_unix_socket(
-    path: &str,
-    app: axum::Router,
-) -> Result<(), String> {
+async fn serve_unix_socket(path: &str, classifier: Classifier) -> Result<(), String> {
     let socket_path = Path::new(path);
 
     if let Some(parent) = socket_path.parent() {
@@ -99,9 +96,7 @@ async fn serve_unix_socket(
     fs::set_permissions(socket_path, fs::Permissions::from_mode(0o777))
         .map_err(|error| format!("falha ao ajustar permissões do socket {path}: {error}"))?;
 
-    axum::serve(listener, app)
-        .await
-        .map_err(|error| format!("falha no servidor HTTP unix {path}: {error}"))
+    serve_unix(listener, classifier).await
 }
 
 #[cfg(test)]

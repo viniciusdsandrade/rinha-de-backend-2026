@@ -1,12 +1,8 @@
 use std::{fs, path::PathBuf, sync::OnceLock};
 
-use axum::{
-    body::Body,
-    http::{Request, StatusCode},
+use rinha_backend_2026::{
+    Classification, Classifier, Payload, ReferenceSet, http::handle_request_bytes,
 };
-use http_body_util::BodyExt;
-use rinha_backend_2026::{Classification, Classifier, Payload, ReferenceSet, http::app};
-use tower::ServiceExt;
 
 fn fixture_path(relative: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
@@ -34,40 +30,26 @@ fn payload(id: &str) -> Payload {
 
 #[tokio::test]
 async fn ready_endpoint_returns_no_content() {
-    let response = app(classifier())
-        .oneshot(
-            Request::builder()
-                .uri("/ready")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let classifier = classifier();
+    let response = handle_request_bytes(&classifier, b"GET /ready HTTP/1.1\r\n\r\n", b"");
 
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_status(response, 204);
 }
 
 #[tokio::test]
 async fn fraud_score_endpoint_classifies_official_payload() {
     let payload = payload("tx-1329056812");
     let request_body = serde_json::to_vec(&payload).unwrap();
+    let classifier = classifier();
 
-    let response = app(classifier())
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/fraud-score")
-                .header("content-type", "application/json")
-                .body(Body::from(request_body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = handle_request_bytes(
+        &classifier,
+        b"POST /fraud-score HTTP/1.1\r\ncontent-type: application/json\r\n\r\n",
+        &request_body,
+    );
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let actual: Classification = serde_json::from_slice(&bytes).unwrap();
+    assert_status(response, 200);
+    let actual: Classification = serde_json::from_slice(response_body(response)).unwrap();
     assert_eq!(
         actual,
         Classification {
@@ -79,19 +61,14 @@ async fn fraud_score_endpoint_classifies_official_payload() {
 
 #[tokio::test]
 async fn malformed_json_returns_bad_request() {
-    let response = app(classifier())
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/fraud-score")
-                .header("content-type", "application/json")
-                .body(Body::from("{"))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let classifier = classifier();
+    let response = handle_request_bytes(
+        &classifier,
+        b"POST /fraud-score HTTP/1.1\r\ncontent-type: application/json\r\n\r\n",
+        b"{",
+    );
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_status(response, 400);
 }
 
 #[tokio::test]
@@ -99,23 +76,16 @@ async fn classifier_error_returns_safe_fallback() {
     let mut payload = payload("tx-1329056812");
     payload.transaction.requested_at = "invalid-date".to_string();
     let request_body = serde_json::to_vec(&payload).unwrap();
+    let classifier = classifier();
 
-    let response = app(classifier())
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/fraud-score")
-                .header("content-type", "application/json")
-                .body(Body::from(request_body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = handle_request_bytes(
+        &classifier,
+        b"POST /fraud-score HTTP/1.1\r\ncontent-type: application/json\r\n\r\n",
+        &request_body,
+    );
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let actual: Classification = serde_json::from_slice(&bytes).unwrap();
+    assert_status(response, 200);
+    let actual: Classification = serde_json::from_slice(response_body(response)).unwrap();
     assert_eq!(
         actual,
         Classification {
@@ -123,4 +93,21 @@ async fn classifier_error_returns_safe_fallback() {
             fraud_score: 0.0,
         }
     );
+}
+
+fn assert_status(response: &[u8], expected: u16) {
+    let status = std::str::from_utf8(&response[9..12])
+        .unwrap()
+        .parse::<u16>()
+        .unwrap();
+    assert_eq!(status, expected);
+}
+
+fn response_body(response: &[u8]) -> &[u8] {
+    let header_end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .unwrap()
+        + 4;
+    &response[header_end..]
 }
