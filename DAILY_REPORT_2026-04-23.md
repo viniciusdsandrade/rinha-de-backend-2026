@@ -473,13 +473,117 @@ Interpretação:
 - o espaço real remanescente está no `p99_score`: aproximar `p99` de `1ms` é o caminho para chegar perto de `6000`
 - abaixo de `1ms`, o score de latência satura e melhorias adicionais deixam de pontuar
 
+### Comparativo oficial atualizado `10x` entre Rust, C++ e C
+
+Foi executada uma bateria comparativa `10x` com o `test/test.js` já corrigido para o critério oficial atual.
+
+Condições:
+
+- daemon Docker: `default`
+- diretório dos resultados: `/tmp/rinha-official-10x-20260423-200522`
+- uma stack por vez, com `docker compose up -d --build`
+- `GET /ready` validado antes do k6
+- resultados persistidos em JSON por rodada:
+    - Rust: `/tmp/rinha-official-10x-20260423-200522/rust/run-*.json`
+    - C++: `/tmp/rinha-official-10x-20260423-200522/cpp/run-*.json`
+    - C: `/tmp/rinha-official-10x-20260423-200522/c/run-*.json`
+
+Branches avaliadas:
+
+- Rust: `submission`, commit `363437f`
+- C++: `submission-2`, commit `d245a39`
+- C: `submission-c`, commit `925ff44`
+
+Resultado agregado:
+
+| Stack | Runs | Mediana `final_score` | Média `final_score` | Pior `final_score` | Melhor `final_score` | Mediana `p99` | Pior `p99` | Melhor `p99` | Erros / FP / FN |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| C | 10 | `5657.21` | `5661.35` | `5624.56` | `5719.17` | `2.20ms` | `2.37ms` | `1.91ms` | `0 / 0 / 0` |
+| C++ | 10 | `5652.21` | `5653.63` | `5630.53` | `5684.05` | `2.225ms` | `2.34ms` | `2.07ms` | `0 / 0 / 0` |
+| Rust | 10 | `5632.75` | `5639.48` | `5597.11` | `5701.20` | `2.325ms` | `2.53ms` | `1.99ms` | `0 / 0 / 0` |
+
+Detalhes por stack:
+
+Rust:
+
+- `runs`: `10`
+- mediana `final_score`: `5632.75`
+- média `final_score`: `5639.48`
+- pior `final_score`: `5597.11`
+- melhor `final_score`: `5701.20`
+- mediana `p99`: `2.325ms`
+- pior `p99`: `2.53ms`
+- melhor `p99`: `1.99ms`
+- mediana `p90`: `1.535ms`
+- mediana da latência mediana: `1.09ms`
+- pior `max`: `9.98ms`
+- `detection_score`: `3000` em todas as rodadas
+- `http_errors`: `0`
+- `false_positive_detections`: `0`
+- `false_negative_detections`: `0`
+- `failure_rate`: `0.00%` em todas as rodadas
+
+C++:
+
+- `runs`: `10`
+- mediana `final_score`: `5652.21`
+- média `final_score`: `5653.63`
+- pior `final_score`: `5630.53`
+- melhor `final_score`: `5684.05`
+- mediana `p99`: `2.225ms`
+- pior `p99`: `2.34ms`
+- melhor `p99`: `2.07ms`
+- mediana `p90`: `1.445ms`
+- mediana da latência mediana: `1.02ms`
+- pior `max`: `13.37ms`
+- `detection_score`: `3000` em todas as rodadas
+- `http_errors`: `0`
+- `false_positive_detections`: `0`
+- `false_negative_detections`: `0`
+- `failure_rate`: `0.00%` em todas as rodadas
+
+C:
+
+- `runs`: `10`
+- mediana `final_score`: `5657.21`
+- média `final_score`: `5661.35`
+- pior `final_score`: `5624.56`
+- melhor `final_score`: `5719.17`
+- mediana `p99`: `2.20ms`
+- pior `p99`: `2.37ms`
+- melhor `p99`: `1.91ms`
+- mediana `p90`: `1.395ms`
+- mediana da latência mediana: `0.97ms`
+- pior `max`: `14.35ms`
+- `detection_score`: `3000` em todas as rodadas
+- `http_errors`: `0`
+- `false_positive_detections`: `0`
+- `false_negative_detections`: `0`
+- `failure_rate`: `0.00%` em todas as rodadas
+
+Interpretação:
+
+- todas as stacks atingiram detecção perfeita na bateria local
+- como `detection_score = 3000` em todos os casos, a diferença de score veio exclusivamente do `p99_score`
+- C venceu por mediana de `final_score`, média de `final_score`, mediana de `p99`, mediana de `p90` e latência mediana
+- C++ teve melhor pior caso de `final_score` e menor pior `p99`, portanto ainda é a alternativa mais estável no pior caso
+- Rust ficou tecnicamente correto, mas abaixo de C e C++ nesta bateria
+- a vantagem de C sobre C++ foi pequena (`+5.00` pontos de mediana), mas a vantagem de C sobre Rust foi mais clara (`+24.46` pontos de mediana)
+
+Decisão operacional:
+
+- a próxima rodada de otimização agressiva deve focar em C na branch `submission-c`
+- qualquer mudança deve preservar `E=0`, `http_errors=0` e `failure_rate=0.00%`
+- o objetivo técnico passa a ser reduzir `p99` de aproximadamente `2.20ms` para mais perto de `1ms`, pois abaixo de `1ms`
+  o score de latência satura
+
 ## Estado final
 
 Branch:
 
 - `submission`
 
-Commits locais já existentes em `submission` antes desta publicação:
+Commits publicados em `origin/submission` antes deste registro:
 
 - `d3b6f1b` - `replace axum with manual http server`
 - `bd17404` - `compile rust image for x86-64-v3`
@@ -487,21 +591,20 @@ Commits locais já existentes em `submission` antes desta publicação:
 - `cecde2b` - `update daily report with benchmark environment findings`
 - `f0b28ed` - `document benchmark oom in daily report`
 - `e8a899b` - `tune cpu split for capped runs`
+- `363437f` - `align benchmark with official scoring`
 
-Commits criados nas branches auxiliares nesta rodada:
+Commits publicados nas branches auxiliares:
 
 - `submission-2`: `d245a39` - `add cpp stack and align benchmark`
 - `submission-c`: `925ff44` - `align benchmark with official scoring`
 
-Alteração pendente nesta branch antes do push:
+Alteração pendente nesta branch antes do próximo push:
 
-- `test/test.js`: scoring oficial atual e checks de contrato
-- `run.sh`: execução k6 falhando corretamente, sem reaproveitar `results.json` antigo
-- `DAILY_REPORT_2026-04-23.md`: registro da troca de critério, validações e resultados
+- `DAILY_REPORT_2026-04-23.md`: registro do comparativo final `10x` Rust vs C++ vs C
 
 Estado frente ao remoto:
 
-- branch local contém commits ainda não publicados em `origin/submission`
+- branch local contém apenas o relatório comparativo ainda não publicado neste momento
 
 Observação:
 
