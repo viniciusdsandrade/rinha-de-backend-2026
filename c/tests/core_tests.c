@@ -82,7 +82,7 @@ static void test_reference_loader_and_classifier_smoke(void) {
         "\"terminal\":{\"is_online\":false,\"card_present\":true,\"km_from_home\":29.2331036248},"
         "\"last_transaction\":null}";
     Payload payload;
-    Classification classification;
+    Classification classification = {0};
     require_true(parse_payload(json, strlen(json), &payload), "parse classifier payload");
     require_true(classifier_classify(&refs, &payload, &classification), "classify payload");
     require_true(classification.approved, "first example is approved");

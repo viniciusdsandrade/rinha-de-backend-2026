@@ -2,7 +2,8 @@ CC ?= gcc
 BUILD_DIR := build
 
 COMMON_CFLAGS := -std=c11 -O3 -DNDEBUG -Wall -Wextra -Wpedantic -D_GNU_SOURCE \
-	-march=x86-64-v3 -mavx2 -mfma -flto -fno-semantic-interposition
+	-march=x86-64-v3 -mavx2 -mfma -flto -fno-semantic-interposition \
+	-fno-math-errno -fno-trapping-math
 CPPFLAGS := -Iinclude
 LDLIBS := -lz -lm
 
