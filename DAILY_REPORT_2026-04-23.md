@@ -326,17 +326,178 @@ Interpretação:
 - qualquer benchmark executado nesse estado é inválido para comparar implementações
 - a próxima etapa técnica deve ser recuperar memória/ambiente antes de medir performance novamente
 
+### Recuperação parcial usando o daemon Docker `default`
+
+Como o Docker Desktop continuou inválido para benchmark, ele foi parado temporariamente e os stacks residuais da Rinha
+foram limpos nos dois daemons.
+
+Estado observado após parar o Docker Desktop:
+
+- memória disponível subiu para cerca de `4.4GiB`
+- swap usada caiu de `4.0GiB` para cerca de `2.7GiB`
+- reciclar swap exigiria senha `sudo`, então não foi executado
+- daemon `default` reportou:
+    - `CPUs=16`
+    - `Mem=7993290752`
+    - `OS=Ubuntu 24.04.4 LTS`
+    - `Server=29.4.1`
+
+Sanidade `1x` no daemon `default` após estabilização parcial:
+
+- diretório: `/tmp/rinha-bench-rust-x86-64-v3-default-sanity2-20260423-184909`
+- `final_score`: `14354`
+- `raw_score`: `14354`
+- `p99`: `2.00ms`
+- `p90`: `1.43ms`
+- `med`: `1.03ms`
+- `max`: `4.00ms`
+- `http_errors`: `0`
+- acurácia: `100%`
+
+Baseline `3x` no daemon `default`:
+
+- diretório: `/tmp/rinha-bench-rust-x86-64-v3-default-3x-20260423-185048`
+- rodadas:
+    - `14355`, `p99=2.36ms`, `p90=1.49ms`, `med=1.01ms`, `max=6.77ms`
+    - `14355`, `p99=2.21ms`, `p90=1.49ms`, `med=1.07ms`, `max=5.81ms`
+    - `14355`, `p99=2.30ms`, `p90=1.50ms`, `med=1.07ms`, `max=4.07ms`
+- mediana:
+    - `final_score`: `14355`
+    - `raw_score`: `14355`
+    - `p99`: `2.30ms`
+    - pior `p99`: `2.36ms`
+    - `http_errors`: `0`
+
+Baseline `5x` no daemon `default`:
+
+- diretório: `/tmp/rinha-bench-rust-x86-64-v3-default-5x-20260423-185508`
+- rodadas:
+    - `14354`, `p99=2.40ms`, `p90=1.52ms`, `med=1.06ms`, `max=4.95ms`
+    - `14354`, `p99=2.26ms`, `p90=1.51ms`, `med=1.07ms`, `max=4.54ms`
+    - `14355`, `p99=2.31ms`, `p90=1.58ms`, `med=1.09ms`, `max=5.49ms`
+    - `14355`, `p99=2.37ms`, `p90=1.58ms`, `med=1.09ms`, `max=7.76ms`
+    - `14355`, `p99=2.13ms`, `p90=1.50ms`, `med=1.12ms`, `max=4.34ms`
+- mediana:
+    - `final_score`: `14355`
+    - `raw_score`: `14355`
+    - `p99`: `2.31ms`
+    - pior `p99`: `2.40ms`
+    - `p90`: `1.52ms`
+    - `med`: `1.09ms`
+    - pior `max`: `7.76ms`
+    - `http_errors`: `0`
+
+Conclusão:
+
+- a implementação atual está saudável quando o benchmark roda fora do Docker Desktop degradado
+- o daemon `default` está apto para experimentos locais controlados nesta sessão
+- os resultados do daemon `default` não devem ser misturados com o histórico `desktop-linux` sem declarar a mudança
+
+### Correção dos testes para o critério oficial atual
+
+Durante a revisão contra a documentação oficial atual, foi identificada uma inconsistência crítica nos três testes locais
+usados para comparar Rust, C++ e C:
+
+- o `test/test.js` ainda usava a fórmula legada:
+    - `raw_score = TP + TN - FP - 3*FN - 5*Err`
+    - `latency_multiplier = 10 / max(p99, 10)`
+    - `final_score = max(0, raw_score) * latency_multiplier`
+- a documentação oficial atual usa outra escala:
+    - `score_p99` logarítmico, com teto em `p99 <= 1ms` e corte em `p99 > 2000ms`
+    - `score_det` logarítmico com `E = FP + 3*FN + 5*Err`, `epsilon = E/N` e corte se `failure_rate > 15%`
+    - `final_score = score_p99 + score_det`
+    - faixa total: `-6000` a `6000`
+
+Ações aplicadas nos três worktrees:
+
+- Rust: `/home/andrade/Desktop/rinha-de-backend-2026-rust/test/test.js`
+- C++: `/home/andrade/Desktop/rinha-de-backend-2026/test/test.js`
+- C: `/home/andrade/Desktop/rinha-de-backend-2026-c/test/test.js`
+
+Mudanças de teste:
+
+- substituída a fórmula legada pelo scoring oficial atual
+- adicionadas no `setup()` verificações de contrato:
+    - `GET /ready` precisa responder `2xx`
+    - `POST /fraud-score` precisa responder `200`
+    - a resposta precisa conter `approved` booleano e `fraud_score` numérico entre `0` e `1`
+    - rotas/métodos fora dos dois endpoints oficiais não podem responder com sucesso
+- erros de JSON inválido ou schema inválido no `POST /fraud-score` agora entram como `http_errors`
+- `run.sh` nos três worktrees passou a:
+    - remover `test/results.json` antes da execução
+    - falhar se o k6 falhar
+    - imprimir o log do k6 somente em caso de erro
+    - evitar leitura de resultado stale
+
+Validações estáticas:
+
+- Rust: `git diff --check`, `bash -n run.sh`, `k6 inspect test/test.js`
+- C++: `git diff --check`, `bash -n run.sh`, `k6 inspect test/test.js`
+- C: `git diff --check`, `bash -n run.sh`, `k6 inspect test/test.js`
+
+Validações runtime no daemon Docker `default`, uma execução por stack:
+
+Rust:
+
+- `p99`: `2.53ms`
+- `p99_score`: `2597.53`
+- `detection_score`: `3000`
+- `final_score`: `5597.53`
+- `http_errors`: `0`
+- `failure_rate`: `0.00%`
+
+C++:
+
+- `p99`: `2.49ms`
+- `p99_score`: `2604.56`
+- `detection_score`: `3000`
+- `final_score`: `5604.56`
+- `http_errors`: `0`
+- `failure_rate`: `0.00%`
+
+C:
+
+- `p99`: `2.49ms`
+- `p99_score`: `2603.57`
+- `detection_score`: `3000`
+- `final_score`: `5603.57`
+- `http_errors`: `0`
+- `failure_rate`: `0.00%`
+
+Interpretação:
+
+- os resultados antigos `raw_score/final_score` na faixa de `14355` pertencem ao script legado e não são comparáveis com o
+  critério oficial atual
+- as três implementações mantiveram detecção perfeita na amostra executada localmente
+- com `E=0`, o `detection_score` já está no teto de `3000`
+- o espaço real remanescente está no `p99_score`: aproximar `p99` de `1ms` é o caminho para chegar perto de `6000`
+- abaixo de `1ms`, o score de latência satura e melhorias adicionais deixam de pontuar
+
 ## Estado final
 
 Branch:
 
 - `submission`
 
-Commits locais adicionados hoje:
+Commits locais já existentes em `submission` antes desta publicação:
 
 - `d3b6f1b` - `replace axum with manual http server`
 - `bd17404` - `compile rust image for x86-64-v3`
 - `14a7f04` - `add daily report for rust tuning`
+- `cecde2b` - `update daily report with benchmark environment findings`
+- `f0b28ed` - `document benchmark oom in daily report`
+- `e8a899b` - `tune cpu split for capped runs`
+
+Commits criados nas branches auxiliares nesta rodada:
+
+- `submission-2`: `d245a39` - `add cpp stack and align benchmark`
+- `submission-c`: `925ff44` - `align benchmark with official scoring`
+
+Alteração pendente nesta branch antes do push:
+
+- `test/test.js`: scoring oficial atual e checks de contrato
+- `run.sh`: execução k6 falhando corretamente, sem reaproveitar `results.json` antigo
+- `DAILY_REPORT_2026-04-23.md`: registro da troca de critério, validações e resultados
 
 Estado frente ao remoto:
 
@@ -344,14 +505,13 @@ Estado frente ao remoto:
 
 Observação:
 
-- os commits ainda não foram publicados nesta rodada
 - o Git reportou aviso de `gc.log` e objetos soltos durante commits; isso é manutenção local do repositório e não altera a
   implementação nem os resultados de benchmark
 
 ## Próximo passo sugerido
 
-O próximo ganho sustentável em Rust provavelmente não virá de latência HTTP genérica, porque o `p99` já está muito abaixo
-do alvo e o score já bate no teto. As próximas hipóteses devem focar em consistência de `raw_score` e reduzir variância:
+Com o critério oficial atual, o próximo ganho sustentável deve mirar `p99` próximo de `1ms`, mantendo `E=0`. O score de
+detecção já está saturado; qualquer hipótese que coloque erros de classificação ou HTTP no caminho deve ser descartada.
 
 Ordem recomendada a partir daqui:
 
@@ -363,8 +523,8 @@ Ordem recomendada a partir daqui:
 2. Revalidar o baseline atual `x86-64-v3`:
     - rodar `3x` no mesmo daemon escolhido
     - se o resultado voltar ao teto, rodar `5x`
-    - só aceitar conclusões se `0` `http_errors`, `100%` acurácia e estabilidade operacional forem observados
-3. Se o baseline voltar ao teto:
+    - só aceitar conclusões se `0` `http_errors`, `failure_rate 0.00%` e estabilidade operacional forem observados
+3. Se o baseline oficial atual ficar estável:
     - testar ajustes mínimos de `nginx stream`/UDS
     - manter cada ajuste isolado e reversível
     - comparar por A/B no mesmo daemon
