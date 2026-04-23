@@ -2,6 +2,8 @@ FROM rust:1.95-bookworm AS builder
 
 WORKDIR /app
 
+ENV RUSTFLAGS="-C target-cpu=x86-64-v3"
+
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY tools ./tools
@@ -29,4 +31,3 @@ ENV BIND_ADDR=0.0.0.0:3000
 EXPOSE 3000
 
 ENTRYPOINT ["/app/rinha-backend-2026"]
-
