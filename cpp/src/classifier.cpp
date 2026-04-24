@@ -37,8 +37,8 @@ bool Classifier::classify(const Payload& payload, Classification& classification
         fraud_count += entry.second ? 1U : 0U;
     }
 
-    classification.fraud_score = static_cast<float>(fraud_count) / 5.0f;
-    classification.approved = classification.fraud_score < 0.6f;
+    classification.fraud_score = static_cast<float>(fraud_count) * 0.2f;
+    classification.approved = fraud_count < 3U;
     return true;
 }
 
