@@ -705,6 +705,104 @@ Conclusão:
 - a próxima hipótese de alto impacto deve mirar uma estratégia de kernel comprovadamente mais barata ou um ajuste de nginx
   que não reduza CPU abaixo do limite seguro, sempre mantendo a bateria 10x como critério de aceite
 
+## Rodada C com busca exata agrupada
+
+Branch:
+
+- `submission-c`
+
+Commit publicado:
+
+- `3f49e35` - `add exact grouped c search`
+
+Estado base usado para comparação:
+
+- commit anterior da branch C: `5d3168e` - `optimize c parser and avx2 search`
+- benchmark 10x anterior: média `5694.739`, mediana superior `5690.48`, pior `5654.42`, melhor `5806.97`,
+  mediana superior `p99 2.09ms`, zero FP/FN/HTTP errors
+
+Alteração mantida:
+
+- `ReferenceSet` passou a construir uma visão agrupada em memória no startup
+- os grupos são definidos por dimensões discretas de alta poda:
+  - `last_transaction:null` (`dim5 == -1` e `dim6 == -1`)
+  - `is_online` (`dim9`)
+  - `card_present` (`dim10`)
+  - `unknown_merchant` (`dim11`)
+- cada referência agrupada preserva o índice original para manter o desempate equivalente à varredura original
+- a busca AVX2 visita grupos por lower-bound mínimo e interrompe quando o lower-bound do grupo é estritamente maior
+  que o quinto melhor candidato atual
+- a busca continua exata: não há ANN, aproximação, alteração de `k`, alteração de distância ou alteração de threshold
+- os vetores originais continuam intactos; a visão agrupada é apenas uma cópia em memória usada no hot path de classificação
+
+Validação funcional:
+
+- `make -C c test`: passou
+- `make -C c all`: passou
+- `docker --context default compose config -q`: passou
+- `git diff --check`: passou
+
+Validação 3x oficial local:
+
+- experimento: `exact grouped lower-bound`, split base `0.45/0.45/0.10`
+- resultados: `5814.39`, `5849.17`, `5858.84`
+- mediana: `5849.17`
+- p99: `1.53ms`, `1.42ms`, `1.38ms`
+- FP/FN/HTTP errors: `0/0/0`
+- evidência: `/tmp/rinha-c-experiment-20260423-215852/c-exact-grouped-lower-bound`
+
+Validação 10x oficial local do estado commitado:
+
+- experimento: `exact grouped lower-bound`, split base `0.45/0.45/0.10`
+- evidência: `/tmp/rinha-c-official-10x-20260423-220252/c-exact-grouped-lower-bound`
+- resultados por run:
+  - run 1: `5839.79`, `p99 1.45ms`, mediana HTTP `0.59ms`, p90 `0.94ms`
+  - run 2: `5882.52`, `p99 1.31ms`, mediana HTTP `0.64ms`, p90 `0.97ms`
+  - run 3: `5886.33`, `p99 1.30ms`, mediana HTTP `0.64ms`, p90 `0.96ms`
+  - run 4: `5813.90`, `p99 1.53ms`, mediana HTTP `0.65ms`, p90 `1.05ms`
+  - run 5: `5818.06`, `p99 1.52ms`, mediana HTTP `0.62ms`, p90 `1.04ms`
+  - run 6: `5832.20`, `p99 1.47ms`, mediana HTTP `0.57ms`, p90 `0.91ms`
+  - run 7: `5840.23`, `p99 1.44ms`, mediana HTTP `0.56ms`, p90 `0.98ms`
+  - run 8: `5812.62`, `p99 1.54ms`, mediana HTTP `0.54ms`, p90 `1.02ms`
+  - run 9: `5839.25`, `p99 1.45ms`, mediana HTTP `0.60ms`, p90 `0.95ms`
+  - run 10: `5826.56`, `p99 1.49ms`, mediana HTTP `0.64ms`, p90 `1.01ms`
+
+Resumo 10x:
+
+- média `final_score`: `5839.146`
+- mediana superior `final_score`: `5839.25`
+- mediana estatística `final_score`: `5835.725`
+- pior `final_score`: `5812.62`
+- melhor `final_score`: `5886.33`
+- mediana superior `p99`: `1.47ms`
+- mediana estatística `p99`: `1.46ms`
+- pior `p99`: `1.54ms`
+- melhor `p99`: `1.30ms`
+- `detection_score`: `3000` em todas as rodadas
+- `http_errors`: `0`
+- `false_positive_detections`: `0`
+- `false_negative_detections`: `0`
+- `failure_rate`: `0.00%` em todas as rodadas
+
+Comparação contra `5d3168e`:
+
+- média `final_score`: `5839.146` contra `5694.739` (`+144.407`)
+- mediana superior `final_score`: `5839.25` contra `5690.48` (`+148.77`)
+- pior `final_score`: `5812.62` contra `5654.42` (`+158.20`)
+- melhor `final_score`: `5886.33` contra `5806.97` (`+79.36`)
+- mediana superior `p99`: `1.47ms` contra `2.09ms`
+- pior `p99`: `1.54ms` contra `2.22ms`
+- melhor `p99`: `1.30ms` contra `1.56ms`
+- detecção permaneceu perfeita: `0` FP, `0` FN e `0` HTTP errors
+
+Conclusão:
+
+- esta foi a melhor melhoria sustentável do dia em C
+- o ganho veio de reduzir o número de candidatos avaliados no hot path sem perder exatidão
+- o p99 ainda não saturou em `1ms`, mas agora está consistentemente entre `1.30ms` e `1.54ms`
+- o próximo ganho provável precisa atacar a cauda restante do p99, não a acurácia
+- novas mudanças devem ser comparadas contra `3f49e35`, não mais contra `5d3168e`
+
 ## Estado final
 
 Branch:
@@ -721,20 +819,25 @@ Commits publicados em `origin/submission` antes deste registro:
 - `e8a899b` - `tune cpu split for capped runs`
 - `363437f` - `align benchmark with official scoring`
 - `4df089d` - `document language benchmark comparison`
+- `dc1bd5d` - `document aggressive c optimization`
+- `32e126d` - `document rejected c pgo experiments`
+- `5a327af` - `document rejected c http experiment`
 
 Commits publicados nas branches auxiliares:
 
 - `submission-2`: `d245a39` - `add cpp stack and align benchmark`
+- `submission-2`: `06535d7` - `harden cpp threshold and edge tests`
 - `submission-c`: `925ff44` - `align benchmark with official scoring`
 - `submission-c`: `5d3168e` - `optimize c parser and avx2 search`
+- `submission-c`: `3f49e35` - `add exact grouped c search`
 
 Alteração registrada nesta atualização:
 
-- `DAILY_REPORT_2026-04-23.md`: registro da rodada agressiva em C
+- `DAILY_REPORT_2026-04-23.md`: registro da rodada C com busca exata agrupada
 
 Estado frente ao remoto:
 
-- branch deve ser publicada após este registro para manter o daily report sincronizado com o experimento C
+- branch deve ser publicada após este registro para manter o daily report sincronizado com o experimento C agrupado
 
 Observação:
 
@@ -743,8 +846,9 @@ Observação:
 
 ## Próximo passo sugerido
 
-Com o critério oficial atual, o próximo ganho sustentável deve mirar `p99` próximo de `1ms`, mantendo `E=0`. O score de
-detecção já está saturado; qualquer hipótese que coloque erros de classificação ou HTTP no caminho deve ser descartada.
+Com o critério oficial atual, o próximo ganho sustentável deve mirar `p99` próximo de `1ms`, mantendo `E=0`. Depois de
+`3f49e35`, o baseline competitivo passa a ser a busca exata agrupada em C, com média `5839.146` e p99 entre `1.30ms` e
+`1.54ms` na bateria 10x local.
 
 Ordem recomendada a partir daqui:
 
@@ -753,14 +857,18 @@ Ordem recomendada a partir daqui:
     - aguardar o host sair do período pós-restart
     - evitar rodar com swap praticamente cheio
     - não misturar resultados de `desktop-linux` e `default` no mesmo A/B
-2. Revalidar o baseline atual `x86-64-v3`:
+2. Revalidar o baseline `3f49e35` antes de qualquer nova hipótese:
     - rodar `3x` no mesmo daemon escolhido
-    - se o resultado voltar ao teto, rodar `5x`
+    - comparar contra mediana 3x `5849.17` e 10x médio `5839.146`
     - só aceitar conclusões se `0` `http_errors`, `failure_rate 0.00%` e estabilidade operacional forem observados
 3. Se o baseline oficial atual ficar estável:
-    - testar ajustes mínimos de `nginx stream`/UDS
+    - investigar apenas hipóteses que ataquem a cauda do p99
+    - priorizar instrumentação leve de quantos grupos/candidatos são avaliados por request
     - manter cada ajuste isolado e reversível
     - comparar por A/B no mesmo daemon
-4. Só voltar ao parser JSON se houver evidência forte de CPU do backend como limitante:
-    - parser seletivo pode trazer ganho, mas aumenta risco de bug de contrato
-    - nesta fase, sem ambiente estável, qualquer diferença seria ruído
+4. Evitar repetir hipóteses já rejeitadas:
+    - CPU split com nginx abaixo de `0.10`
+    - PGO no Dockerfile
+    - flags `-fomit-frame-pointer -funroll-loops`
+    - fast-path HTTP com `memmem`
+    - fast-path JSON dependente do formato serializado
