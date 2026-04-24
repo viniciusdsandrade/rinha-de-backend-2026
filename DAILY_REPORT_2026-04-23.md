@@ -635,6 +635,12 @@ Hipóteses descartadas:
   - p99: `2.04ms`, `2.00ms`, `2.22ms`
   - veredito: estável e correto, mas não compensou a complexidade extra de build; removido antes do commit
   - evidência: `/tmp/rinha-c-experiment-20260423-213313/c-pgo-dockerfile`
+- fast-path HTTP com `memmem` para fim de cabeçalho e `Content-Length`
+  - resultado 3x: `5654.50`, `5657.33`, `5649.49`
+  - mediana: `5654.50`
+  - p99: `2.22ms`, `2.20ms`, `2.24ms`
+  - veredito: regressão clara; o loop manual anterior é melhor para cabeçalhos pequenos
+  - evidência: `/tmp/rinha-c-experiment-20260423-213851/c-http-memmem-content-length`
 
 Validação 3x do kernel mantido:
 
@@ -695,8 +701,9 @@ Conclusão:
 - o ganho veio de reduzir overhead no parser e no loop AVX2, não de aceitar aproximação ou erro de detecção
 - o split de CPU deve permanecer conservador em `nginx=0.10`; reduzir o nginx abaixo disso pode produzir p99 catastrófico
 - PGO foi testado e não trouxe ganho suficiente nesta implementação
-- a próxima hipótese de alto impacto deve mirar micro-otimização do servidor HTTP/nginx ou uma estratégia de kernel
-  comprovadamente mais barata, sempre mantendo a bateria 10x como critério de aceite
+- fast-path HTTP com `memmem` também foi testado e regrediu
+- a próxima hipótese de alto impacto deve mirar uma estratégia de kernel comprovadamente mais barata ou um ajuste de nginx
+  que não reduza CPU abaixo do limite seguro, sempre mantendo a bateria 10x como critério de aceite
 
 ## Estado final
 
