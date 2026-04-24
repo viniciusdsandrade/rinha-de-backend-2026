@@ -622,6 +622,19 @@ Hipóteses descartadas:
   - p99: `2.18ms`, `2.17ms`, `2.00ms`
   - veredito: estável, mas pior que o split base com o kernel novo
   - evidência: `/tmp/rinha-c-experiment-20260423-211105/c-unrolled-api0455-nginx009`
+- flags `-fomit-frame-pointer -funroll-loops`
+  - resultado 3x: `5728.10`, `5663.26`, `5696.22`
+  - mediana: `5696.22`
+  - p99: `1.87ms`, `2.17ms`, `2.01ms`
+  - veredito: correto, mas sem ganho claro contra a validação 3x do kernel mantido (`5719.87`); revertido antes do commit
+  - evidência: `/tmp/rinha-c-experiment-20260423-212807/c-unrolled-fomit-funroll`
+- PGO no Dockerfile com trainer sobre `test/test-data.json`
+  - trainer local validado com `14500` requests e checksum `337898`
+  - resultado 3x: `5691.15`, `5698.34`, `5653.32`
+  - mediana: `5691.15`
+  - p99: `2.04ms`, `2.00ms`, `2.22ms`
+  - veredito: estável e correto, mas não compensou a complexidade extra de build; removido antes do commit
+  - evidência: `/tmp/rinha-c-experiment-20260423-213313/c-pgo-dockerfile`
 
 Validação 3x do kernel mantido:
 
@@ -681,8 +694,9 @@ Conclusão:
 - a rodada trouxe ganho material e sustentável no C sem alterar a semântica da API, da vetorização ou do kNN exato
 - o ganho veio de reduzir overhead no parser e no loop AVX2, não de aceitar aproximação ou erro de detecção
 - o split de CPU deve permanecer conservador em `nginx=0.10`; reduzir o nginx abaixo disso pode produzir p99 catastrófico
-- a próxima hipótese de alto impacto deve ser PGO controlado ou micro-otimização do servidor HTTP, sempre mantendo a bateria
-  10x como critério de aceite
+- PGO foi testado e não trouxe ganho suficiente nesta implementação
+- a próxima hipótese de alto impacto deve mirar micro-otimização do servidor HTTP/nginx ou uma estratégia de kernel
+  comprovadamente mais barata, sempre mantendo a bateria 10x como critério de aceite
 
 ## Estado final
 
