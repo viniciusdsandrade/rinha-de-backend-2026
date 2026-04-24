@@ -837,7 +837,7 @@ Alteração registrada nesta atualização:
 
 Estado frente ao remoto:
 
-- branch deve ser publicada após este registro para manter o daily report sincronizado com o experimento C agrupado
+- branch publicada após este registro para manter o daily report sincronizado com o experimento C agrupado
 
 Observação:
 
