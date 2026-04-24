@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #define RINHA_DIMENSIONS 14
+#define RINHA_GROUP_COUNT 16
 #define RINHA_MAX_KNOWN_MERCHANTS 16
 #define RINHA_MAX_MERCHANT_ID 64
 #define RINHA_MAX_TIMESTAMP 21
@@ -51,6 +52,12 @@ typedef struct {
     uint8_t *labels;
     uint8_t dimension_order[RINHA_DIMENSIONS];
     float *ordered_dims[RINHA_DIMENSIONS];
+    float *grouped_dims[RINHA_DIMENSIONS];
+    float *grouped_ordered_dims[RINHA_DIMENSIONS];
+    uint8_t *grouped_labels;
+    uint32_t *grouped_original_indices;
+    size_t group_starts[RINHA_GROUP_COUNT + 1];
+    bool grouped_ready;
 } ReferenceSet;
 
 bool parse_payload(const char *body, size_t len, Payload *payload);

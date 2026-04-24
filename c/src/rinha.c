@@ -859,14 +859,25 @@ void refs_free(ReferenceSet *refs) {
         return;
     }
     for (size_t dim = 0; dim < RINHA_DIMENSIONS; ++dim) {
+        free(refs->grouped_dims[dim]);
+        refs->grouped_dims[dim] = NULL;
+        refs->grouped_ordered_dims[dim] = NULL;
         free(refs->dims[dim]);
         refs->dims[dim] = NULL;
         refs->ordered_dims[dim] = NULL;
     }
+    free(refs->grouped_labels);
+    refs->grouped_labels = NULL;
+    free(refs->grouped_original_indices);
+    refs->grouped_original_indices = NULL;
     free(refs->labels);
     refs->labels = NULL;
     refs->rows = 0;
     refs->capacity = 0;
+    for (size_t group = 0; group <= RINHA_GROUP_COUNT; ++group) {
+        refs->group_starts[group] = 0;
+    }
+    refs->grouped_ready = false;
 }
 
 static bool refs_append(
@@ -889,6 +900,84 @@ static bool refs_append(
     }
     refs->labels[row] = label;
     refs->rows++;
+    return true;
+}
+
+static void refs_clear_grouped(ReferenceSet *refs) {
+    for (size_t dim = 0; dim < RINHA_DIMENSIONS; ++dim) {
+        free(refs->grouped_dims[dim]);
+        refs->grouped_dims[dim] = NULL;
+        refs->grouped_ordered_dims[dim] = NULL;
+    }
+    free(refs->grouped_labels);
+    refs->grouped_labels = NULL;
+    free(refs->grouped_original_indices);
+    refs->grouped_original_indices = NULL;
+    for (size_t group = 0; group <= RINHA_GROUP_COUNT; ++group) {
+        refs->group_starts[group] = 0;
+    }
+    refs->grouped_ready = false;
+}
+
+static inline uint8_t reference_group_key(const ReferenceSet *refs, size_t row) {
+    const bool no_last_transaction = refs->dims[5][row] < 0.0f && refs->dims[6][row] < 0.0f;
+    const bool is_online = refs->dims[9][row] >= 0.5f;
+    const bool card_present = refs->dims[10][row] >= 0.5f;
+    const bool unknown_merchant = refs->dims[11][row] >= 0.5f;
+    return (uint8_t)(
+        (no_last_transaction ? 1U : 0U) |
+        (is_online ? 2U : 0U) |
+        (card_present ? 4U : 0U) |
+        (unknown_merchant ? 8U : 0U)
+    );
+}
+
+static bool refs_build_groups(ReferenceSet *refs) {
+    refs_clear_grouped(refs);
+    if (refs->rows == 0 || refs->rows > UINT32_MAX) {
+        return false;
+    }
+
+    size_t counts[RINHA_GROUP_COUNT] = {0};
+    for (size_t row = 0; row < refs->rows; ++row) {
+        counts[reference_group_key(refs, row)]++;
+    }
+
+    refs->group_starts[0] = 0;
+    for (size_t group = 0; group < RINHA_GROUP_COUNT; ++group) {
+        refs->group_starts[group + 1] = refs->group_starts[group] + counts[group];
+    }
+
+    for (size_t dim = 0; dim < RINHA_DIMENSIONS; ++dim) {
+        if (posix_memalign((void **)&refs->grouped_dims[dim], 32, refs->rows * sizeof(float)) != 0) {
+            refs_clear_grouped(refs);
+            return false;
+        }
+    }
+
+    refs->grouped_labels = (uint8_t *)malloc(refs->rows);
+    refs->grouped_original_indices = (uint32_t *)malloc(refs->rows * sizeof(uint32_t));
+    if (refs->grouped_labels == NULL || refs->grouped_original_indices == NULL) {
+        refs_clear_grouped(refs);
+        return false;
+    }
+
+    size_t positions[RINHA_GROUP_COUNT];
+    memcpy(positions, refs->group_starts, sizeof(positions));
+    for (size_t row = 0; row < refs->rows; ++row) {
+        const uint8_t group = reference_group_key(refs, row);
+        const size_t position = positions[group]++;
+        for (size_t dim = 0; dim < RINHA_DIMENSIONS; ++dim) {
+            refs->grouped_dims[dim][position] = refs->dims[dim][row];
+        }
+        refs->grouped_labels[position] = refs->labels[row];
+        refs->grouped_original_indices[position] = (uint32_t)row;
+    }
+
+    for (size_t index = 0; index < RINHA_DIMENSIONS; ++index) {
+        refs->grouped_ordered_dims[index] = refs->grouped_dims[refs->dimension_order[index]];
+    }
+    refs->grouped_ready = true;
     return true;
 }
 
@@ -933,6 +1022,7 @@ static void refs_compute_dimension_order(ReferenceSet *refs) {
     for (size_t index = 0; index < RINHA_DIMENSIONS; ++index) {
         refs->ordered_dims[index] = refs->dims[refs->dimension_order[index]];
     }
+    (void)refs_build_groups(refs);
 }
 
 static bool decompress_gzip_file(const char *path, char **out, size_t *out_len, char *error, size_t error_len) {
@@ -1210,24 +1300,207 @@ bool refs_write_binary(const ReferenceSet *refs, const char *references_path, co
     return true;
 }
 
-static inline void insert_top5(float top_dist[5], uint8_t top_label[5], float distance, uint8_t label) {
-    if (distance >= top_dist[4]) {
+static inline void insert_top5(
+    float top_dist[5],
+    uint8_t top_label[5],
+    size_t top_index[5],
+    float distance,
+    uint8_t label,
+    size_t row_index
+) {
+    if (distance > top_dist[4] || (distance == top_dist[4] && row_index >= top_index[4])) {
         return;
     }
 
     size_t position = 4;
-    while (position > 0 && top_dist[position - 1] > distance) {
+    while (position > 0 &&
+           (top_dist[position - 1] > distance ||
+            (top_dist[position - 1] == distance && top_index[position - 1] > row_index))) {
         top_dist[position] = top_dist[position - 1];
         top_label[position] = top_label[position - 1];
+        top_index[position] = top_index[position - 1];
         position--;
     }
     top_dist[position] = distance;
     top_label[position] = label;
+    top_index[position] = row_index;
+}
+
+static inline uint8_t query_group_key(const float query[RINHA_DIMENSIONS]) {
+    const bool no_last_transaction = query[5] < 0.0f && query[6] < 0.0f;
+    const bool is_online = query[9] >= 0.5f;
+    const bool card_present = query[10] >= 0.5f;
+    const bool unknown_merchant = query[11] >= 0.5f;
+    return (uint8_t)(
+        (no_last_transaction ? 1U : 0U) |
+        (is_online ? 2U : 0U) |
+        (card_present ? 4U : 0U) |
+        (unknown_merchant ? 8U : 0U)
+    );
+}
+
+static inline float group_lower_bound(uint8_t group, const float query[RINHA_DIMENSIONS]) {
+    float lower_bound = 0.0f;
+
+    const bool query_without_last = query[5] < 0.0f && query[6] < 0.0f;
+    const bool group_without_last = (group & 1U) != 0U;
+    if (query_without_last != group_without_last) {
+        if (query_without_last) {
+            lower_bound += 2.0f;
+        } else {
+            const float d5 = query[5] + 1.0f;
+            const float d6 = query[6] + 1.0f;
+            lower_bound += (d5 * d5) + (d6 * d6);
+        }
+    }
+
+    const uint8_t query_key = query_group_key(query);
+    if (((query_key ^ group) & 2U) != 0U) lower_bound += 1.0f;
+    if (((query_key ^ group) & 4U) != 0U) lower_bound += 1.0f;
+    if (((query_key ^ group) & 8U) != 0U) lower_bound += 1.0f;
+    return lower_bound;
+}
+
+static bool classify_top5_avx2_grouped(
+    const ReferenceSet *refs,
+    const float query[RINHA_DIMENSIONS],
+    Classification *classification
+) {
+    float top_dist[5] = {INFINITY, INFINITY, INFINITY, INFINITY, INFINITY};
+    uint8_t top_label[5] = {0, 0, 0, 0, 0};
+    size_t top_index[5] = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
+
+    __m256 query_lanes[RINHA_DIMENSIONS];
+    for (size_t order_index = 0; order_index < RINHA_DIMENSIONS; ++order_index) {
+        query_lanes[order_index] = _mm256_set1_ps(query[refs->dimension_order[order_index]]);
+    }
+
+    uint8_t groups[RINHA_GROUP_COUNT];
+    float group_bounds[RINHA_GROUP_COUNT];
+    size_t group_count = 0;
+    for (uint8_t group = 0; group < RINHA_GROUP_COUNT; ++group) {
+        if (refs->group_starts[group] == refs->group_starts[group + 1]) {
+            continue;
+        }
+
+        const float lower_bound = group_lower_bound(group, query);
+        size_t position = group_count;
+        while (position > 0 && group_bounds[position - 1] > lower_bound) {
+            group_bounds[position] = group_bounds[position - 1];
+            groups[position] = groups[position - 1];
+            position--;
+        }
+        group_bounds[position] = lower_bound;
+        groups[position] = group;
+        group_count++;
+    }
+
+    for (size_t group_index = 0; group_index < group_count; ++group_index) {
+        if (top_dist[4] != INFINITY && group_bounds[group_index] > top_dist[4]) {
+            break;
+        }
+
+        const uint8_t group = groups[group_index];
+        const size_t end = refs->group_starts[group + 1];
+        size_t offset = refs->group_starts[group];
+        for (; offset + 8U <= end; offset += 8U) {
+            __m256 accum = _mm256_setzero_ps();
+            const float threshold = top_dist[4];
+            const __m256 threshold_lanes = _mm256_set1_ps(threshold);
+            const bool can_prune = threshold != INFINITY;
+            bool pruned = false;
+
+#define RINHA_GROUPED_AVX2_STEP(order_index) do { \
+                const __m256 refs_lane = _mm256_loadu_ps(refs->grouped_ordered_dims[(order_index)] + offset); \
+                const __m256 diff = _mm256_sub_ps(query_lanes[(order_index)], refs_lane); \
+                accum = _mm256_fmadd_ps(diff, diff, accum); \
+                if (can_prune) { \
+                    const __m256 cmp = _mm256_cmp_ps(accum, threshold_lanes, _CMP_GE_OQ); \
+                    if (_mm256_movemask_ps(cmp) == 0xFF) { \
+                        pruned = true; \
+                        goto rinha_grouped_avx2_chunk_done; \
+                    } \
+                } \
+            } while (0)
+
+            RINHA_GROUPED_AVX2_STEP(0);
+            RINHA_GROUPED_AVX2_STEP(1);
+            RINHA_GROUPED_AVX2_STEP(2);
+            RINHA_GROUPED_AVX2_STEP(3);
+            RINHA_GROUPED_AVX2_STEP(4);
+            RINHA_GROUPED_AVX2_STEP(5);
+            RINHA_GROUPED_AVX2_STEP(6);
+            RINHA_GROUPED_AVX2_STEP(7);
+            RINHA_GROUPED_AVX2_STEP(8);
+            RINHA_GROUPED_AVX2_STEP(9);
+            RINHA_GROUPED_AVX2_STEP(10);
+            RINHA_GROUPED_AVX2_STEP(11);
+            RINHA_GROUPED_AVX2_STEP(12);
+            RINHA_GROUPED_AVX2_STEP(13);
+
+rinha_grouped_avx2_chunk_done:
+#undef RINHA_GROUPED_AVX2_STEP
+
+            if (pruned) {
+                continue;
+            }
+
+            float distances[8] __attribute__((aligned(32)));
+            _mm256_store_ps(distances, accum);
+            for (size_t lane = 0; lane < 8U; ++lane) {
+                insert_top5(
+                    top_dist,
+                    top_label,
+                    top_index,
+                    distances[lane],
+                    refs->grouped_labels[offset + lane],
+                    refs->grouped_original_indices[offset + lane]
+                );
+            }
+        }
+
+        for (; offset < end; ++offset) {
+            float sum = 0.0f;
+            bool pruned = false;
+            for (size_t order_index = 0; order_index < RINHA_DIMENSIONS; ++order_index) {
+                const uint8_t dim = refs->dimension_order[order_index];
+                const float delta = query[dim] - refs->grouped_dims[dim][offset];
+                sum = fmaf(delta, delta, sum);
+                if (sum >= top_dist[4]) {
+                    pruned = true;
+                    break;
+                }
+            }
+            if (!pruned) {
+                insert_top5(
+                    top_dist,
+                    top_label,
+                    top_index,
+                    sum,
+                    refs->grouped_labels[offset],
+                    refs->grouped_original_indices[offset]
+                );
+            }
+        }
+    }
+
+    uint8_t fraud_count = 0;
+    for (size_t index = 0; index < 5; ++index) {
+        fraud_count += top_label[index] != 0;
+    }
+    classification->fraud_count = fraud_count;
+    classification->approved = fraud_count < 3;
+    return true;
 }
 
 static bool classify_top5_avx2(const ReferenceSet *refs, const float query[RINHA_DIMENSIONS], Classification *classification) {
+    if (refs->grouped_ready) {
+        return classify_top5_avx2_grouped(refs, query, classification);
+    }
+
     float top_dist[5] = {INFINITY, INFINITY, INFINITY, INFINITY, INFINITY};
     uint8_t top_label[5] = {0, 0, 0, 0, 0};
+    size_t top_index[5] = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
 
     __m256 query_lanes[RINHA_DIMENSIONS];
     for (size_t order_index = 0; order_index < RINHA_DIMENSIONS; ++order_index) {
@@ -1281,7 +1554,7 @@ rinha_avx2_chunk_done:
         float distances[8] __attribute__((aligned(32)));
         _mm256_store_ps(distances, accum);
         for (size_t lane = 0; lane < 8; ++lane) {
-            insert_top5(top_dist, top_label, distances[lane], refs->labels[offset + lane]);
+            insert_top5(top_dist, top_label, top_index, distances[lane], refs->labels[offset + lane], offset + lane);
         }
     }
 
@@ -1298,7 +1571,7 @@ rinha_avx2_chunk_done:
             }
         }
         if (!pruned) {
-            insert_top5(top_dist, top_label, sum, refs->labels[row]);
+            insert_top5(top_dist, top_label, top_index, sum, refs->labels[row], row);
         }
     }
 
@@ -1314,6 +1587,7 @@ rinha_avx2_chunk_done:
 static bool classify_top5_scalar(const ReferenceSet *refs, const float query[RINHA_DIMENSIONS], Classification *classification) {
     float top_dist[5] = {INFINITY, INFINITY, INFINITY, INFINITY, INFINITY};
     uint8_t top_label[5] = {0, 0, 0, 0, 0};
+    size_t top_index[5] = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
 
     for (size_t row = 0; row < refs->rows; ++row) {
         float sum = 0.0f;
@@ -1328,7 +1602,7 @@ static bool classify_top5_scalar(const ReferenceSet *refs, const float query[RIN
             }
         }
         if (!pruned) {
-            insert_top5(top_dist, top_label, sum, refs->labels[row]);
+            insert_top5(top_dist, top_label, top_index, sum, refs->labels[row], row);
         }
     }
 
