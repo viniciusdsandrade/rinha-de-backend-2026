@@ -577,6 +577,113 @@ Decisão operacional:
 - o objetivo técnico passa a ser reduzir `p99` de aproximadamente `2.20ms` para mais perto de `1ms`, pois abaixo de `1ms`
   o score de latência satura
 
+## Rodada agressiva em C
+
+Branch:
+
+- `submission-c`
+
+Commit publicado:
+
+- `5d3168e` - `optimize c parser and avx2 search`
+
+Estado base usado para comparação:
+
+- commit anterior da branch C: `925ff44` - `align benchmark with official scoring`
+- benchmark comparativo C anterior: mediana `final_score 5657.21`, média `5661.35`, melhor `5719.17`, pior `5624.56`,
+  mediana `p99 2.20ms`, zero FP/FN/HTTP errors
+
+Alterações mantidas:
+
+- parser numérico manual para `float` e `uint32_t`, removendo `strtof`/`strtoul` do caminho quente
+- parse de timestamp antecipado durante o parse do payload, evitando recalcular `requested_at` e `last_transaction.timestamp`
+  durante a vetorização
+- cálculo antecipado de `merchant_mcc_risk` no parse do merchant
+- lookup de MCC por `switch` numérico em vez de cadeia de `strcmp`
+- `ReferenceSet.ordered_dims` com ponteiros das dimensões já materializados na ordem de poda
+- kernel AVX2 de 14 dimensões desdobrado explicitamente, preservando kNN exato, distância euclidiana e threshold `0.6`
+- split de CPU final preservado em `api=0.45 + api=0.45 + nginx=0.10`
+
+Hipóteses descartadas:
+
+- fast-path JSON dependente do formato serializado pelo `k6`
+  - resultado 3x: `5644.37`, `5642.35`, `5676.41`
+  - mediana: `5644.37`
+  - p99: `2.27ms`, `2.28ms`, `2.11ms`
+  - veredito: sem ganho sustentável contra o `fastparse` simples; removido antes do commit
+  - evidência: `/tmp/rinha-c-experiment-20260423-205642/c-fastpath-json`
+- split `api=0.46 + api=0.46 + nginx=0.08`
+  - resultado 3x: `5751.35`, `3631.17`, `5737.05`
+  - p99: `1.77ms`, `233.79ms`, `1.83ms`
+  - veredito: rejeitado por instabilidade severa no segundo run, apesar de runs bons
+  - evidência: `/tmp/rinha-c-experiment-20260423-210714/c-unrolled-api046-nginx008`
+- split `api=0.455 + api=0.455 + nginx=0.09`
+  - resultado 3x: `5662.16`, `5663.85`, `5699.90`
+  - p99: `2.18ms`, `2.17ms`, `2.00ms`
+  - veredito: estável, mas pior que o split base com o kernel novo
+  - evidência: `/tmp/rinha-c-experiment-20260423-211105/c-unrolled-api0455-nginx009`
+
+Validação 3x do kernel mantido:
+
+- experimento: `fastparse + ordered_dims + AVX2 unrolled`, split base `0.45/0.45/0.10`
+- resultados: `5675.50`, `5722.39`, `5719.87`
+- mediana: `5719.87`
+- p99: `2.11ms`, `1.90ms`, `1.91ms`
+- FP/FN/HTTP errors: `0/0/0`
+- evidência: `/tmp/rinha-c-experiment-20260423-210301/c-fastparse-avx2-unrolled`
+
+Validação 10x oficial local do estado commitado:
+
+- experimento: `fastparse + ordered_dims + AVX2 unrolled`, split base `0.45/0.45/0.10`
+- evidência: `/tmp/rinha-c-official-10x-20260423-211500/c-fastparse-avx2-unrolled-base-split`
+- resultados por run:
+  - run 1: `5668.38`, `p99 2.15ms`, mediana HTTP `0.98ms`, p90 `1.38ms`
+  - run 2: `5704.85`, `p99 1.97ms`, mediana HTTP `0.98ms`, p90 `1.37ms`
+  - run 3: `5710.25`, `p99 1.95ms`, mediana HTTP `0.94ms`, p90 `1.37ms`
+  - run 4: `5690.48`, `p99 2.04ms`, mediana HTTP `0.94ms`, p90 `1.42ms`
+  - run 5: `5806.97`, `p99 1.56ms`, mediana HTTP `0.85ms`, p90 `1.15ms`
+  - run 6: `5679.31`, `p99 2.09ms`, mediana HTTP `1.02ms`, p90 `1.44ms`
+  - run 7: `5698.47`, `p99 2.00ms`, mediana HTTP `1.01ms`, p90 `1.43ms`
+  - run 8: `5667.32`, `p99 2.15ms`, mediana HTTP `1.03ms`, p90 `1.47ms`
+  - run 9: `5654.42`, `p99 2.22ms`, mediana HTTP `1.03ms`, p90 `1.48ms`
+  - run 10: `5666.94`, `p99 2.15ms`, mediana HTTP `0.95ms`, p90 `1.47ms`
+
+Resumo 10x:
+
+- média `final_score`: `5694.739`
+- mediana superior `final_score`: `5690.48`
+- mediana estatística `final_score`: `5684.895`
+- pior `final_score`: `5654.42`
+- melhor `final_score`: `5806.97`
+- mediana superior `p99`: `2.09ms`
+- mediana estatística `p99`: `2.065ms`
+- pior `p99`: `2.22ms`
+- melhor `p99`: `1.56ms`
+- `detection_score`: `3000` em todas as rodadas
+- `http_errors`: `0`
+- `false_positive_detections`: `0`
+- `false_negative_detections`: `0`
+- `failure_rate`: `0.00%` em todas as rodadas
+
+Comparação contra o C anterior:
+
+- média `final_score`: `5694.739` contra `5661.35` (`+33.389`)
+- mediana superior `final_score`: `5690.48` contra `5657.21` (`+33.27`)
+- pior `final_score`: `5654.42` contra `5624.56` (`+29.86`)
+- melhor `final_score`: `5806.97` contra `5719.17` (`+87.80`)
+- mediana superior `p99`: `2.09ms` contra `2.20ms`
+- pior `p99`: `2.22ms` contra `2.37ms`
+- melhor `p99`: `1.56ms` contra `1.91ms`
+- detecção permaneceu perfeita: `0` FP, `0` FN e `0` HTTP errors
+
+Conclusão:
+
+- a rodada trouxe ganho material e sustentável no C sem alterar a semântica da API, da vetorização ou do kNN exato
+- o ganho veio de reduzir overhead no parser e no loop AVX2, não de aceitar aproximação ou erro de detecção
+- o split de CPU deve permanecer conservador em `nginx=0.10`; reduzir o nginx abaixo disso pode produzir p99 catastrófico
+- a próxima hipótese de alto impacto deve ser PGO controlado ou micro-otimização do servidor HTTP, sempre mantendo a bateria
+  10x como critério de aceite
+
 ## Estado final
 
 Branch:
@@ -592,19 +699,21 @@ Commits publicados em `origin/submission` antes deste registro:
 - `f0b28ed` - `document benchmark oom in daily report`
 - `e8a899b` - `tune cpu split for capped runs`
 - `363437f` - `align benchmark with official scoring`
+- `4df089d` - `document language benchmark comparison`
 
 Commits publicados nas branches auxiliares:
 
 - `submission-2`: `d245a39` - `add cpp stack and align benchmark`
 - `submission-c`: `925ff44` - `align benchmark with official scoring`
+- `submission-c`: `5d3168e` - `optimize c parser and avx2 search`
 
-Alteração pendente nesta branch antes do próximo push:
+Alteração registrada nesta atualização:
 
-- `DAILY_REPORT_2026-04-23.md`: registro do comparativo final `10x` Rust vs C++ vs C
+- `DAILY_REPORT_2026-04-23.md`: registro da rodada agressiva em C
 
 Estado frente ao remoto:
 
-- branch local contém apenas o relatório comparativo ainda não publicado neste momento
+- branch deve ser publicada após este registro para manter o daily report sincronizado com o experimento C
 
 Observação:
 
