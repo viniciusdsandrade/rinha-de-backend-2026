@@ -21,6 +21,11 @@ typedef struct {
     uint8_t weekday_monday0;
 } ParsedTimestamp;
 
+static bool parse_timestamp_fixed(const char *value, ParsedTimestamp *parsed);
+static bool parse_timestamp(const char *value, ParsedTimestamp *parsed);
+static float mcc_risk(const char *mcc);
+static float mcc_risk_view(const char *mcc, size_t len);
+
 static void set_error(char *error, size_t error_len, const char *message) {
     if (error != NULL && error_len > 0) {
         snprintf(error, error_len, "%s", message);
@@ -144,34 +149,97 @@ static bool parse_number_token(JsonCursor *cursor, char token[64]) {
 }
 
 static bool parse_float_value(JsonCursor *cursor, float *out) {
-    char token[64];
-    if (!parse_number_token(cursor, token)) {
+    skip_ws(cursor);
+    const char *p = cursor->p;
+    if (p >= cursor->end) {
         return false;
     }
 
-    char *end = NULL;
-    errno = 0;
-    const float value = strtof(token, &end);
-    if (errno != 0 || end == token || *end != '\0') {
+    bool negative = false;
+    if (*p == '-' || *p == '+') {
+        negative = *p == '-';
+        p++;
+    }
+
+    bool has_digits = false;
+    double value = 0.0;
+    while (p < cursor->end && *p >= '0' && *p <= '9') {
+        has_digits = true;
+        value = (value * 10.0) + (double)(*p - '0');
+        p++;
+    }
+
+    if (p < cursor->end && *p == '.') {
+        p++;
+        double scale = 0.1;
+        while (p < cursor->end && *p >= '0' && *p <= '9') {
+            has_digits = true;
+            value += (double)(*p - '0') * scale;
+            scale *= 0.1;
+            p++;
+        }
+    }
+
+    if (!has_digits) {
         return false;
     }
-    *out = value;
+
+    if (p < cursor->end && (*p == 'e' || *p == 'E')) {
+        p++;
+        bool exponent_negative = false;
+        if (p < cursor->end && (*p == '-' || *p == '+')) {
+            exponent_negative = *p == '-';
+            p++;
+        }
+
+        bool has_exponent_digits = false;
+        int exponent = 0;
+        while (p < cursor->end && *p >= '0' && *p <= '9') {
+            has_exponent_digits = true;
+            if (exponent < 64) {
+                exponent = (exponent * 10) + (*p - '0');
+            }
+            p++;
+        }
+        if (!has_exponent_digits) {
+            return false;
+        }
+
+        double multiplier = 1.0;
+        for (int index = 0; index < exponent; ++index) {
+            multiplier *= 10.0;
+        }
+        value = exponent_negative ? value / multiplier : value * multiplier;
+    }
+
+    cursor->p = p;
+    *out = (float)(negative ? -value : value);
     return true;
 }
 
 static bool parse_uint32_value(JsonCursor *cursor, uint32_t *out) {
-    char token[64];
-    if (!parse_number_token(cursor, token) || token[0] == '-') {
+    skip_ws(cursor);
+    const char *p = cursor->p;
+    if (p >= cursor->end || *p < '0' || *p > '9') {
         return false;
     }
 
-    char *end = NULL;
-    errno = 0;
-    const unsigned long value = strtoul(token, &end, 10);
-    if (errno != 0 || end == token || *end != '\0' || value > UINT32_MAX) {
+    uint32_t value = 0;
+    do {
+        const uint32_t digit = (uint32_t)(*p - '0');
+        if (value > (UINT32_MAX - digit) / 10U) {
+            return false;
+        }
+        value = (value * 10U) + digit;
+        p++;
+    } while (p < cursor->end && *p >= '0' && *p <= '9');
+
+    if (p < cursor->end && (*p == '.' || *p == 'e' || *p == 'E')) {
         return false;
     }
-    *out = (uint32_t)value;
+
+    cursor->p = p;
+    *out = value;
     return true;
 }
 
@@ -326,6 +394,13 @@ static bool parse_transaction(JsonCursor *cursor, Payload *payload) {
             if (!parse_string(cursor, payload->transaction_requested_at, sizeof(payload->transaction_requested_at))) {
                 return false;
             }
+            ParsedTimestamp parsed;
+            if (!parse_timestamp(payload->transaction_requested_at, &parsed)) {
+                return false;
+            }
+            payload->transaction_requested_seconds = parsed.total_seconds;
+            payload->transaction_requested_hour = parsed.hour;
+            payload->transaction_requested_weekday = parsed.weekday_monday0;
         } else if (!skip_value(cursor)) {
             return false;
         }
@@ -392,6 +467,7 @@ static bool parse_merchant(JsonCursor *cursor, Payload *payload) {
             if (!parse_string(cursor, payload->merchant_mcc, sizeof(payload->merchant_mcc))) {
                 return false;
             }
+            payload->merchant_mcc_risk = mcc_risk(payload->merchant_mcc);
         } else if (strcmp(key, "avg_amount") == 0) {
             if (!parse_float_value(cursor, &payload->merchant_avg_amount)) {
                 return false;
@@ -467,6 +543,11 @@ static bool parse_last_transaction(JsonCursor *cursor, Payload *payload) {
             if (!parse_string(cursor, payload->last_transaction_timestamp, sizeof(payload->last_transaction_timestamp))) {
                 return false;
             }
+            ParsedTimestamp parsed;
+            if (!parse_timestamp(payload->last_transaction_timestamp, &parsed)) {
+                return false;
+            }
+            payload->last_transaction_seconds = parsed.total_seconds;
         } else if (strcmp(key, "km_from_current") == 0) {
             if (!parse_float_value(cursor, &payload->last_transaction_km_from_current)) {
                 return false;
@@ -597,9 +678,8 @@ static int64_t days_from_civil(int32_t year, uint8_t month, uint8_t day) {
     return (int64_t)((era * 146097) + day_of_era - 719468);
 }
 
-static bool parse_timestamp(const char *value, ParsedTimestamp *parsed) {
-    if (strlen(value) != 20 ||
-        value[4] != '-' ||
+static bool parse_timestamp_fixed(const char *value, ParsedTimestamp *parsed) {
+    if (value[4] != '-' ||
         value[7] != '-' ||
         value[10] != 'T' ||
         value[13] != ':' ||
@@ -643,6 +723,10 @@ static bool parse_timestamp(const char *value, ParsedTimestamp *parsed) {
     return true;
 }
 
+static bool parse_timestamp(const char *value, ParsedTimestamp *parsed) {
+    return strlen(value) == 20 && parse_timestamp_fixed(value, parsed);
+}
+
 static inline float clamp01(float value) {
     if (value < 0.0f) {
         return 0.0f;
@@ -664,34 +748,45 @@ static inline float bool_to_f32(bool value) {
     return value ? 1.0f : 0.0f;
 }
 
+static float mcc_risk_view(const char *mcc, size_t len) {
+    if (len != 4 ||
+        mcc[0] < '0' || mcc[0] > '9' ||
+        mcc[1] < '0' || mcc[1] > '9' ||
+        mcc[2] < '0' || mcc[2] > '9' ||
+        mcc[3] < '0' || mcc[3] > '9') {
+        return 0.50f;
+    }
+
+    const uint32_t code =
+        ((uint32_t)(mcc[0] - '0') * 1000U) +
+        ((uint32_t)(mcc[1] - '0') * 100U) +
+        ((uint32_t)(mcc[2] - '0') * 10U) +
+        (uint32_t)(mcc[3] - '0');
+
+    switch (code) {
+        case 5411: return 0.15f;
+        case 5812: return 0.30f;
+        case 5912: return 0.20f;
+        case 5944: return 0.45f;
+        case 7801: return 0.80f;
+        case 7802: return 0.75f;
+        case 7995: return 0.85f;
+        case 4511: return 0.35f;
+        case 5311: return 0.25f;
+        case 5999: return 0.50f;
+        default: return 0.50f;
+    }
+}
+
 static float mcc_risk(const char *mcc) {
-    if (strcmp(mcc, "5411") == 0) return 0.15f;
-    if (strcmp(mcc, "5812") == 0) return 0.30f;
-    if (strcmp(mcc, "5912") == 0) return 0.20f;
-    if (strcmp(mcc, "5944") == 0) return 0.45f;
-    if (strcmp(mcc, "7801") == 0) return 0.80f;
-    if (strcmp(mcc, "7802") == 0) return 0.75f;
-    if (strcmp(mcc, "7995") == 0) return 0.85f;
-    if (strcmp(mcc, "4511") == 0) return 0.35f;
-    if (strcmp(mcc, "5311") == 0) return 0.25f;
-    if (strcmp(mcc, "5999") == 0) return 0.50f;
-    return 0.50f;
+    return mcc_risk_view(mcc, strlen(mcc));
 }
 
 bool vectorize_payload(const Payload *payload, float out[RINHA_DIMENSIONS]) {
-    ParsedTimestamp requested_at;
-    if (!parse_timestamp(payload->transaction_requested_at, &requested_at)) {
-        return false;
-    }
-
     float minutes_since_last_tx = -1.0f;
     float km_from_last_tx = -1.0f;
     if (payload->has_last_transaction) {
-        ParsedTimestamp last_timestamp;
-        if (!parse_timestamp(payload->last_transaction_timestamp, &last_timestamp)) {
-            return false;
-        }
-        int64_t elapsed_minutes = (requested_at.total_seconds - last_timestamp.total_seconds) / 60;
+        int64_t elapsed_minutes = (payload->transaction_requested_seconds - payload->last_transaction_seconds) / 60;
         if (elapsed_minutes < 0) {
             elapsed_minutes = 0;
         }
@@ -702,8 +797,8 @@ bool vectorize_payload(const Payload *payload, float out[RINHA_DIMENSIONS]) {
     out[0] = clamp01(payload->transaction_amount / 10000.0f);
     out[1] = clamp01((float)payload->transaction_installments / 12.0f);
     out[2] = clamp01(amount_vs_avg(payload->transaction_amount, payload->customer_avg_amount));
-    out[3] = (float)requested_at.hour / 23.0f;
-    out[4] = (float)requested_at.weekday_monday0 / 6.0f;
+    out[3] = (float)payload->transaction_requested_hour / 23.0f;
+    out[4] = (float)payload->transaction_requested_weekday / 6.0f;
     out[5] = minutes_since_last_tx;
     out[6] = km_from_last_tx;
     out[7] = clamp01(payload->terminal_km_from_home / 1000.0f);
@@ -711,7 +806,7 @@ bool vectorize_payload(const Payload *payload, float out[RINHA_DIMENSIONS]) {
     out[9] = bool_to_f32(payload->terminal_is_online);
     out[10] = bool_to_f32(payload->terminal_card_present);
     out[11] = bool_to_f32(!payload->known_merchant);
-    out[12] = mcc_risk(payload->merchant_mcc);
+    out[12] = payload->merchant_mcc_risk;
     out[13] = clamp01(payload->merchant_avg_amount / 10000.0f);
     return true;
 }
@@ -766,6 +861,7 @@ void refs_free(ReferenceSet *refs) {
     for (size_t dim = 0; dim < RINHA_DIMENSIONS; ++dim) {
         free(refs->dims[dim]);
         refs->dims[dim] = NULL;
+        refs->ordered_dims[dim] = NULL;
     }
     free(refs->labels);
     refs->labels = NULL;
@@ -800,6 +896,7 @@ static void refs_compute_dimension_order(ReferenceSet *refs) {
     float variances[RINHA_DIMENSIONS] = {0};
     for (size_t dim = 0; dim < RINHA_DIMENSIONS; ++dim) {
         refs->dimension_order[dim] = (uint8_t)dim;
+        refs->ordered_dims[dim] = refs->dims[dim];
     }
     if (refs->rows == 0) {
         return;
@@ -831,6 +928,10 @@ static void refs_compute_dimension_order(ReferenceSet *refs) {
             refs->dimension_order[left] = refs->dimension_order[best];
             refs->dimension_order[best] = tmp;
         }
+    }
+
+    for (size_t index = 0; index < RINHA_DIMENSIONS; ++index) {
+        refs->ordered_dims[index] = refs->dims[refs->dimension_order[index]];
     }
 }
 
@@ -1129,8 +1230,8 @@ static bool classify_top5_avx2(const ReferenceSet *refs, const float query[RINHA
     uint8_t top_label[5] = {0, 0, 0, 0, 0};
 
     __m256 query_lanes[RINHA_DIMENSIONS];
-    for (size_t dim = 0; dim < RINHA_DIMENSIONS; ++dim) {
-        query_lanes[dim] = _mm256_set1_ps(query[dim]);
+    for (size_t order_index = 0; order_index < RINHA_DIMENSIONS; ++order_index) {
+        query_lanes[order_index] = _mm256_set1_ps(query[refs->dimension_order[order_index]]);
     }
 
     const size_t chunks = refs->rows / 8;
@@ -1139,22 +1240,39 @@ static bool classify_top5_avx2(const ReferenceSet *refs, const float query[RINHA
         __m256 accum = _mm256_setzero_ps();
         const float threshold = top_dist[4];
         const __m256 threshold_lanes = _mm256_set1_ps(threshold);
+        const bool can_prune = threshold != INFINITY;
         bool pruned = false;
 
-        for (size_t order_index = 0; order_index < RINHA_DIMENSIONS; ++order_index) {
-            const uint8_t dim = refs->dimension_order[order_index];
-            const __m256 refs_lane = _mm256_load_ps(refs->dims[dim] + offset);
-            const __m256 diff = _mm256_sub_ps(query_lanes[dim], refs_lane);
-            accum = _mm256_fmadd_ps(diff, diff, accum);
+#define RINHA_AVX2_STEP(order_index) do { \
+            const __m256 refs_lane = _mm256_load_ps(refs->ordered_dims[(order_index)] + offset); \
+            const __m256 diff = _mm256_sub_ps(query_lanes[(order_index)], refs_lane); \
+            accum = _mm256_fmadd_ps(diff, diff, accum); \
+            if (can_prune) { \
+                const __m256 cmp = _mm256_cmp_ps(accum, threshold_lanes, _CMP_GE_OQ); \
+                if (_mm256_movemask_ps(cmp) == 0xFF) { \
+                    pruned = true; \
+                    goto rinha_avx2_chunk_done; \
+                } \
+            } \
+        } while (0)
 
-            if (threshold != INFINITY) {
-                const __m256 cmp = _mm256_cmp_ps(accum, threshold_lanes, _CMP_GE_OQ);
-                if (_mm256_movemask_ps(cmp) == 0xFF) {
-                    pruned = true;
-                    break;
-                }
-            }
-        }
+        RINHA_AVX2_STEP(0);
+        RINHA_AVX2_STEP(1);
+        RINHA_AVX2_STEP(2);
+        RINHA_AVX2_STEP(3);
+        RINHA_AVX2_STEP(4);
+        RINHA_AVX2_STEP(5);
+        RINHA_AVX2_STEP(6);
+        RINHA_AVX2_STEP(7);
+        RINHA_AVX2_STEP(8);
+        RINHA_AVX2_STEP(9);
+        RINHA_AVX2_STEP(10);
+        RINHA_AVX2_STEP(11);
+        RINHA_AVX2_STEP(12);
+        RINHA_AVX2_STEP(13);
+
+rinha_avx2_chunk_done:
+#undef RINHA_AVX2_STEP
 
         if (pruned) {
             continue;

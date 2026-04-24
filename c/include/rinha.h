@@ -13,6 +13,9 @@ typedef struct {
     float transaction_amount;
     uint32_t transaction_installments;
     char transaction_requested_at[RINHA_MAX_TIMESTAMP];
+    int64_t transaction_requested_seconds;
+    uint8_t transaction_requested_hour;
+    uint8_t transaction_requested_weekday;
 
     float customer_avg_amount;
     uint32_t customer_tx_count_24h;
@@ -22,6 +25,7 @@ typedef struct {
     char merchant_id[RINHA_MAX_MERCHANT_ID];
     char merchant_mcc[8];
     float merchant_avg_amount;
+    float merchant_mcc_risk;
 
     bool terminal_is_online;
     bool terminal_card_present;
@@ -29,6 +33,7 @@ typedef struct {
 
     bool has_last_transaction;
     char last_transaction_timestamp[RINHA_MAX_TIMESTAMP];
+    int64_t last_transaction_seconds;
     float last_transaction_km_from_current;
 
     bool known_merchant;
@@ -45,6 +50,7 @@ typedef struct {
     float *dims[RINHA_DIMENSIONS];
     uint8_t *labels;
     uint8_t dimension_order[RINHA_DIMENSIONS];
+    float *ordered_dims[RINHA_DIMENSIONS];
 } ReferenceSet;
 
 bool parse_payload(const char *body, size_t len, Payload *payload);
