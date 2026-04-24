@@ -1,0 +1,115 @@
+name: Auto-merge participant submission
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate and auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          gh label create "para review humano" \
+            --repo "$REPO" \
+            --color "FBCA04" \
+            --description "PR que não passou nas validações de auto-merge" \
+            --force >/dev/null 2>&1 || true
+
+          touches_participants=0
+          COMMENT_MARKER="<!-- auto-merge-bot -->"
+
+          skip() {
+            echo "$1"
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "para review humano" || true
+            if [ "$touches_participants" = "1" ]; then
+              gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+                --jq ".[] | select(.body | contains(\"$COMMENT_MARKER\")) | .id" \
+                | while read -r cid; do
+                    gh api -X DELETE "repos/$REPO/issues/comments/$cid" >/dev/null 2>&1 || true
+                  done
+              printf -v body '%s\n:warning: **Auto-merge pulou este PR:** %s\n\nEste PR foi marcado com a label `para review humano`. Após corrigir, um novo push vai re-executar a validação automaticamente.' "$COMMENT_MARKER" "$1"
+              gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$body" || true
+            fi
+            exit 0
+          }
+
+          files=$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
+          file_count=$(printf '%s\n' "$files" | grep -c . || true)
+
+          if printf '%s\n' "$files" | grep -qE '^participants/.+\.json$'; then
+            touches_participants=1
+          fi
+
+          echo "Changed files ($file_count):"
+          printf '%s\n' "$files"
+
+          if [ "$file_count" -ne 1 ]; then
+            skip "Expected exactly 1 changed file, got $file_count. Skipping auto-merge."
+          fi
+
+          expected="participants/${PR_AUTHOR}.json"
+          if [ "$files" != "$expected" ]; then
+            skip "Expected file '$expected', got '$files'. Skipping auto-merge."
+          fi
+
+          content=$(gh api "repos/$REPO/contents/$expected?ref=$PR_HEAD_SHA" --jq '.content' | base64 -d)
+
+          if ! printf '%s' "$content" | jq empty 2>/dev/null; then
+            skip "File is not valid JSON."
+          fi
+
+          if ! printf '%s' "$content" | jq -e '
+            type == "array"
+            and length > 0
+            and all(.[];
+              type == "object"
+              and (keys | sort) == ["id", "repo"]
+              and (.id | type == "string")
+              and (.id | length > 0)
+              and (.repo | type == "string")
+              and (.repo | test("^(https?://|git@)"))
+            )
+          ' >/dev/null 2>&1; then
+            skip "JSON does not match expected schema: [{id: string, repo: git-url}, ...]."
+          fi
+
+          total=$(printf '%s' "$content" | jq 'length')
+          unique=$(printf '%s' "$content" | jq '[.[].id] | unique | length')
+          if [ "$total" != "$unique" ]; then
+            skip "Duplicate 'id' values in JSON."
+          fi
+
+          while IFS= read -r repo_url; do
+            if ! heads=$(timeout 15 git ls-remote --heads "$repo_url" 2>/dev/null); then
+              skip "Repo '$repo_url' is unreachable, timed out, or not a valid git repository."
+            fi
+            if [ -z "$heads" ]; then
+              skip "Repo '$repo_url' has no branches."
+            fi
+            branch_count=$(printf '%s\n' "$heads" | wc -l | tr -d ' ')
+            if [ "$branch_count" -lt 2 ]; then
+              skip "Repo '$repo_url' has only $branch_count branch; needs at least 2."
+            fi
+            if ! printf '%s\n' "$heads" | grep -q 'refs/heads/submission$'; then
+              skip "Repo '$repo_url' does not contain a 'submission' branch."
+            fi
+          done < <(printf '%s' "$content" | jq -r '.[].repo')
+
+          echo "All checks passed. Merging PR #$PR_NUMBER."
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash
