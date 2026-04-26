@@ -33,6 +33,8 @@ export const options = {
                 { duration: '10s', target: 50 },
                 { duration: '20s', target: 350 },
                 { duration: '20s', target: 650 },
+                { duration: '20s', target: 800 },
+                { duration: '20s', target: 900 },
             ],
         },
     },
