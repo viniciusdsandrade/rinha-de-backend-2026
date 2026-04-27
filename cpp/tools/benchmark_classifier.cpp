@@ -75,6 +75,24 @@ struct GroupingStrategy {
     bool include_day = false;
 };
 
+enum class TraversalMode {
+    Sort,
+    SelectMin,
+    Unsorted,
+};
+
+const char* traversal_name(TraversalMode mode) noexcept {
+    switch (mode) {
+        case TraversalMode::Sort:
+            return "sort";
+        case TraversalMode::SelectMin:
+            return "select_min";
+        case TraversalMode::Unsorted:
+            return "unsorted";
+    }
+    return "unknown";
+}
+
 std::string read_text_file(const std::string& path) {
     std::ifstream file(path, std::ios::binary);
     if (!file) {
@@ -280,8 +298,83 @@ Top5 baseline_top5(const ReferenceSet& refs, const QueryVector& query, ScanStats
     return top;
 }
 
-Top5 grouped_top5(const GroupedRefs& refs, const QueryVector& query, ScanStats& stats, bool use_group_order) {
+void scan_group(
+    Top5& top,
+    const Group& group,
+    const QueryVector& query,
+    ScanStats& stats,
+    const std::array<std::size_t, rinha::kDimensions>& dimension_order
+) {
+    ++stats.groups_visited;
+    const std::size_t rows = group.labels.size();
+    for (std::size_t row = 0; row < rows; ++row) {
+        float distance = 0.0f;
+        bool below = true;
+        ++stats.rows_scanned;
+        for (const std::size_t dim : dimension_order) {
+            const float delta = query[dim] - group.dims[dim][row];
+            distance += delta * delta;
+            if (distance >= top.entries[4].first) {
+                below = false;
+                break;
+            }
+        }
+        if (below) {
+            top.insert(distance, group.labels[row] != 0);
+        }
+    }
+}
+
+Top5 grouped_top5(
+    const GroupedRefs& refs,
+    const QueryVector& query,
+    ScanStats& stats,
+    bool use_group_order,
+    TraversalMode traversal
+) {
     Top5 top;
+    const auto dimensions_for = [&refs, use_group_order](const Group& group)
+        -> const std::array<std::size_t, rinha::kDimensions>& {
+        return use_group_order ? group.dimension_order : refs.dimension_order;
+    };
+
+    if (traversal == TraversalMode::Unsorted) {
+        for (const Group& group : refs.groups) {
+            const float lower_bound = lower_bound_distance(group, query);
+            if (lower_bound < top.entries[4].first) {
+                scan_group(top, group, query, stats, dimensions_for(group));
+            }
+        }
+        return top;
+    }
+
+    if (traversal == TraversalMode::SelectMin) {
+        std::vector<float> bounds;
+        bounds.reserve(refs.groups.size());
+        for (const Group& group : refs.groups) {
+            bounds.push_back(lower_bound_distance(group, query));
+        }
+
+        for (;;) {
+            float best = std::numeric_limits<float>::infinity();
+            std::size_t group_index = refs.groups.size();
+            for (std::size_t index = 0; index < bounds.size(); ++index) {
+                if (bounds[index] < best) {
+                    best = bounds[index];
+                    group_index = index;
+                }
+            }
+            if (group_index == refs.groups.size() || best >= top.entries[4].first) {
+                break;
+            }
+
+            bounds[group_index] = std::numeric_limits<float>::infinity();
+            const Group& group = refs.groups[group_index];
+            scan_group(top, group, query, stats, dimensions_for(group));
+        }
+        return top;
+    }
+
     std::vector<std::pair<float, std::size_t>> order;
     order.reserve(refs.groups.size());
     for (std::size_t index = 0; index < refs.groups.size(); ++index) {
@@ -295,25 +388,7 @@ Top5 grouped_top5(const GroupedRefs& refs, const QueryVector& query, ScanStats& 
         }
 
         const Group& group = refs.groups[group_index];
-        ++stats.groups_visited;
-        const std::size_t rows = group.labels.size();
-        const auto& dimension_order = use_group_order ? group.dimension_order : refs.dimension_order;
-        for (std::size_t row = 0; row < rows; ++row) {
-            float distance = 0.0f;
-            bool below = true;
-            ++stats.rows_scanned;
-            for (const std::size_t dim : dimension_order) {
-                const float delta = query[dim] - group.dims[dim][row];
-                distance += delta * delta;
-                if (distance >= top.entries[4].first) {
-                    below = false;
-                    break;
-                }
-            }
-            if (below) {
-                top.insert(distance, group.labels[row] != 0);
-            }
-        }
+        scan_group(top, group, query, stats, dimensions_for(group));
     }
     return top;
 }
@@ -362,6 +437,7 @@ int main(int argc, char** argv) {
         const std::size_t repeat = argc > 3 ? static_cast<std::size_t>(std::stoull(argv[3])) : 1U;
         const std::size_t limit = argc > 4 ? static_cast<std::size_t>(std::stoull(argv[4])) : 0U;
         const bool sweep = argc > 5 && std::string(argv[5]) == "sweep";
+        const bool traversal = argc > 5 && std::string(argv[5]) == "traversal";
 
         ReferenceSet refs;
         std::string error;
@@ -396,7 +472,13 @@ int main(int argc, char** argv) {
                 ScanStats validation_grouped_stats;
                 for (const QueryVector& query : queries) {
                     const Top5 baseline = baseline_top5(refs, query, validation_baseline_stats);
-                    const Top5 grouped_top = grouped_top5(grouped, query, validation_grouped_stats, false);
+                    const Top5 grouped_top = grouped_top5(
+                        grouped,
+                        query,
+                        validation_grouped_stats,
+                        false,
+                        TraversalMode::Sort
+                    );
                     if (baseline.fraud_count() != grouped_top.fraud_count()) {
                         ++mismatches;
                     }
@@ -406,7 +488,13 @@ int main(int argc, char** argv) {
                 ScanStats local_validation_stats;
                 for (const QueryVector& query : queries) {
                     const Top5 baseline = baseline_top5(refs, query, validation_baseline_stats);
-                    const Top5 grouped_top = grouped_top5(grouped, query, local_validation_stats, true);
+                    const Top5 grouped_top = grouped_top5(
+                        grouped,
+                        query,
+                        local_validation_stats,
+                        true,
+                        TraversalMode::Sort
+                    );
                     if (baseline.fraud_count() != grouped_top.fraud_count()) {
                         ++local_mismatches;
                     }
@@ -417,7 +505,7 @@ int main(int argc, char** argv) {
                     queries,
                     repeat,
                     [&grouped, &grouped_stats](const QueryVector& query) {
-                        return grouped_top5(grouped, query, grouped_stats, false);
+                        return grouped_top5(grouped, query, grouped_stats, false, TraversalMode::Sort);
                     }
                 );
 
@@ -426,7 +514,7 @@ int main(int argc, char** argv) {
                     queries,
                     repeat,
                     [&grouped, &grouped_local_stats](const QueryVector& query) {
-                        return grouped_top5(grouped, query, grouped_local_stats, true);
+                        return grouped_top5(grouped, query, grouped_local_stats, true, TraversalMode::Sort);
                     }
                 );
 
@@ -456,6 +544,70 @@ int main(int argc, char** argv) {
             return 0;
         }
 
+        if (traversal) {
+            const GroupingStrategy strategy{"base", true, 0, false, false};
+            const GroupedRefs grouped = build_grouped_refs(refs, strategy);
+
+            std::vector<std::size_t> baseline_counts;
+            baseline_counts.reserve(queries.size());
+            ScanStats validation_baseline_stats;
+            for (const QueryVector& query : queries) {
+                baseline_counts.push_back(baseline_top5(refs, query, validation_baseline_stats).fraud_count());
+            }
+
+            std::cout << "queries=" << queries.size()
+                      << " repeat=" << repeat
+                      << " refs=" << refs.len()
+                      << " groups=" << grouped.groups.size()
+                      << '\n';
+
+            const std::array<TraversalMode, 3> traversal_modes{
+                TraversalMode::Sort,
+                TraversalMode::SelectMin,
+                TraversalMode::Unsorted,
+            };
+
+            for (const bool use_group_order : {false, true}) {
+                for (const TraversalMode mode : traversal_modes) {
+                    std::size_t mismatches = 0;
+                    ScanStats validation_stats;
+                    for (std::size_t index = 0; index < queries.size(); ++index) {
+                        const Top5 grouped_top = grouped_top5(
+                            grouped,
+                            queries[index],
+                            validation_stats,
+                            use_group_order,
+                            mode
+                        );
+                        if (baseline_counts[index] != grouped_top.fraud_count()) {
+                            ++mismatches;
+                        }
+                    }
+
+                    ScanStats grouped_stats;
+                    const auto [elapsed, checksum] = time_queries(
+                        queries,
+                        repeat,
+                        [&grouped, &grouped_stats, use_group_order, mode](const QueryVector& query) {
+                            return grouped_top5(grouped, query, grouped_stats, use_group_order, mode);
+                        }
+                    );
+
+                    std::cout << "order=" << (use_group_order ? "group_local" : "global")
+                              << " traversal=" << traversal_name(mode)
+                              << " mismatches=" << mismatches
+                              << " ns_per_query=" << ns_per_query(elapsed, queries.size(), repeat)
+                              << " rows_per_query=" << static_cast<double>(grouped_stats.rows_scanned) /
+                                     static_cast<double>(queries.size() * repeat)
+                              << " groups_per_query=" << static_cast<double>(grouped_stats.groups_visited) /
+                                     static_cast<double>(queries.size() * repeat)
+                              << " checksum=" << checksum
+                              << '\n';
+                }
+            }
+            return 0;
+        }
+
         const GroupingStrategy strategy{"base", true, 0, false, false};
         const GroupedRefs grouped = build_grouped_refs(refs, strategy);
 
@@ -464,7 +616,13 @@ int main(int argc, char** argv) {
         ScanStats grouped_validation_stats;
         for (const QueryVector& query : queries) {
             const Top5 baseline = baseline_top5(refs, query, baseline_validation_stats);
-            const Top5 grouped_top = grouped_top5(grouped, query, grouped_validation_stats, false);
+            const Top5 grouped_top = grouped_top5(
+                grouped,
+                query,
+                grouped_validation_stats,
+                false,
+                TraversalMode::Sort
+            );
             if (baseline.fraud_count() != grouped_top.fraud_count()) {
                 ++mismatches;
             }
@@ -484,7 +642,7 @@ int main(int argc, char** argv) {
             queries,
             repeat,
             [&grouped, &grouped_stats](const QueryVector& query) {
-                return grouped_top5(grouped, query, grouped_stats, false);
+                return grouped_top5(grouped, query, grouped_stats, false, TraversalMode::Sort);
             }
         );
 

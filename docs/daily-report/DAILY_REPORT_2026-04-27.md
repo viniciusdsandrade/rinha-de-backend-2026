@@ -91,3 +91,135 @@ Resultados:
 1. Congelar `group_local` como baseline atual de performance da `submission-2`.
 2. Próxima investigação de baixo risco: reduzir overhead da ordenação dos grupos por query, possivelmente substituindo `std::sort` por seleção parcial ou scan ordenado estável, mas somente se o benchmark offline e o k6 mostrarem ganho consistente.
 3. Manter qualquer nova hipótese sob comparação contra `group_local 9x`, não contra o baseline antigo.
+
+## Rodada Investigativa Posterior
+
+Objetivo: continuar os experimentos de performance sem aceitar mudanças marginais. Critério usado: só promover para produção quando o ganho aparecesse de forma sustentável no k6, não apenas no microbenchmark offline.
+
+### Experimento 1: travessia de grupos sem `std::sort`
+
+Hipótese: como o grouped pruning visita em média apenas ~2.8 grupos por consulta, calcular todos os lower bounds e selecionar incrementalmente o menor grupo ainda não visitado poderia ser mais barato que ordenar todos os grupos com `std::sort`.
+
+Mudança testada:
+
+- Adicionado modo `traversal` em `cpp/tools/benchmark_classifier.cpp`.
+- Comparados três modos: `sort`, `select_min` e `unsorted`.
+- A implementação de produção chegou a ser alterada para `select_min`, mas foi revertida depois do k6.
+
+Microbenchmark offline:
+
+```text
+queries=3000 repeat=1 refs=100000 groups=117
+order=global traversal=sort mismatches=0 ns_per_query=122367 rows_per_query=13625.2 groups_per_query=2.805 checksum=4983
+order=global traversal=select_min mismatches=0 ns_per_query=121003 rows_per_query=13625.2 groups_per_query=2.805 checksum=4983
+order=global traversal=unsorted mismatches=0 ns_per_query=298257 rows_per_query=33181.7 groups_per_query=6.37733 checksum=4983
+order=group_local traversal=sort mismatches=0 ns_per_query=78617.6 rows_per_query=13625.2 groups_per_query=2.805 checksum=4983
+order=group_local traversal=select_min mismatches=0 ns_per_query=73160.5 rows_per_query=13625.2 groups_per_query=2.805 checksum=4983
+order=group_local traversal=unsorted mismatches=0 ns_per_query=248879 rows_per_query=33181.7 groups_per_query=6.37733 checksum=4983
+```
+
+k6 com `select_min` em produção:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.58ms | 5446.33 | 0 | 0 | 0 |
+| 2 | 3.03ms | 5518.55 | 0 | 0 | 0 |
+| 3 | 3.06ms | 5514.50 | 0 | 0 | 0 |
+
+Validação após restauração do baseline `std::sort`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.99ms | 5398.81 | 0 | 0 | 0 |
+| 2 | 3.06ms | 5514.18 | 0 | 0 | 0 |
+
+Decisão: rejeitado em produção. O microbenchmark favoreceu `select_min`, mas o k6 real não mostrou ganho sustentável contra o baseline histórico aquecido (`p99 médio=2.86ms`, `final_score médio=5543.78`). O modo `unsorted` também foi rejeitado: exato, mas muito mais lento.
+
+Aprendizado: reduzir custo algorítmico dentro do kernel não necessariamente reduz p99 quando o gargalo observado passa por HTTP, parse, scheduling e ruído de container. A ferramenta de benchmark foi mantida porque melhora a capacidade de testar hipóteses futuras sem tocar produção.
+
+### Experimento 2: agrupamento adicional por `amount4`
+
+Hipótese: adicionar 4 buckets de `amount` normalizado à chave de agrupamento poderia reduzir linhas escaneadas por consulta mantendo exatidão, pois o `amount` é uma dimensão discriminativa.
+
+Microbenchmark offline de estratégias:
+
+```text
+queries=3000 repeat=1 refs=100000 baseline_ns_per_query=892943 rows_per_query=100000 checksum=4983
+strategy=base order=group_local groups=117 mismatches=0 grouped_ns_per_query=75712.6 rows_per_query=13625.2 groups_per_query=2.805 checksum=4983
+strategy=amount4 order=group_local groups=250 mismatches=0 grouped_ns_per_query=71506.2 rows_per_query=11830.5 groups_per_query=4.15067 checksum=4983
+strategy=amount8 order=group_local groups=407 mismatches=0 grouped_ns_per_query=74881.7 rows_per_query=11293.2 groups_per_query=5.573 checksum=4983
+strategy=hour order=group_local groups=1470 mismatches=0 grouped_ns_per_query=138591 rows_per_query=5455.92 groups_per_query=10.8647 checksum=4983
+strategy=amount4_hour order=group_local groups=2243 mismatches=0 grouped_ns_per_query=179851 rows_per_query=3822.27 groups_per_query=16.6523 checksum=4983
+strategy=amount4_hour_day order=group_local groups=7362 mismatches=0 grouped_ns_per_query=558472 rows_per_query=696.012 groups_per_query=19.738 checksum=4983
+```
+
+k6 com `amount4` em produção:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.78ms | 5422.76 | 0 | 0 | 0 |
+| 2 | 3.03ms | 5519.25 | 0 | 0 | 0 |
+| 3 | 2.96ms | 5529.15 | 0 | 0 | 0 |
+| 4 | 3.00ms | 5522.72 | 0 | 0 | 0 |
+
+Decisão: rejeitado por enquanto. O resultado é tecnicamente correto e o microbenchmark melhorou ~5.6%, mas o k6 aquecido ficou em média ~3.00ms, abaixo do baseline histórico aquecido de `2.86ms`. A mudança não é ruim o suficiente para descartar definitivamente, mas não é forte o bastante para substituir o baseline publicado.
+
+Aprendizado: aumentar grupos reduz linhas escaneadas, mas também aumenta custo de lower bound, ordenação de grupos e pressão de cache. `amount4` segue como hipótese futura apenas se uma rodada A/B longa no mesmo estado de máquina mostrar diferença real.
+
+### Experimento 3: parser sem cópia de `simdjson::padded_string`
+
+Hipótese: reservar capacidade no buffer HTTP e chamar `simdjson::dom::parser::parse(const std::string&)` evitaria construir `simdjson::padded_string` por request. O maior payload local medido em `test/test-data.json` tem `634B`, então foram testados dois tamanhos de reserva.
+
+Variante `reserve(2048)` combinada com `amount4`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.52ms | 5453.12 | 0 | 0 | 0 |
+| 2 | 3.16ms | 5500.65 | 0 | 0 | 0 |
+| 3 | 3.03ms | 5519.24 | 0 | 0 | 0 |
+
+Variante `reserve(768)` combinada com `amount4`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4.00ms | 5398.39 | 0 | 0 | 0 |
+| 2 | 3.04ms | 5516.58 | 0 | 0 | 0 |
+
+Decisão: rejeitado. A remoção da cópia teórica não pagou o custo de reservar/gerenciar buffer por request no caminho real. A versão de 2048B provavelmente aumentou pressão de cache/alocação; a versão 768B também não superou o baseline.
+
+Aprendizado: evitar uma cópia pequena de payload JSON não é automaticamente ganho quando o custo extra aparece em alocação, cache e ciclo de vida do request. O parser atual com `padded_string` permanece mais previsível para este workload.
+
+### Estado Final da Rodada
+
+- Nenhuma mudança de hot path foi mantida em produção nesta rodada.
+- O compose foi reconstruído de volta para o baseline `group_local` e `/ready` respondeu `204`.
+- Foi mantida apenas a instrumentação em `cpp/tools/benchmark_classifier.cpp` para comparar traversal modes em futuras rodadas.
+- Houve um erro ambiental temporário no rebuild (`TLS handshake timeout` ao consultar metadata do Docker Hub). A reconstrução foi refeita com `--pull never` usando cache local e concluiu com sucesso.
+
+Validações executadas:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests rinha-backend-2026-cpp benchmark-classifier-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+git diff --check
+docker compose config -q
+docker compose up -d --build --force-recreate --pull never
+curl -sS -o /dev/null -w '%{http_code}' http://localhost:9999/ready
+./run.sh
+```
+
+Resultado das validações:
+
+- Build local: OK.
+- Testes C++: `1/1` passou.
+- `git diff --check`: OK.
+- Compose config: OK.
+- Rebuild final com cache local: OK.
+- `/ready`: `204`.
+
+Próximas hipóteses recomendadas:
+
+1. Investigar o overhead de alocação por request (`std::make_shared<RequestContext>` e `std::string body`) com alternativa segura de lifecycle no uWebSockets, mas só aplicar se houver forma clara de medir.
+2. Criar um benchmark local específico de parse HTTP/payload para separar parser de classificador; k6 está agregando ruído demais para microdecisões.
+3. Rodar A/B longo, no mesmo estado térmico da máquina, entre `base group_local` e `amount4 group_local` antes de reconsiderar `amount4`.
+4. Evitar novas otimizações de kernel exato até aparecer evidência de que o kernel voltou a dominar o p99.
