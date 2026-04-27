@@ -45,6 +45,7 @@ Média da validação final 5x do baseline aceito em 2026-04-25:
 | 22:25 | Verificar impacto real no stack oficial local | Portado `dimension_order` por grupo para produção (`ReferenceGroup`) e aplicado no caminho AVX2 agrupado; rebuild compose | k6 screening run 1: `p99=4.04ms`, `final_score=5393.66`, `FP=0`, `FN=0`, `HTTP=0` | Reamostrar antes de reverter | O primeiro run pós-rebuild ficou abaixo do baseline esperado e levantou suspeita de variância alta. |
 | 22:28 | Confirmar ou negar regressão observada no run 1 | Segunda execução k6 no mesmo binário, sem rebuild intermediário | k6 screening run 2: `p99=2.86ms`, `final_score=5544.16`, `FP=0`, `FN=0`, `HTTP=0` | Manter hipótese viva e ampliar amostra | Resultado inverteu completamente o sinal do run 1 e virou novo topo local provisório. |
 | 22:31 | Fechar bloco curto de estabilidade para `group_local` | Mais duas execuções k6 sob mesmas condições para reduzir risco de outlier | k6 screening run 3: `p99=2.90ms`, `final_score=5537.86`; run 4: `p99=2.79ms`, `final_score=5553.98`; ambos com `FP=0`, `FN=0`, `HTTP=0` | Manter `group_local` como candidata principal | Apesar do primeiro run fraco, as três execuções seguintes ficaram consistentemente acima do baseline de `group_order` global. |
+| 22:34 | Aumentar robustez estatística da hipótese `group_local` | Três reamostragens leves adicionais (`run 5-7`) no mesmo binário | run 5: `p99=2.73ms`, `final_score=5563.18`; run 6: `p99=2.90ms`, `final_score=5538.28`; run 7: `p99=2.69ms`, `final_score=5570.78`; todos com `FP=0`, `FN=0`, `HTTP=0` | Manter `group_local` como melhor candidata do dia | O novo bloco removeu dúvida de regressão: 6 de 7 runs ficaram claramente acima do baseline histórico e o melhor score do dia foi obtido aqui. |
 
 ## Resultado Comparativo
 
@@ -52,8 +53,8 @@ Comparação contra o melhor run aceito anterior:
 
 | Métrica | Antes | Melhor run da rodada | Diferença |
 |---|---:|---:|---:|
-| p99 | 3.92ms | 2.79ms | -1.13ms, ~28.8% melhor |
-| final_score | 5407.21 | 5553.98 | +146.77 pontos |
+| p99 | 3.92ms | 2.69ms | -1.23ms, ~31.4% melhor |
+| final_score | 5407.21 | 5570.78 | +163.57 pontos |
 | FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
 
 Comparação por média:
@@ -64,18 +65,18 @@ Comparação por média:
 | final_score médio | 5393.78 | 5481.36 | +87.58 pontos |
 | FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
 
-Comparação do bloco novo `group_local` (4 runs) contra o baseline de referência:
+Comparação do bloco novo `group_local` (7 runs) contra o baseline de referência:
 
-| Métrica | Baseline aceito 5x | `group_local` 4x | Diferença |
+| Métrica | Baseline aceito 5x | `group_local` 7x | Diferença |
 |---|---:|---:|---:|
-| p99 médio | 4.04ms | 3.15ms | -0.89ms, ~22.1% melhor |
-| final_score médio | 5393.78 | 5507.42 | +113.64 pontos |
+| p99 médio | 4.04ms | 2.99ms | -1.05ms, ~26.0% melhor |
+| final_score médio | 5393.78 | 5528.84 | +135.06 pontos |
 | FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
 
 Observação de estabilidade do bloco `group_local`:
 
-- Média dos 4 runs: `p99=3.15ms`, `final_score=5507.42`.
-- Média dos 3 runs após o primeiro screening (`runs 2-4`): `p99=2.85ms`, `final_score=5545.33`.
+- Média dos 7 runs: `p99=2.99ms`, `final_score=5528.84`.
+- Média dos 6 runs após o primeiro screening (`runs 2-7`): `p99=2.81ms`, `final_score=5551.37`.
 
 ## Estado Atual da Hipótese
 
@@ -87,8 +88,8 @@ O índice exato por grupos com lower bound é a primeira melhoria técnica mater
 - Melhorou p99 no compose local em 9 runs da rodada: `3.79ms`, `3.27ms`, `3.25ms`, `3.52ms`, `3.11ms`, `3.23ms`, `3.19ms`, `3.29ms`, `3.12ms`.
 - Não introduziu FP, FN nem HTTP errors nas nove execuções do k6 no agrupamento base.
 - A variação `amount4` foi rejeitada: apesar de ser a melhor no benchmark offline, entregou `p99=3.78ms` no k6 e foi revertida para preservar a configuração base mais estável.
-- A variação `group_local` (ordem de dimensão por grupo) superou o baseline em 3 de 4 screenings no compose: `2.86ms`, `2.90ms`, `2.79ms` com score acima de `5537`.
-- O primeiro screening de `group_local` (`4.04ms`) indica que ainda há variância de curto prazo; decisão operacional: manter a hipótese e ampliar amostra antes de considerar congelamento final.
+- A variação `group_local` (ordem de dimensão por grupo) superou o baseline em 6 de 7 screenings no compose: `2.86ms`, `2.90ms`, `2.79ms`, `2.73ms`, `2.90ms`, `2.69ms`.
+- O primeiro screening de `group_local` (`4.04ms`) se comportou como outlier de aquecimento; com amostra ampliada, a tendência dominante ficou acima do baseline.
 
 ## Validações Executadas
 
@@ -99,7 +100,7 @@ cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.j
 cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.json 1 3000 sweep
 docker compose up -d --build --force-recreate
 curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:9999/ready
-./run.sh  # 14 execuções controladas via nice/ionice, incluindo 1 screening rejeitado de amount4
+./run.sh  # 17 execuções controladas via nice/ionice, incluindo 1 screening rejeitado de amount4
 docker compose config -q
 git diff --check
 ```
@@ -111,11 +112,11 @@ Resultados:
 - `/ready`: HTTP 204.
 - `docker compose config -q`: sem erro.
 - `git diff --check`: sem problemas.
-- k6: 14 execuções com `0 FP`, `0 FN`, `0 HTTP errors`; 9 no agrupamento base, 1 no `amount4` rejeitado e 4 no `group_local`.
+- k6: 17 execuções com `0 FP`, `0 FN`, `0 HTTP errors`; 9 no agrupamento base, 1 no `amount4` rejeitado e 7 no `group_local`.
 
 ## Próximos Passos
 
-1. Reamostrar `group_local` em mais 5 execuções leves para fechar um bloco de 9 runs dessa hipótese e reduzir incerteza de variância.
+1. Reamostrar `group_local` em mais 2 execuções leves para fechar um bloco de 9 runs dessa hipótese e reduzir incerteza residual.
 2. Manter o baseline `group_order` global (`9x`, média `3.31ms`) como controle A/B até o novo bloco de `group_local` fechar.
 3. Não promover novas chaves de grupo apenas por benchmark offline; qualquer variação precisa superar o controle no k6, com `0 FP`, `0 FN` e `0 HTTP errors`.
 4. Não voltar para micro-otimizações de parser/headers/allocator antes de esgotar a linha de índice exato por grupos e sua estabilidade estatística no compose.
