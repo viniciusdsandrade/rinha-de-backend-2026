@@ -730,3 +730,64 @@ Resultados:
 - k6 final no estado aceito: `p99=3.00ms`, `final_score=5522.93`, `0 FP`, `0 FN`, `0 HTTP errors`.
 
 Resultado final da rodada: manter somente mudanças sustentáveis e pequenas (`IPO` parcial, `res->cork`, benchmark offline). As demais hipóteses foram registradas e revertidas por não baterem o baseline aquecido no k6.
+
+### Experimento adicional: split intermediário `api=0.445` / `nginx=0.11`
+
+Hipótese: dar mais `0.005 CPU` para cada API e reduzir `0.01 CPU` do nginx poderia ficar em um ponto melhor que o split original (`0.44/0.12`) e que o split já rejeitado (`0.45/0.10`).
+
+Mudança temporária:
+
+```text
+api1/api2 cpus = 0.445
+nginx cpus = 0.11
+```
+
+Validações:
+
+- `docker compose config -q`: OK.
+- `/ready`: `204`.
+
+k6:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 2.95ms | 5529.76 | 0 | 0 | 0 |
+| 2 | 2.97ms | 5527.34 | 0 | 0 | 0 |
+| 3 | 3.00ms | 5522.34 | 0 | 0 | 0 |
+
+Decisão: rejeitado e revertido. Média `2.973ms`, pior que a média aquecida do split original registrada nesta rodada. O `docker-compose.yml` voltou para `api=0.44` por instância e `nginx=0.12`.
+
+### Experimento adicional: remover `reuseport` do nginx
+
+Hipótese: com `worker_processes 1`, `reuseport` poderia ser irrelevante ou até adicionar ruído no accept path. A mudança temporária foi trocar:
+
+```text
+listen 9999 reuseport backlog=4096;
+```
+
+por:
+
+```text
+listen 9999 backlog=4096;
+```
+
+Validações:
+
+- `docker compose config -q`: OK.
+- Após o recreate, a primeira chamada imediata a `/ready` retornou `000/empty reply`, mas a repetição com o stack estabilizado retornou `204`; os containers permaneceram `Up`.
+
+k6:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.01ms | 5522.05 | 0 | 0 | 0 |
+
+Decisão: rejeitado e revertido. O primeiro run ficou pior que o baseline aceito e não justificou gastar mais amostras. O `nginx.conf` voltou para `listen 9999 reuseport backlog=4096;`.
+
+Checagem pós-reversão no estado original:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| restore | 2.89ms | 5539.22 | 0 | 0 | 0 |
+
+Resultado: runtime restaurada para o estado aceito, sem resíduo operacional da hipótese rejeitada.
