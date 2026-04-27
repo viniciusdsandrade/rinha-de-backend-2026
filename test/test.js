@@ -20,21 +20,20 @@ const errorCount = new Counter('error_count');
 
 export const options = {
     summaryTrendStats: ['p(99)'],
+    dns: {
+        ttl: '5m',
+        select: 'roundRobin',
+    },
     scenarios: {
         default: {
             executor: 'ramping-arrival-rate',
             startRate: 1,
             timeUnit: '1s',
-            preAllocatedVUs: 5,
-            maxVUs: 150,
+            preAllocatedVUs: 10,
+            maxVUs: 50,
             gracefulStop: '10s',
             stages: [
-                { duration: '10s', target: 10 },
-                { duration: '10s', target: 50 },
-                { duration: '20s', target: 350 },
-                { duration: '20s', target: 650 },
-                { duration: '20s', target: 800 },
-                { duration: '20s', target: 900 },
+                { duration: '120s', target: 750 },
             ],
         },
     },
