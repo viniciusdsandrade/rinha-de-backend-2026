@@ -192,3 +192,39 @@ endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
     target_compile_options(benchmark-classifier-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
 endif()
+
+add_executable(benchmark-request-cpp EXCLUDE_FROM_ALL
+    tools/benchmark_request.cpp
+    src/request.cpp
+    src/vectorize.cpp
+    src/refs.cpp
+    src/classifier.cpp
+)
+target_include_directories(benchmark-request-cpp
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader"
+)
+target_compile_definitions(benchmark-request-cpp
+    PRIVATE
+        SIMDJSON_EXCEPTIONS=0
+)
+target_link_libraries(benchmark-request-cpp
+    PRIVATE
+        simdjson_singleheader
+        ZLIB::ZLIB
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(benchmark-request-cpp PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+    )
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    target_compile_options(benchmark-request-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
+endif()

@@ -223,3 +223,140 @@ Próximas hipóteses recomendadas:
 2. Criar um benchmark local específico de parse HTTP/payload para separar parser de classificador; k6 está agregando ruído demais para microdecisões.
 3. Rodar A/B longo, no mesmo estado térmico da máquina, entre `base group_local` e `amount4 group_local` antes de reconsiderar `amount4`.
 4. Evitar novas otimizações de kernel exato até aparecer evidência de que o kernel voltou a dominar o p99.
+
+## Rodada Investigativa: custo de request e busca aproximada por orçamento de grupos
+
+Objetivo: separar custo de corpo/JSON/vetorização/classificação antes de mexer novamente no hot path de produção. A hipótese a validar era se ainda valia insistir em parser/alocação ou se o gargalo real tinha voltado claramente para o KNN.
+
+### Microbenchmark de request
+
+Mudança instrumental:
+
+- Adicionado `cpp/tools/benchmark_request.cpp`.
+- Adicionado target CMake `benchmark-request-cpp` como `EXCLUDE_FROM_ALL`.
+- O benchmark usa `test/test-data.json`, minifica cada `request` para simular o corpo enviado pelo k6 e mede etapas isoladas: append do body, parse DOM, parse do payload, parse+vectorize e parse+classify.
+- Nenhuma mudança de produção foi feita.
+
+Comando de build:
+
+```text
+nice -n 10 ionice -c3 cmake --build cpp/build --target benchmark-request-cpp -j2
+```
+
+Resultado: build OK. Houve apenas warnings já conhecidos do single-header vendorizado do `simdjson`.
+
+Triagem leve:
+
+```text
+nice -n 10 ionice -c3 cpp/build/benchmark-request-cpp test/test-data.json resources/references.json.gz 5 3000
+```
+
+Resultado:
+
+```text
+samples=3000 repeat=5 avg_body_bytes=432.922 max_body_bytes=468
+body_append_default_ns_per_query=23.9168 checksum=6493835
+body_append_reserve768_ns_per_query=15.923 checksum=6493835
+dom_padded_parse_ns_per_query=223.671 checksum=6493835
+dom_reserve768_parse_ns_per_query=224.145 checksum=6493835
+parse_payload_ns_per_query=595.916 checksum=1009914138760885
+parse_vectorize_ns_per_query=626.338 checksum=10270221083520
+parse_classify_ns_per_query=27289 checksum=59850
+```
+
+Rodada completa:
+
+```text
+nice -n 10 ionice -c3 cpp/build/benchmark-request-cpp test/test-data.json resources/references.json.gz 10 0
+```
+
+Resultado:
+
+```text
+samples=14500 repeat=10 avg_body_bytes=433.529 max_body_bytes=471
+body_append_default_ns_per_query=19.3698 checksum=62861670
+body_append_reserve768_ns_per_query=14.5428 checksum=62861670
+dom_padded_parse_ns_per_query=231.774 checksum=62861670
+dom_reserve768_parse_ns_per_query=232.655 checksum=62861670
+parse_payload_ns_per_query=592.512 checksum=9878896953920980
+parse_vectorize_ns_per_query=653.227 checksum=99324863360270
+parse_classify_ns_per_query=28246.9 checksum=577480
+```
+
+Decisão: não priorizar parser/cópia/alocação de body nesta etapa. O ganho máximo visível em `reserve(768)` é de ~5 ns no append do corpo, enquanto o caminho `parse_classify` fica em ~28.247 ns por request no microbenchmark. `parse_payload` fica em ~593 ns e `parse_vectorize` em ~653 ns; portanto, JSON e vetorização somados representam uma fração pequena do custo total.
+
+Aprendizado: a hipótese de otimizar `simdjson::padded_string`, reserva do body ou parse DOM deve ficar congelada até haver uma evidência nova no k6. O foco sustentável volta para reduzir trabalho do KNN ou mudar a estratégia de busca.
+
+### Revalidação leve de travessia do classificador
+
+Uma tentativa inicial de rodar `traversal` sobre a massa completa foi interrompida por custo alto de validação. A rodada foi repetida com amostra de 1000 queries para manter a máquina estável.
+
+Comando:
+
+```text
+nice -n 10 ionice -c3 cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.json 5 1000 traversal
+```
+
+Resultado:
+
+```text
+queries=1000 repeat=5 refs=100000 groups=117
+order=global traversal=sort mismatches=0 ns_per_query=122787 rows_per_query=13469.8 groups_per_query=2.812 checksum=8690
+order=global traversal=select_min mismatches=0 ns_per_query=119680 rows_per_query=13469.8 groups_per_query=2.812 checksum=8690
+order=global traversal=unsorted mismatches=0 ns_per_query=300447 rows_per_query=32759.1 groups_per_query=6.375 checksum=8690
+order=group_local traversal=sort mismatches=0 ns_per_query=78365 rows_per_query=13469.8 groups_per_query=2.812 checksum=8690
+order=group_local traversal=select_min mismatches=0 ns_per_query=76466.2 rows_per_query=13469.8 groups_per_query=2.812 checksum=8690
+order=group_local traversal=unsorted mismatches=0 ns_per_query=256402 rows_per_query=32759.1 groups_per_query=6.375 checksum=8690
+```
+
+Decisão: manter a conclusão anterior. `select_min` ainda parece melhor no microbenchmark escalar, mas já falhou em sustentar ganho no k6 de produção. `unsorted` continua descartado.
+
+### Experimento offline: budget aproximado de grupos
+
+Hipótese: como o scoring permite alguns erros de detecção, talvez limitar a busca aos N grupos mais próximos por lower-bound reduzisse custo suficiente para compensar pequenos erros. A validação compara cada budget contra o KNN exato atual e conta erro de decisão (`approved` divergente), não apenas divergência de `fraud_score`.
+
+Mudança instrumental:
+
+- Adicionado modo `budget` em `cpp/tools/benchmark_classifier.cpp`.
+- O modo mede o `group_local sort` exato e depois budgets fixos de `1, 2, 3, 4, 5, 6, 8, 10` grupos.
+- Nenhuma mudança de produção foi feita.
+
+Comando:
+
+```text
+nice -n 10 ionice -c3 cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.json 3 0 budget
+```
+
+Resultado:
+
+```text
+queries=14500 repeat=3 refs=100000 groups=117 exact_ns_per_query=77387.3 exact_rows_per_query=13836.9 exact_groups_per_query=2.8069 checksum=72090
+budget_groups=1 fraud_count_mismatches=336 decision_errors=176 ns_per_query=35149.4 rows_per_query=5160.13 groups_per_query=1 checksum=72129
+budget_groups=2 fraud_count_mismatches=281 decision_errors=136 ns_per_query=58726.3 rows_per_query=10288.4 groups_per_query=1.98745 checksum=72135
+budget_groups=3 fraud_count_mismatches=189 decision_errors=80 ns_per_query=75914.7 rows_per_query=13694.2 groups_per_query=2.68034 checksum=72093
+budget_groups=4 fraud_count_mismatches=118 decision_errors=46 ns_per_query=75864 rows_per_query=13756.8 groups_per_query=2.7269 checksum=72069
+budget_groups=5 fraud_count_mismatches=52 decision_errors=19 ns_per_query=77443.9 rows_per_query=13788.6 groups_per_query=2.75586 checksum=72057
+budget_groups=6 fraud_count_mismatches=29 decision_errors=15 ns_per_query=77552.6 rows_per_query=13803.5 groups_per_query=2.77979 checksum=72069
+budget_groups=8 fraud_count_mismatches=3 decision_errors=0 ns_per_query=77683.3 rows_per_query=13833.5 groups_per_query=2.80359 checksum=72087
+budget_groups=10 fraud_count_mismatches=0 decision_errors=0 ns_per_query=77434.5 rows_per_query=13836.9 groups_per_query=2.8069 checksum=72090
+```
+
+Decisão: rejeitar budget aproximado de grupos como otimização de produção neste momento.
+
+Motivos:
+
+- `budget=1` reduz o tempo escalar de ~77.4 us para ~35.1 us, mas cria `176` erros de decisão em `14500` requests. A perda de `detection_score` tende a superar o ganho de p99.
+- `budget=2` ainda gera `136` erros de decisão e o ganho já cai para ~24%.
+- `budget=3` a `6` mantêm erros e praticamente não reduzem custo.
+- `budget=8` zera erro de decisão na massa local, mas custa ~77.7 us, sem ganho real contra o exato.
+- `budget=10` converge para o exato.
+
+Aprendizado: o agrupamento atual já está muito eficiente em média (`~2.81` grupos por query). Para ficar rápido o suficiente, a aproximação precisa cortar grupos demais e passa a errar decisões; quando corta pouco, não ganha performance. A próxima hipótese precisa reduzir custo dentro dos grupos escaneados ou usar uma estrutura de busca diferente, não apenas limitar quantidade fixa de grupos.
+
+### Estado após a rodada
+
+- Produção permanece no baseline `group_local` exato.
+- Mantidas apenas ferramentas offline de benchmark:
+  - `benchmark-classifier-cpp` com modos `traversal` e `budget`.
+  - `benchmark-request-cpp` para separar body/parse/vectorize/classify.
+- Próximo passo recomendado: benchmarkar variantes do kernel AVX2 de produção diretamente, especialmente custo de `std::sort`/alocação de `group_order`, `std::array<const float*, 14>` por grupo e possíveis buffers reutilizáveis, antes de qualquer novo A/B no k6.

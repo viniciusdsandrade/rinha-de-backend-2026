@@ -393,6 +393,39 @@ Top5 grouped_top5(
     return top;
 }
 
+Top5 grouped_budget_top5(
+    const GroupedRefs& refs,
+    const QueryVector& query,
+    ScanStats& stats,
+    bool use_group_order,
+    std::size_t group_budget
+) {
+    Top5 top;
+    const auto dimensions_for = [&refs, use_group_order](const Group& group)
+        -> const std::array<std::size_t, rinha::kDimensions>& {
+        return use_group_order ? group.dimension_order : refs.dimension_order;
+    };
+
+    std::vector<std::pair<float, std::size_t>> order;
+    order.reserve(refs.groups.size());
+    for (std::size_t index = 0; index < refs.groups.size(); ++index) {
+        order.emplace_back(lower_bound_distance(refs.groups[index], query), index);
+    }
+    std::sort(order.begin(), order.end());
+
+    const std::size_t limit = std::min(group_budget, order.size());
+    for (std::size_t position = 0; position < limit; ++position) {
+        const auto [lower_bound, group_index] = order[position];
+        if (lower_bound >= top.entries[4].first) {
+            break;
+        }
+
+        const Group& group = refs.groups[group_index];
+        scan_group(top, group, query, stats, dimensions_for(group));
+    }
+    return top;
+}
+
 template <typename Fn>
 std::pair<std::chrono::nanoseconds, std::uint64_t> time_queries(
     const std::vector<QueryVector>& queries,
@@ -438,6 +471,7 @@ int main(int argc, char** argv) {
         const std::size_t limit = argc > 4 ? static_cast<std::size_t>(std::stoull(argv[4])) : 0U;
         const bool sweep = argc > 5 && std::string(argv[5]) == "sweep";
         const bool traversal = argc > 5 && std::string(argv[5]) == "traversal";
+        const bool budget = argc > 5 && std::string(argv[5]) == "budget";
 
         ReferenceSet refs;
         std::string error;
@@ -604,6 +638,86 @@ int main(int argc, char** argv) {
                               << " checksum=" << checksum
                               << '\n';
                 }
+            }
+            return 0;
+        }
+
+        if (budget) {
+            const GroupingStrategy strategy{"base", true, 0, false, false};
+            const GroupedRefs grouped = build_grouped_refs(refs, strategy);
+
+            std::vector<std::size_t> exact_counts;
+            exact_counts.reserve(queries.size());
+            ScanStats exact_stats;
+            const auto [exact_elapsed, exact_checksum] = time_queries(
+                queries,
+                repeat,
+                [&grouped, &exact_stats, &exact_counts, repeat](const QueryVector& query) {
+                    const Top5 top = grouped_top5(grouped, query, exact_stats, true, TraversalMode::Sort);
+                    if (repeat == 1) {
+                        exact_counts.push_back(top.fraud_count());
+                    }
+                    return top;
+                }
+            );
+
+            if (repeat != 1) {
+                ScanStats baseline_once_stats;
+                for (const QueryVector& query : queries) {
+                    exact_counts.push_back(
+                        grouped_top5(grouped, query, baseline_once_stats, true, TraversalMode::Sort).fraud_count()
+                    );
+                }
+            }
+
+            std::cout << "queries=" << queries.size()
+                      << " repeat=" << repeat
+                      << " refs=" << refs.len()
+                      << " groups=" << grouped.groups.size()
+                      << " exact_ns_per_query=" << ns_per_query(exact_elapsed, queries.size(), repeat)
+                      << " exact_rows_per_query=" << static_cast<double>(exact_stats.rows_scanned) /
+                             static_cast<double>(queries.size() * repeat)
+                      << " exact_groups_per_query=" << static_cast<double>(exact_stats.groups_visited) /
+                             static_cast<double>(queries.size() * repeat)
+                      << " checksum=" << exact_checksum
+                      << '\n';
+
+            for (const std::size_t group_budget : {1U, 2U, 3U, 4U, 5U, 6U, 8U, 10U}) {
+                std::size_t fraud_count_mismatches = 0;
+                std::size_t decision_errors = 0;
+                ScanStats validation_stats;
+                for (std::size_t index = 0; index < queries.size(); ++index) {
+                    const Top5 top = grouped_budget_top5(
+                        grouped,
+                        queries[index],
+                        validation_stats,
+                        true,
+                        group_budget
+                    );
+                    const std::size_t fraud_count = top.fraud_count();
+                    fraud_count_mismatches += fraud_count != exact_counts[index] ? 1U : 0U;
+                    decision_errors += (fraud_count < 3U) != (exact_counts[index] < 3U) ? 1U : 0U;
+                }
+
+                ScanStats budget_stats;
+                const auto [elapsed, checksum] = time_queries(
+                    queries,
+                    repeat,
+                    [&grouped, &budget_stats, group_budget](const QueryVector& query) {
+                        return grouped_budget_top5(grouped, query, budget_stats, true, group_budget);
+                    }
+                );
+
+                std::cout << "budget_groups=" << group_budget
+                          << " fraud_count_mismatches=" << fraud_count_mismatches
+                          << " decision_errors=" << decision_errors
+                          << " ns_per_query=" << ns_per_query(elapsed, queries.size(), repeat)
+                          << " rows_per_query=" << static_cast<double>(budget_stats.rows_scanned) /
+                                 static_cast<double>(queries.size() * repeat)
+                          << " groups_per_query=" << static_cast<double>(budget_stats.groups_visited) /
+                                 static_cast<double>(queries.size() * repeat)
+                          << " checksum=" << checksum
+                          << '\n';
             }
             return 0;
         }
