@@ -38,6 +38,9 @@ Média da validação final 5x do baseline aceito em 2026-04-25:
 | 21:43 | Deixar o ambiente local coerente com o código final revertido | Após reverter `amount4`, rebuild local `-j2`, `ctest`, `git diff --check`, `docker compose config -q` e rebuild do compose em baixa prioridade | `cmake --build`: sem trabalho pendente; `ctest`: 1/1 passou; `git diff --check`: sem problemas; `docker compose config -q`: sem erro; `/ready=204` | Encerrar a rodada técnica e preparar commit escopado | O estado final publicado deve ser o agrupamento base, não o screening `amount4`. O compose local foi reconstruído para evitar confusão em testes posteriores. |
 | 22:12 | Reamostrar baseline agrupado pós-commit para validar estabilidade | Stack levantado novamente e rodada `run.sh` em prioridade baixa (`nice/ionice`) | k6 run extra 1: `p99=3.11ms`, `final_score=5507.07`, `FP=0`, `FN=0`, `HTTP=0` | Manter agrupamento base e ampliar amostra | Novo melhor resultado local da branch sem alteração de código, reforçando que o ganho da estratégia se sustenta. |
 | 22:14 | Confirmar que o run forte não foi outlier isolado | Segunda execução leve consecutiva no mesmo estado do compose | k6 run extra 2: `p99=3.23ms`, `final_score=5490.82`, `FP=0`, `FN=0`, `HTTP=0` | Considerar hipótese consolidada para esta rodada | A segunda execução permaneceu próxima do melhor run e acima do baseline histórico, com detecção sem regressão. |
+| 22:15 | Aumentar tamanho da amostra antes de encerrar a noite | Reamostragem leve adicional 1/3 sem rebuild intermediário | k6 run extra 3: `p99=3.19ms`, `final_score=5496.48`, `FP=0`, `FN=0`, `HTTP=0` | Manter | Resultado dentro da faixa alta da rodada, sem sinal de degradação sob repetição. |
+| 22:17 | Repetir para medir variação curta de p99 | Reamostragem leve adicional 2/3 no mesmo estado do compose | k6 run extra 4: `p99=3.29ms`, `final_score=5482.16`, `FP=0`, `FN=0`, `HTTP=0` | Manter | Variação esperada de p99, ainda superior ao baseline histórico consolidado. |
+| 22:18 | Fechar bloco de validação com mais uma amostra | Reamostragem leve adicional 3/3 no mesmo estado do compose | k6 run extra 5: `p99=3.12ms`, `final_score=5506.12`, `FP=0`, `FN=0`, `HTTP=0` | Fechar bloco de estabilidade da rodada | O bloco ampliado confirma estabilidade prática da estratégia com pontuação elevada em múltiplas execuções. |
 
 ## Resultado Comparativo
 
@@ -51,10 +54,10 @@ Comparação contra o melhor run aceito anterior:
 
 Comparação por média:
 
-| Métrica | Baseline aceito 5x | Rodada agrupada 6x | Diferença |
+| Métrica | Baseline aceito 5x | Rodada agrupada 9x | Diferença |
 |---|---:|---:|---:|
-| p99 médio | 4.04ms | 3.36ms | -0.68ms, ~16.8% melhor |
-| final_score médio | 5393.78 | 5474.57 | +80.79 pontos |
+| p99 médio | 4.04ms | 3.31ms | -0.73ms, ~18.1% melhor |
+| final_score médio | 5393.78 | 5481.36 | +87.58 pontos |
 | FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
 
 ## Estado Atual da Hipótese
@@ -64,8 +67,8 @@ O índice exato por grupos com lower bound é a primeira melhoria técnica mater
 - Mantém kNN exato no sentido de não descartar grupo cujo lower bound ainda possa superar o top-5 corrente.
 - Preservou o `fraud_count` do top-5 em 14.500 queries locais no benchmark offline.
 - Reduziu a varredura média offline de `100000` para `13836.9` linhas por query.
-- Melhorou p99 no compose local em 6 runs da rodada: `3.79ms`, `3.27ms`, `3.25ms`, `3.52ms`, `3.11ms`, `3.23ms`.
-- Não introduziu FP, FN nem HTTP errors nas seis execuções do k6.
+- Melhorou p99 no compose local em 9 runs da rodada: `3.79ms`, `3.27ms`, `3.25ms`, `3.52ms`, `3.11ms`, `3.23ms`, `3.19ms`, `3.29ms`, `3.12ms`.
+- Não introduziu FP, FN nem HTTP errors nas nove execuções do k6 no agrupamento base.
 - A variação `amount4` foi rejeitada: apesar de ser a melhor no benchmark offline, entregou `p99=3.78ms` no k6 e foi revertida para preservar a configuração base mais estável.
 
 ## Validações Executadas
@@ -77,7 +80,7 @@ cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.j
 cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.json 1 3000 sweep
 docker compose up -d --build --force-recreate
 curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:9999/ready
-./run.sh  # 7 execuções controladas via nice/ionice, incluindo 1 screening rejeitado de amount4
+./run.sh  # 10 execuções controladas via nice/ionice, incluindo 1 screening rejeitado de amount4
 docker compose config -q
 git diff --check
 ```
@@ -89,11 +92,11 @@ Resultados:
 - `/ready`: HTTP 204.
 - `docker compose config -q`: sem erro.
 - `git diff --check`: sem problemas.
-- k6: 7 execuções com `0 FP`, `0 FN`, `0 HTTP errors`; 6 no agrupamento base aceito provisoriamente e 1 no `amount4` rejeitado.
+- k6: 10 execuções com `0 FP`, `0 FN`, `0 HTTP errors`; 9 no agrupamento base aceito provisoriamente e 1 no `amount4` rejeitado.
 
 ## Próximos Passos
 
-1. Reamostrar o agrupamento base em mais 3x quando a máquina estiver mais livre, para fechar bloco de 9 amostras no dia e separar média estável de melhor run.
+1. Congelar este baseline agrupado como referência da branch (`9x` com média `p99=3.31ms`, `final_score=5481.36`) para comparar qualquer mudança futura.
 2. Não promover novas chaves de grupo apenas por benchmark offline; qualquer variação precisa superar o agrupamento base no k6, com `0 FP`, `0 FN` e `0 HTTP errors`.
-3. Próximas variações aceitáveis devem reduzir overhead por query, não apenas linhas varridas: evitar grupos demais, ordenação cara e bounding boxes pouco seletivas.
+3. Próxima frente de teste, ainda leve: reordenar `dimension_order` usando estatística condicionada por grupo (não global) e aceitar só se melhorar score médio em múltiplas runs.
 4. Não voltar para micro-otimizações de parser/headers/allocator antes de esgotar a linha de índice exato por grupos.
