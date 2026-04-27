@@ -85,6 +85,12 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
     target_compile_options(rinha-backend-2026-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
 endif()
 
+include(CheckIPOSupported)
+check_ipo_supported(RESULT RINHA_IPO_SUPPORTED OUTPUT RINHA_IPO_ERROR LANGUAGES CXX)
+if(RINHA_IPO_SUPPORTED)
+    set_property(TARGET rinha-backend-2026-cpp PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+
 add_executable(prepare-refs-cpp
     src/prepare_refs.cpp
     src/refs.cpp
@@ -227,4 +233,37 @@ endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
     target_compile_options(benchmark-request-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
+endif()
+
+add_executable(benchmark-kernel-cpp EXCLUDE_FROM_ALL
+    tools/benchmark_kernel.cpp
+    src/refs.cpp
+)
+target_include_directories(benchmark-kernel-cpp
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader"
+)
+target_compile_definitions(benchmark-kernel-cpp
+    PRIVATE
+        SIMDJSON_EXCEPTIONS=0
+)
+target_link_libraries(benchmark-kernel-cpp
+    PRIVATE
+        simdjson_singleheader
+        ZLIB::ZLIB
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(benchmark-kernel-cpp PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+    )
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    target_compile_options(benchmark-kernel-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
 endif()

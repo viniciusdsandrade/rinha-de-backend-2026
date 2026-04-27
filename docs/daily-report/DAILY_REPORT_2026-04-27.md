@@ -360,3 +360,373 @@ Aprendizado: o agrupamento atual já está muito eficiente em média (`~2.81` gr
   - `benchmark-classifier-cpp` com modos `traversal` e `budget`.
   - `benchmark-request-cpp` para separar body/parse/vectorize/classify.
 - Próximo passo recomendado: benchmarkar variantes do kernel AVX2 de produção diretamente, especialmente custo de `std::sort`/alocação de `group_order`, `std::array<const float*, 14>` por grupo e possíveis buffers reutilizáveis, antes de qualquer novo A/B no k6.
+
+## Rodada Investigativa: benchmark do kernel AVX2 de produção
+
+Objetivo: criar um benchmark específico para o kernel AVX2 agrupado, porque o benchmark escalar anterior mostrou sinais que não se sustentaram no k6. O novo benchmark precisa medir o caminho mais próximo possível da produção: grupos já construídos em `ReferenceSet`, lower-bound por grupo, top-5 exato, `group.dimension_order`, chunks AVX2 de 8 linhas e fallback escalar apenas na cauda do grupo.
+
+### Contrato do benchmark
+
+Mudança instrumental:
+
+- Adicionado `cpp/tools/benchmark_kernel.cpp`.
+- Adicionado target CMake `benchmark-kernel-cpp` como `EXCLUDE_FROM_ALL`.
+- O benchmark carrega `resources/references.json.gz` e os vetores esperados de `test/test-data.json`.
+- A variante `baseline_production` replica o kernel agrupado AVX2 atual, incluindo `std::sort` do `group_order` e montagem local de `std::array<const float*, 14>` por grupo visitado.
+- Cada variante é validada contra a baseline e imprime:
+  - `fraud_count_mismatches`.
+  - `decision_errors`.
+  - `ns_per_query`.
+  - `rows_per_query`.
+  - `groups_per_query`.
+  - `checksum`.
+
+Comando de contrato antes da implementação:
+
+```text
+cmake --build cpp/build --target benchmark-kernel-cpp -j2
+```
+
+Resultado esperado antes da mudança:
+
+```text
+ninja: error: unknown target 'benchmark-kernel-cpp'
+```
+
+Esse foi o "red" da rodada: o alvo ainda não existia.
+
+### Build do benchmark
+
+Comando:
+
+```text
+nice -n 10 ionice -c3 cmake --build cpp/build --target benchmark-kernel-cpp -j2
+```
+
+Resultado: build OK. Os warnings emitidos são os warnings já conhecidos do single-header vendorizado do `simdjson`; não houve erro do código novo.
+
+### Triagem curta
+
+Comando:
+
+```text
+nice -n 10 ionice -c3 cpp/build/benchmark-kernel-cpp resources/references.json.gz test/test-data.json 5 1000
+```
+
+Resultado:
+
+```text
+queries=1000 repeat=5 refs=100000 groups=117 expected_rows_per_query=13469.8 expected_groups_per_query=2.812
+variant=baseline_production fraud_count_mismatches=0 decision_errors=0 ns_per_query=28194.2 rows_per_query=13469.8 groups_per_query=2.812 validation_rows_per_query=13469.8 checksum=8690
+variant=cached_group_ptrs fraud_count_mismatches=0 decision_errors=0 ns_per_query=28312 rows_per_query=13469.8 groups_per_query=2.812 validation_rows_per_query=13469.8 checksum=8690
+variant=cached_group_ptrs_finite_once fraud_count_mismatches=0 decision_errors=0 ns_per_query=28287.4 rows_per_query=13469.8 groups_per_query=2.812 validation_rows_per_query=13469.8 checksum=8690
+variant=cached_select_min_finite_once fraud_count_mismatches=0 decision_errors=0 ns_per_query=25957.9 rows_per_query=13469.8 groups_per_query=2.812 validation_rows_per_query=13469.8 checksum=8690
+```
+
+Aprendizado inicial: todas as variantes exatas preservaram decisão (`0` divergências). A combinação `cached_select_min_finite_once` pareceu ~8% mais rápida na amostra, mas misturava três variáveis: cache de ponteiros de grupos, `std::isfinite` fora do loop interno e troca de `std::sort` por seleção incremental.
+
+### Separação da variável `select_min`
+
+Para evitar conclusão contaminada, foi adicionada a variante `baseline_select_min`, que mantém o mesmo scan AVX2 da produção e troca apenas a ordenação completa de grupos por seleção incremental do menor lower-bound ainda não visitado.
+
+Comando:
+
+```text
+nice -n 10 ionice -c3 cpp/build/benchmark-kernel-cpp resources/references.json.gz test/test-data.json 5 0
+```
+
+Resultado:
+
+```text
+queries=14500 repeat=5 refs=100000 groups=117 expected_rows_per_query=13836.9 expected_groups_per_query=2.8069
+variant=baseline_production fraud_count_mismatches=0 decision_errors=0 ns_per_query=28725.8 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=120150
+variant=baseline_select_min fraud_count_mismatches=0 decision_errors=0 ns_per_query=25914 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=120150
+variant=cached_group_ptrs fraud_count_mismatches=0 decision_errors=0 ns_per_query=28483.1 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=120150
+variant=cached_group_ptrs_finite_once fraud_count_mismatches=0 decision_errors=0 ns_per_query=28484.9 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=120150
+variant=cached_select_min_finite_once fraud_count_mismatches=0 decision_errors=0 ns_per_query=26714.3 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=120150
+```
+
+Rodada mais forte:
+
+```text
+nice -n 10 ionice -c3 cpp/build/benchmark-kernel-cpp resources/references.json.gz test/test-data.json 10 0
+```
+
+Resultado:
+
+```text
+queries=14500 repeat=10 refs=100000 groups=117 expected_rows_per_query=13836.9 expected_groups_per_query=2.8069
+variant=baseline_production fraud_count_mismatches=0 decision_errors=0 ns_per_query=28851.4 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=240300
+variant=baseline_select_min fraud_count_mismatches=0 decision_errors=0 ns_per_query=26060.7 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=240300
+variant=cached_group_ptrs fraud_count_mismatches=0 decision_errors=0 ns_per_query=29034.8 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=240300
+variant=cached_group_ptrs_finite_once fraud_count_mismatches=0 decision_errors=0 ns_per_query=28924.5 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=240300
+variant=cached_select_min_finite_once fraud_count_mismatches=0 decision_errors=0 ns_per_query=26870.6 rows_per_query=13836.9 groups_per_query=2.8069 validation_rows_per_query=13836.9 checksum=240300
+```
+
+### Decisão
+
+O benchmark foi criado com sucesso e já aponta a próxima hipótese de produção: testar `baseline_select_min` no kernel AVX2 real.
+
+Leitura técnica:
+
+- `baseline_select_min` foi a melhor variante nas duas rodadas completas.
+- No repeat `10`, caiu de `28851.4 ns/query` para `26060.7 ns/query`, ganho offline de ~9.7%.
+- Não houve divergência: `fraud_count_mismatches=0`, `decision_errors=0`, checksums idênticos.
+- Cachear ponteiros de grupos (`cached_group_ptrs`) não ajuda; ficou levemente pior.
+- Mover `std::isfinite` para uma vez por chunk também não ajuda de forma isolada; ficou neutro/pior.
+- A combinação `cached_select_min_finite_once` é melhor que baseline, mas pior que `baseline_select_min`, então a melhoria vem da troca de traversal, não do cache de ponteiros.
+
+### Próximo passo recomendado
+
+Aplicar somente a troca `std::sort(group_order)` -> `select_min` no `Classifier::top5_avx2`, sem cache de ponteiros e sem outras alterações, e rodar A/B curto no k6:
+
+1. Rebuild compose com produção baseline atual e rodar 2x k6 aquecido para referência imediata.
+2. Aplicar `baseline_select_min` no hot path.
+3. Rebuild compose com `--pull never`.
+4. Rodar pelo menos 3x k6.
+5. Aceitar a mudança apenas se o p99 médio aquecido superar o baseline do mesmo estado de máquina sem aumentar `FP`, `FN` ou `HTTP errors`.
+
+Observação importante: uma tentativa anterior de `select_min` não sustentou ganho no k6. A diferença agora é que o novo benchmark mede o kernel AVX2 de produção e isola a variável; ainda assim, a decisão final precisa ser k6, não microbenchmark.
+
+## Rodada até 18h: validação k6 das hipóteses finais
+
+Objetivo: continuar a busca por ganho concreto e sustentável até o limite combinado, mantendo disciplina de uma variável por vez. Critério de decisão: aceitar apenas mudanças que sustentassem ganho no k6 com `0 FP`, `0 FN` e `0 HTTP errors`; ganhos apenas em microbenchmark foram tratados como insuficientes.
+
+### Baseline imediato
+
+Estado de comparação antes das novas mudanças de produção: `group_local` exato, `std::sort` no kernel agrupado, split `api=0.44` por instância e `nginx=0.12`.
+
+Runs de referência imediata:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.36ms | 5473.03 | 0 | 0 | 0 |
+| 2 | 2.86ms | 5543.05 | 0 | 0 | 0 |
+
+Após uma reconstrução limpa posterior, o baseline com LTO parcial ficou:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 2.98ms | 5525.68 | 0 | 0 | 0 |
+| 2 | 2.99ms | 5524.51 | 0 | 0 | 0 |
+| 3 | 2.88ms | 5541.06 | 0 | 0 | 0 |
+
+Leitura: o estado aquecido recente oscilou entre `2.86ms` e `2.99ms`; por isso a decisão usou médias aquecidas e evitou promover mudança por um único melhor run.
+
+### Experimento: `select_min` no kernel AVX2 real
+
+Hipótese: substituir `std::sort(group_order)` por seleção incremental do menor lower-bound economizaria trabalho porque a consulta visita em média apenas ~2.8 grupos.
+
+Evidência k6 com `select_min` em produção:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4.35ms | 5361.98 | 0 | 0 | 0 |
+| 2 | 2.93ms | 5533.67 | 0 | 0 | 0 |
+| 3 | 2.79ms | 5554.08 | 0 | 0 | 0 |
+| 4 | 2.94ms | 5531.81 | 0 | 0 | 0 |
+| 5 | 2.96ms | 5528.13 | 0 | 0 | 0 |
+
+Decisão: rejeitado. A média aquecida (`2.905ms`) não superou o baseline aquecido imediato (`2.86ms`) nem trouxe margem clara sobre o estado publicado. O microbenchmark continua útil, mas não é suficiente para produção.
+
+### Experimento: LTO/IPO
+
+Hipótese: `INTERPROCEDURAL_OPTIMIZATION` no binário principal reduziria overhead sem alterar algoritmo, contrato ou topologia.
+
+Resultado com IPO apenas em `rinha-backend-2026-cpp`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.96ms | 5401.91 | 0 | 0 | 0 |
+| 2 | 2.96ms | 5529.24 | 0 | 0 | 0 |
+| 3 | 2.74ms | 5562.48 | 0 | 0 | 0 |
+| 4 | 2.87ms | 5542.38 | 0 | 0 | 0 |
+| 5 | 2.85ms | 5544.83 | 0 | 0 | 0 |
+| 6 | 2.81ms | 5551.00 | 0 | 0 | 0 |
+
+Média aquecida: `2.846ms`. Decisão: aceito como candidato sustentável, porque é uma mudança de build sem impacto funcional e reproduziu pequena vantagem sobre o baseline aquecido imediato.
+
+Resultado com IPO também em `usockets` e `simdjson_singleheader`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4.43ms | 5353.48 | 0 | 0 | 0 |
+| 2 | 2.94ms | 5531.49 | 0 | 0 | 0 |
+| 3 | 2.93ms | 5533.79 | 0 | 0 | 0 |
+
+Decisão: rejeitado. IPO completo piorou a média aquecida (`2.935ms`) e foi revertido para IPO apenas no executável da API.
+
+### Experimento: `res->cork` no envio do `POST /fraud-score`
+
+Hipótese: como o response é montado dentro de `onData`, agrupar `writeHeader` e `end` manualmente com `res->cork` reduziria writes/syscalls no uWebSockets.
+
+Resultado:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4.38ms | 5358.60 | 0 | 0 | 0 |
+| 2 | 2.90ms | 5538.32 | 0 | 0 | 0 |
+| 3 | 2.76ms | 5558.64 | 0 | 0 | 0 |
+| 4 | 2.97ms | 5526.86 | 0 | 0 | 0 |
+| 5 | 2.84ms | 5546.14 | 0 | 0 | 0 |
+
+Média aquecida: `2.8675ms`. Decisão: aceito. O ganho é pequeno, mas a mudança é local, correta para o modelo do uWebSockets e não altera o contrato da API.
+
+### Experimentos de response rejeitados
+
+`res->cork` sem `Content-Type`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4.13ms | 5384.56 | 0 | 0 | 0 |
+| 2 | 3.05ms | 5516.25 | 0 | 0 | 0 |
+| 3 | 2.96ms | 5528.04 | 0 | 0 | 0 |
+
+Decisão: rejeitado. O contrato local passou, mas a média aquecida foi pior e a remoção do header é menos conservadora para submissão.
+
+`UWS_HTTPRESPONSE_NO_WRITEMARK` para remover o header automático `uWebSockets: 20`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4.13ms | 5384.35 | 0 | 0 | 0 |
+| 2 | 2.95ms | 5530.80 | 0 | 0 | 0 |
+| 3 | 3.10ms | 5508.75 | 0 | 0 | 0 |
+
+Decisão: rejeitado. Reduz bytes, mas não reduziu p99 no k6.
+
+### Experimentos de hot path rejeitados
+
+Remover cópias de `shared_ptr<AppState>` no caminho de request:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4.43ms | 5353.20 | 0 | 0 | 0 |
+| 2 | 3.04ms | 5516.88 | 0 | 0 | 0 |
+| 3 | 3.00ms | 5522.81 | 0 | 0 | 0 |
+
+Decisão: rejeitado. A simplificação de lifetime é válida, mas não trouxe ganho e piorou a amostra aquecida.
+
+Parse direto do chunk quando o body chega inteiro:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4.26ms | 5370.91 | 0 | 0 | 0 |
+| 2 | 2.96ms | 5528.69 | 0 | 0 | 0 |
+| 3 | 2.81ms | 5551.07 | 0 | 0 | 0 |
+| 4 | 2.98ms | 5525.89 | 0 | 0 | 0 |
+| 5 | 2.90ms | 5536.95 | 0 | 0 | 0 |
+
+Decisão: rejeitado. A média aquecida (`2.9125ms`) ficou pior que `res->cork` isolado.
+
+Parser com `known_merchants` em `string_view` inline:
+
+Microbenchmark:
+
+```text
+parse_payload_ns_per_query=504.708
+parse_vectorize_ns_per_query=577.082
+parse_classify_ns_per_query=27269.3
+```
+
+Comparação anterior aproximada no mesmo benchmark:
+
+```text
+parse_payload_ns_per_query=592.512
+parse_vectorize_ns_per_query=653.227
+parse_classify_ns_per_query=28246.9
+```
+
+k6:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.74ms | 5426.91 | 0 | 0 | 0 |
+| 2 | 2.88ms | 5540.32 | 0 | 0 | 0 |
+| 3 | 2.94ms | 5531.55 | 0 | 0 | 0 |
+
+Decisão: rejeitado. O microbenchmark melhorou parse, mas o k6 não sustentou ganho final. Como a mudança aumentava complexidade do parser, foi revertida.
+
+### Experimentos de recursos no compose
+
+Todos os testes abaixo foram feitos sobre o binário com `res->cork`.
+
+`api=0.45` por instância e `nginx=0.10`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 2.87ms | 5542.35 | 0 | 0 | 0 |
+| 2 | 2.99ms | 5523.65 | 0 | 0 | 0 |
+| 3 | 2.95ms | 5529.52 | 0 | 0 | 0 |
+
+Decisão: rejeitado. Média `2.936ms`, pior que o split atual.
+
+`api=0.43` por instância e `nginx=0.14`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 2.84ms | 5546.69 | 0 | 0 | 0 |
+| 2 | 2.90ms | 5537.72 | 0 | 0 | 0 |
+| 3 | 2.95ms | 5530.61 | 0 | 0 | 0 |
+
+Decisão: rejeitado. Média `2.896ms`, competitiva mas sem superar claramente `0.44/0.12`.
+
+`api=0.435` por instância e `nginx=0.13`:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 2.97ms | 5527.48 | 0 | 0 | 0 |
+| 2 | 2.92ms | 5535.09 | 0 | 0 | 0 |
+| 3 | 2.98ms | 5526.51 | 0 | 0 | 0 |
+
+Decisão: rejeitado. Média `2.956ms`; o split original continua melhor.
+
+### Estado final aceito da rodada
+
+Mudanças mantidas:
+
+- `INTERPROCEDURAL_OPTIMIZATION` apenas no executável `rinha-backend-2026-cpp`.
+- `res->cork` ao responder `POST /fraud-score`.
+- `benchmark-kernel-cpp` como ferramenta offline para futuras hipóteses de kernel AVX2.
+- `docker-compose.yml` restaurado para `api=0.44` por instância e `nginx=0.12`.
+
+Mudanças explicitamente rejeitadas e revertidas:
+
+- `select_min` no kernel de produção.
+- IPO completo em libs auxiliares.
+- Remoção de `Content-Type`.
+- `UWS_HTTPRESPONSE_NO_WRITEMARK`.
+- Remoção de `shared_ptr<AppState>`.
+- Parse direto de chunk único.
+- Parser com `known_merchants` por `string_view` inline.
+- Splits `0.45/0.10`, `0.43/0.14` e `0.435/0.13`.
+
+Leitura técnica: a maior parte do espaço restante já está no ruído do k6 local. A única mudança de produção mantida além do LTO foi `res->cork`, por ser pequena, tecnicamente correta e levemente positiva na média aquecida. O parser pode ser melhorado em microbenchmark, mas a classificação e o caminho containerizado ainda dominam o p99.
+
+### Validação final antes do fechamento
+
+Horário de fechamento operacional: `2026-04-27 17:34 -0300`, dentro da janela combinada até 18h.
+
+Comandos executados:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-request-cpp benchmark-kernel-cpp -j2
+git diff --check
+docker compose config -q
+ctest --test-dir cpp/build --output-on-failure
+cpp/build/benchmark-kernel-cpp resources/references.json.gz test/test-data.json 3 1000
+docker compose up -d --build --force-recreate --pull never
+curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:9999/ready
+./run.sh
+```
+
+Resultados:
+
+- Build local: OK (`ninja: no work to do`, alvo já atualizado).
+- `git diff --check`: OK, sem whitespace error.
+- `docker compose config -q`: OK.
+- Testes C++: `1/1` passou.
+- `/ready`: `204`.
+- Benchmark de kernel curto: `0` divergências em todas as variantes; `baseline_production=27981 ns/query`, `baseline_select_min=25664 ns/query`.
+- k6 final no estado aceito: `p99=3.00ms`, `final_score=5522.93`, `0 FP`, `0 FN`, `0 HTTP errors`.
+
+Resultado final da rodada: manter somente mudanças sustentáveis e pequenas (`IPO` parcial, `res->cork`, benchmark offline). As demais hipóteses foram registradas e revertidas por não baterem o baseline aquecido no k6.

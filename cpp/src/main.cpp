@@ -193,8 +193,10 @@ int run_server(const ListenerConfig& config, const std::shared_ptr<AppState>& st
             }
 
             const std::string_view body = classification_json(classification);
-            res->writeHeader("Content-Type", "application/json");
-            res->end(body);
+            res->cork([res, body]() {
+                res->writeHeader("Content-Type", "application/json");
+                res->end(body);
+            });
         });
     });
 
