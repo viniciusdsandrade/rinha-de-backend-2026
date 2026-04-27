@@ -36,6 +36,8 @@ Média da validação final 5x do baseline aceito em 2026-04-25:
 | 21:39 | Procurar chave de agrupamento melhor sem mexer no caminho oficial | Criado modo `sweep` no benchmark offline para comparar `base`, `no_risk`, `amount4`, `amount8`, `hour`, `amount4_hour` e `amount4_hour_day` | Amostra 3.000 queries: `base=248068 ns/query`, `amount4=227987 ns/query`, `amount8=241616 ns/query`, `hour=318865 ns/query`, `amount4_hour=389363 ns/query`, `amount4_hour_day=1179520 ns/query`; todos com `mismatches=0` | Testar somente `amount4` no compose | `amount4` foi a única variação com sinal offline material e custo de grupos ainda aceitável. As chaves por hora/dia reduziram linhas, mas aumentaram overhead de ordenação/grupos e pioraram tempo. |
 | 21:40 | Verificar se o ganho offline de `amount4` se traduz em performance real | `group_key` de produção foi temporariamente estendida com bucket de `amount` em 4 faixas; build/teste local passou; compose foi reconstruído com prioridade baixa e k6 executado uma vez | k6: `p99=3.78ms`, `final_score=5422.11`, `FP=0`, `FN=0`, `HTTP=0` | Reverter `amount4` e manter agrupamento base | O ganho offline foi marginal e não apareceu no stack real. A variação ficou pior que o agrupamento base pós-limpeza (`3.52ms`) e pior que os melhores runs da rodada (`3.27ms`/`3.25ms`). |
 | 21:43 | Deixar o ambiente local coerente com o código final revertido | Após reverter `amount4`, rebuild local `-j2`, `ctest`, `git diff --check`, `docker compose config -q` e rebuild do compose em baixa prioridade | `cmake --build`: sem trabalho pendente; `ctest`: 1/1 passou; `git diff --check`: sem problemas; `docker compose config -q`: sem erro; `/ready=204` | Encerrar a rodada técnica e preparar commit escopado | O estado final publicado deve ser o agrupamento base, não o screening `amount4`. O compose local foi reconstruído para evitar confusão em testes posteriores. |
+| 22:12 | Reamostrar baseline agrupado pós-commit para validar estabilidade | Stack levantado novamente e rodada `run.sh` em prioridade baixa (`nice/ionice`) | k6 run extra 1: `p99=3.11ms`, `final_score=5507.07`, `FP=0`, `FN=0`, `HTTP=0` | Manter agrupamento base e ampliar amostra | Novo melhor resultado local da branch sem alteração de código, reforçando que o ganho da estratégia se sustenta. |
+| 22:14 | Confirmar que o run forte não foi outlier isolado | Segunda execução leve consecutiva no mesmo estado do compose | k6 run extra 2: `p99=3.23ms`, `final_score=5490.82`, `FP=0`, `FN=0`, `HTTP=0` | Considerar hipótese consolidada para esta rodada | A segunda execução permaneceu próxima do melhor run e acima do baseline histórico, com detecção sem regressão. |
 
 ## Resultado Comparativo
 
@@ -43,16 +45,16 @@ Comparação contra o melhor run aceito anterior:
 
 | Métrica | Antes | Melhor run da rodada | Diferença |
 |---|---:|---:|---:|
-| p99 | 3.92ms | 3.25ms | -0.67ms, ~17.1% melhor |
-| final_score | 5407.21 | 5488.65 | +81.44 pontos |
+| p99 | 3.92ms | 3.11ms | -0.81ms, ~20.7% melhor |
+| final_score | 5407.21 | 5507.07 | +99.86 pontos |
 | FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
 
 Comparação por média:
 
-| Métrica | Baseline aceito 5x | Rodada agrupada 4x | Diferença |
+| Métrica | Baseline aceito 5x | Rodada agrupada 6x | Diferença |
 |---|---:|---:|---:|
-| p99 médio | 4.04ms | 3.46ms | -0.58ms, ~14.4% melhor |
-| final_score médio | 5393.78 | 5462.39 | +68.61 pontos |
+| p99 médio | 4.04ms | 3.36ms | -0.68ms, ~16.8% melhor |
+| final_score médio | 5393.78 | 5474.57 | +80.79 pontos |
 | FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
 
 ## Estado Atual da Hipótese
@@ -62,8 +64,8 @@ O índice exato por grupos com lower bound é a primeira melhoria técnica mater
 - Mantém kNN exato no sentido de não descartar grupo cujo lower bound ainda possa superar o top-5 corrente.
 - Preservou o `fraud_count` do top-5 em 14.500 queries locais no benchmark offline.
 - Reduziu a varredura média offline de `100000` para `13836.9` linhas por query.
-- Melhorou p99 no compose local em 4 runs da rodada: `3.79ms`, `3.27ms`, `3.25ms`, `3.52ms`.
-- Não introduziu FP, FN nem HTTP errors nos quatro k6.
+- Melhorou p99 no compose local em 6 runs da rodada: `3.79ms`, `3.27ms`, `3.25ms`, `3.52ms`, `3.11ms`, `3.23ms`.
+- Não introduziu FP, FN nem HTTP errors nas seis execuções do k6.
 - A variação `amount4` foi rejeitada: apesar de ser a melhor no benchmark offline, entregou `p99=3.78ms` no k6 e foi revertida para preservar a configuração base mais estável.
 
 ## Validações Executadas
@@ -75,7 +77,7 @@ cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.j
 cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.json 1 3000 sweep
 docker compose up -d --build --force-recreate
 curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:9999/ready
-./run.sh  # 5 execuções controladas via nice/ionice, incluindo 1 screening rejeitado de amount4
+./run.sh  # 7 execuções controladas via nice/ionice, incluindo 1 screening rejeitado de amount4
 docker compose config -q
 git diff --check
 ```
@@ -87,11 +89,11 @@ Resultados:
 - `/ready`: HTTP 204.
 - `docker compose config -q`: sem erro.
 - `git diff --check`: sem problemas.
-- k6: 5 execuções com `0 FP`, `0 FN`, `0 HTTP errors`; 4 no agrupamento base aceito provisoriamente e 1 no `amount4` rejeitado.
+- k6: 7 execuções com `0 FP`, `0 FN`, `0 HTTP errors`; 6 no agrupamento base aceito provisoriamente e 1 no `amount4` rejeitado.
 
 ## Próximos Passos
 
-1. Reamostrar o agrupamento base em 5x quando a máquina estiver mais livre, separando média estável de melhor run.
+1. Reamostrar o agrupamento base em mais 3x quando a máquina estiver mais livre, para fechar bloco de 9 amostras no dia e separar média estável de melhor run.
 2. Não promover novas chaves de grupo apenas por benchmark offline; qualquer variação precisa superar o agrupamento base no k6, com `0 FP`, `0 FN` e `0 HTTP errors`.
 3. Próximas variações aceitáveis devem reduzir overhead por query, não apenas linhas varridas: evitar grupos demais, ordenação cara e bounding boxes pouco seletivas.
 4. Não voltar para micro-otimizações de parser/headers/allocator antes de esgotar a linha de índice exato por grupos.
