@@ -178,6 +178,22 @@ void test_classifier_matches_official_smoke_examples() {
     expect_near(fraud_classification.fraud_score, 1.0f, 0.0001f, "fraud_score fraud inesperado");
 }
 
+void test_reference_set_builds_pruning_groups() {
+    const std::filesystem::path repo_root = RINHA_REPO_ROOT;
+    const std::filesystem::path references_path = repo_root / "resources" / "references.json.gz";
+
+    ReferenceSet refs;
+    std::string error;
+    expect(
+        ReferenceSet::load_gzip_json(references_path.string(), refs, error),
+        "falha ao carregar referencias oficiais para grupos: " + error
+    );
+
+    expect(!refs.groups().empty(), "referencias deveriam criar grupos para pruning");
+    expect(refs.groups().size() < refs.len(), "grupos precisam ser menores que o total de referencias");
+    expect(refs.groups().size() <= 512, "grupos deveriam permanecer dentro do limite do caminho AVX2");
+}
+
 }  // namespace
 
 int main() {
@@ -187,5 +203,6 @@ int main() {
     test_parse_payload_handles_duplicate_known_merchants();
     test_vectorize_rejects_invalid_non_leap_february_date();
     test_classifier_matches_official_smoke_examples();
+    test_reference_set_builds_pruning_groups();
     return 0;
 }

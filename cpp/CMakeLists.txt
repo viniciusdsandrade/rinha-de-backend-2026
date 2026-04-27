@@ -159,3 +159,36 @@ add_test(
     NAME rinha-backend-2026-cpp-tests
     COMMAND rinha-backend-2026-cpp-tests
 )
+
+add_executable(benchmark-classifier-cpp EXCLUDE_FROM_ALL
+    tools/benchmark_classifier.cpp
+    src/refs.cpp
+)
+target_include_directories(benchmark-classifier-cpp
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader"
+)
+target_compile_definitions(benchmark-classifier-cpp
+    PRIVATE
+        SIMDJSON_EXCEPTIONS=0
+)
+target_link_libraries(benchmark-classifier-cpp
+    PRIVATE
+        simdjson_singleheader
+        ZLIB::ZLIB
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(benchmark-classifier-cpp PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+    )
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    target_compile_options(benchmark-classifier-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
+endif()

@@ -10,6 +10,13 @@
 
 namespace rinha {
 
+struct ReferenceGroup {
+    std::array<std::vector<float>, kDimensions> dims{};
+    std::vector<std::uint8_t> labels{};
+    std::array<float, kDimensions> min_values{};
+    std::array<float, kDimensions> max_values{};
+};
+
 class ReferenceSet {
 public:
     static bool load_gzip_json(const std::string& path, ReferenceSet& refs, std::string& error);
@@ -30,6 +37,7 @@ public:
     [[nodiscard]] bool is_fraud(std::size_t index) const noexcept;
     [[nodiscard]] const std::vector<float>& dim(std::size_t index) const noexcept;
     [[nodiscard]] const std::vector<std::uint8_t>& labels() const noexcept;
+    [[nodiscard]] const std::vector<ReferenceGroup>& groups() const noexcept;
     [[nodiscard]] const std::array<std::size_t, kDimensions>& dimension_order() const noexcept;
 
     bool distance_squared_if_below(
@@ -42,9 +50,11 @@ public:
 private:
     std::array<std::vector<float>, kDimensions> dims_{};
     std::vector<std::uint8_t> labels_{};
+    std::vector<ReferenceGroup> groups_{};
     std::array<std::size_t, kDimensions> dimension_order_{};
 
     void finalize_dimension_order() noexcept;
+    void build_groups();
 };
 
 }  // namespace rinha
