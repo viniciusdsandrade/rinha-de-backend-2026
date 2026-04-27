@@ -834,3 +834,11 @@ Checagem pós-reversão com compose reconstruído no código aceito:
 | restore-2 | 3.11ms | 5507.60 | 0 | 0 | 0 |
 
 Leitura: o código foi restaurado e não houve erro de detecção/HTTP. Esses dois runs ficaram abaixo dos melhores runs aquecidos anteriores, indicando ruído/carga local no fim da janela, não uma mudança aceita de performance.
+
+Medição final da janela, sem nova mudança de código:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| final | 2.88ms | 5540.61 | 0 | 0 | 0 |
+
+Leitura final: após aquecer novamente, o estado aceito voltou ao patamar competitivo da rodada. A decisão permanece a mesma: manter `IPO` parcial + `res->cork` + ferramentas de benchmark, rejeitando as micro-otimizações que não sustentaram no k6.
