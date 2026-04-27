@@ -41,6 +41,10 @@ Média da validação final 5x do baseline aceito em 2026-04-25:
 | 22:15 | Aumentar tamanho da amostra antes de encerrar a noite | Reamostragem leve adicional 1/3 sem rebuild intermediário | k6 run extra 3: `p99=3.19ms`, `final_score=5496.48`, `FP=0`, `FN=0`, `HTTP=0` | Manter | Resultado dentro da faixa alta da rodada, sem sinal de degradação sob repetição. |
 | 22:17 | Repetir para medir variação curta de p99 | Reamostragem leve adicional 2/3 no mesmo estado do compose | k6 run extra 4: `p99=3.29ms`, `final_score=5482.16`, `FP=0`, `FN=0`, `HTTP=0` | Manter | Variação esperada de p99, ainda superior ao baseline histórico consolidado. |
 | 22:18 | Fechar bloco de validação com mais uma amostra | Reamostragem leve adicional 3/3 no mesmo estado do compose | k6 run extra 5: `p99=3.12ms`, `final_score=5506.12`, `FP=0`, `FN=0`, `HTTP=0` | Fechar bloco de estabilidade da rodada | O bloco ampliado confirma estabilidade prática da estratégia com pontuação elevada em múltiplas execuções. |
+| 22:22 | Testar uma hipótese leve de pruning intra-grupo | Benchmark offline atualizado para comparar ordem global vs `dimension_order` por grupo (`group_local`) | `base`: `order=global 248223 ns/query` vs `order=group_local 152102 ns/query`, `mismatches=0` nos dois | Promover para screening em produção | A ordem por grupo preservou exatidão no offline e reduziu custo de pruning em ~38.7% no caso base. |
+| 22:25 | Verificar impacto real no stack oficial local | Portado `dimension_order` por grupo para produção (`ReferenceGroup`) e aplicado no caminho AVX2 agrupado; rebuild compose | k6 screening run 1: `p99=4.04ms`, `final_score=5393.66`, `FP=0`, `FN=0`, `HTTP=0` | Reamostrar antes de reverter | O primeiro run pós-rebuild ficou abaixo do baseline esperado e levantou suspeita de variância alta. |
+| 22:28 | Confirmar ou negar regressão observada no run 1 | Segunda execução k6 no mesmo binário, sem rebuild intermediário | k6 screening run 2: `p99=2.86ms`, `final_score=5544.16`, `FP=0`, `FN=0`, `HTTP=0` | Manter hipótese viva e ampliar amostra | Resultado inverteu completamente o sinal do run 1 e virou novo topo local provisório. |
+| 22:31 | Fechar bloco curto de estabilidade para `group_local` | Mais duas execuções k6 sob mesmas condições para reduzir risco de outlier | k6 screening run 3: `p99=2.90ms`, `final_score=5537.86`; run 4: `p99=2.79ms`, `final_score=5553.98`; ambos com `FP=0`, `FN=0`, `HTTP=0` | Manter `group_local` como candidata principal | Apesar do primeiro run fraco, as três execuções seguintes ficaram consistentemente acima do baseline de `group_order` global. |
 
 ## Resultado Comparativo
 
@@ -48,8 +52,8 @@ Comparação contra o melhor run aceito anterior:
 
 | Métrica | Antes | Melhor run da rodada | Diferença |
 |---|---:|---:|---:|
-| p99 | 3.92ms | 3.11ms | -0.81ms, ~20.7% melhor |
-| final_score | 5407.21 | 5507.07 | +99.86 pontos |
+| p99 | 3.92ms | 2.79ms | -1.13ms, ~28.8% melhor |
+| final_score | 5407.21 | 5553.98 | +146.77 pontos |
 | FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
 
 Comparação por média:
@@ -59,6 +63,19 @@ Comparação por média:
 | p99 médio | 4.04ms | 3.31ms | -0.73ms, ~18.1% melhor |
 | final_score médio | 5393.78 | 5481.36 | +87.58 pontos |
 | FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
+
+Comparação do bloco novo `group_local` (4 runs) contra o baseline de referência:
+
+| Métrica | Baseline aceito 5x | `group_local` 4x | Diferença |
+|---|---:|---:|---:|
+| p99 médio | 4.04ms | 3.15ms | -0.89ms, ~22.1% melhor |
+| final_score médio | 5393.78 | 5507.42 | +113.64 pontos |
+| FP/FN/HTTP | 0/0/0 | 0/0/0 | Sem regressão |
+
+Observação de estabilidade do bloco `group_local`:
+
+- Média dos 4 runs: `p99=3.15ms`, `final_score=5507.42`.
+- Média dos 3 runs após o primeiro screening (`runs 2-4`): `p99=2.85ms`, `final_score=5545.33`.
 
 ## Estado Atual da Hipótese
 
@@ -70,6 +87,8 @@ O índice exato por grupos com lower bound é a primeira melhoria técnica mater
 - Melhorou p99 no compose local em 9 runs da rodada: `3.79ms`, `3.27ms`, `3.25ms`, `3.52ms`, `3.11ms`, `3.23ms`, `3.19ms`, `3.29ms`, `3.12ms`.
 - Não introduziu FP, FN nem HTTP errors nas nove execuções do k6 no agrupamento base.
 - A variação `amount4` foi rejeitada: apesar de ser a melhor no benchmark offline, entregou `p99=3.78ms` no k6 e foi revertida para preservar a configuração base mais estável.
+- A variação `group_local` (ordem de dimensão por grupo) superou o baseline em 3 de 4 screenings no compose: `2.86ms`, `2.90ms`, `2.79ms` com score acima de `5537`.
+- O primeiro screening de `group_local` (`4.04ms`) indica que ainda há variância de curto prazo; decisão operacional: manter a hipótese e ampliar amostra antes de considerar congelamento final.
 
 ## Validações Executadas
 
@@ -80,7 +99,7 @@ cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.j
 cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.json 1 3000 sweep
 docker compose up -d --build --force-recreate
 curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:9999/ready
-./run.sh  # 10 execuções controladas via nice/ionice, incluindo 1 screening rejeitado de amount4
+./run.sh  # 14 execuções controladas via nice/ionice, incluindo 1 screening rejeitado de amount4
 docker compose config -q
 git diff --check
 ```
@@ -92,11 +111,11 @@ Resultados:
 - `/ready`: HTTP 204.
 - `docker compose config -q`: sem erro.
 - `git diff --check`: sem problemas.
-- k6: 10 execuções com `0 FP`, `0 FN`, `0 HTTP errors`; 9 no agrupamento base aceito provisoriamente e 1 no `amount4` rejeitado.
+- k6: 14 execuções com `0 FP`, `0 FN`, `0 HTTP errors`; 9 no agrupamento base, 1 no `amount4` rejeitado e 4 no `group_local`.
 
 ## Próximos Passos
 
-1. Congelar este baseline agrupado como referência da branch (`9x` com média `p99=3.31ms`, `final_score=5481.36`) para comparar qualquer mudança futura.
-2. Não promover novas chaves de grupo apenas por benchmark offline; qualquer variação precisa superar o agrupamento base no k6, com `0 FP`, `0 FN` e `0 HTTP errors`.
-3. Próxima frente de teste, ainda leve: reordenar `dimension_order` usando estatística condicionada por grupo (não global) e aceitar só se melhorar score médio em múltiplas runs.
-4. Não voltar para micro-otimizações de parser/headers/allocator antes de esgotar a linha de índice exato por grupos.
+1. Reamostrar `group_local` em mais 5 execuções leves para fechar um bloco de 9 runs dessa hipótese e reduzir incerteza de variância.
+2. Manter o baseline `group_order` global (`9x`, média `3.31ms`) como controle A/B até o novo bloco de `group_local` fechar.
+3. Não promover novas chaves de grupo apenas por benchmark offline; qualquer variação precisa superar o controle no k6, com `0 FP`, `0 FN` e `0 HTTP errors`.
+4. Não voltar para micro-otimizações de parser/headers/allocator antes de esgotar a linha de índice exato por grupos e sua estabilidade estatística no compose.

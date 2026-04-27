@@ -15,6 +15,7 @@ struct ReferenceGroup {
     std::vector<std::uint8_t> labels{};
     std::array<float, kDimensions> min_values{};
     std::array<float, kDimensions> max_values{};
+    std::array<std::size_t, kDimensions> dimension_order{};
 };
 
 class ReferenceSet {

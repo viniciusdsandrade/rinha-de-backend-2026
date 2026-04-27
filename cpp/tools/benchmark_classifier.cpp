@@ -59,6 +59,7 @@ struct Group {
     std::vector<std::uint8_t> labels{};
     std::array<float, rinha::kDimensions> min_values{};
     std::array<float, rinha::kDimensions> max_values{};
+    std::array<std::size_t, rinha::kDimensions> dimension_order{};
 };
 
 struct GroupedRefs {
@@ -210,14 +211,41 @@ GroupedRefs build_grouped_refs(const ReferenceSet& refs, const GroupingStrategy&
     }
 
     for (Group& group : grouped.groups) {
+        std::array<double, rinha::kDimensions> variances{};
         for (std::size_t dim = 0; dim < rinha::kDimensions; ++dim) {
             const auto [min_it, max_it] = std::minmax_element(group.dims[dim].begin(), group.dims[dim].end());
             group.min_values[dim] = *min_it;
             group.max_values[dim] = *max_it;
+
+            double mean = 0.0;
+            for (const float value : group.dims[dim]) {
+                mean += static_cast<double>(value);
+            }
+            mean /= static_cast<double>(group.dims[dim].size());
+
+            double variance = 0.0;
+            for (const float value : group.dims[dim]) {
+                const double delta = static_cast<double>(value) - mean;
+                variance += delta * delta;
+            }
+            variances[dim] = variance / static_cast<double>(group.dims[dim].size());
+
             if (group.dims[dim].capacity() > group.dims[dim].size()) {
                 group.dims[dim].shrink_to_fit();
             }
         }
+
+        for (std::size_t dim = 0; dim < rinha::kDimensions; ++dim) {
+            group.dimension_order[dim] = dim;
+        }
+        std::sort(
+            group.dimension_order.begin(),
+            group.dimension_order.end(),
+            [&variances](std::size_t left, std::size_t right) {
+                return variances[left] > variances[right];
+            }
+        );
+
         if (group.labels.capacity() > group.labels.size()) {
             group.labels.shrink_to_fit();
         }
@@ -252,7 +280,7 @@ Top5 baseline_top5(const ReferenceSet& refs, const QueryVector& query, ScanStats
     return top;
 }
 
-Top5 grouped_top5(const GroupedRefs& refs, const QueryVector& query, ScanStats& stats) {
+Top5 grouped_top5(const GroupedRefs& refs, const QueryVector& query, ScanStats& stats, bool use_group_order) {
     Top5 top;
     std::vector<std::pair<float, std::size_t>> order;
     order.reserve(refs.groups.size());
@@ -261,7 +289,7 @@ Top5 grouped_top5(const GroupedRefs& refs, const QueryVector& query, ScanStats& 
     }
     std::sort(order.begin(), order.end());
 
-    for (const auto [lower_bound, group_index] : order) {
+    for (const auto& [lower_bound, group_index] : order) {
         if (lower_bound >= top.entries[4].first) {
             break;
         }
@@ -269,11 +297,12 @@ Top5 grouped_top5(const GroupedRefs& refs, const QueryVector& query, ScanStats& 
         const Group& group = refs.groups[group_index];
         ++stats.groups_visited;
         const std::size_t rows = group.labels.size();
+        const auto& dimension_order = use_group_order ? group.dimension_order : refs.dimension_order;
         for (std::size_t row = 0; row < rows; ++row) {
             float distance = 0.0f;
             bool below = true;
             ++stats.rows_scanned;
-            for (const std::size_t dim : refs.dimension_order) {
+            for (const std::size_t dim : dimension_order) {
                 const float delta = query[dim] - group.dims[dim][row];
                 distance += delta * delta;
                 if (distance >= top.entries[4].first) {
@@ -367,9 +396,19 @@ int main(int argc, char** argv) {
                 ScanStats validation_grouped_stats;
                 for (const QueryVector& query : queries) {
                     const Top5 baseline = baseline_top5(refs, query, validation_baseline_stats);
-                    const Top5 grouped_top = grouped_top5(grouped, query, validation_grouped_stats);
+                    const Top5 grouped_top = grouped_top5(grouped, query, validation_grouped_stats, false);
                     if (baseline.fraud_count() != grouped_top.fraud_count()) {
                         ++mismatches;
+                    }
+                }
+
+                std::size_t local_mismatches = 0;
+                ScanStats local_validation_stats;
+                for (const QueryVector& query : queries) {
+                    const Top5 baseline = baseline_top5(refs, query, validation_baseline_stats);
+                    const Top5 grouped_top = grouped_top5(grouped, query, local_validation_stats, true);
+                    if (baseline.fraud_count() != grouped_top.fraud_count()) {
+                        ++local_mismatches;
                     }
                 }
 
@@ -378,11 +417,21 @@ int main(int argc, char** argv) {
                     queries,
                     repeat,
                     [&grouped, &grouped_stats](const QueryVector& query) {
-                        return grouped_top5(grouped, query, grouped_stats);
+                        return grouped_top5(grouped, query, grouped_stats, false);
+                    }
+                );
+
+                ScanStats grouped_local_stats;
+                const auto [grouped_local_elapsed, grouped_local_checksum] = time_queries(
+                    queries,
+                    repeat,
+                    [&grouped, &grouped_local_stats](const QueryVector& query) {
+                        return grouped_top5(grouped, query, grouped_local_stats, true);
                     }
                 );
 
                 std::cout << "strategy=" << strategy.name
+                          << " order=global"
                           << " groups=" << grouped.groups.size()
                           << " mismatches=" << mismatches
                           << " grouped_ns_per_query=" << ns_per_query(grouped_elapsed, queries.size(), repeat)
@@ -391,6 +440,17 @@ int main(int argc, char** argv) {
                           << " groups_per_query=" << static_cast<double>(grouped_stats.groups_visited) /
                                  static_cast<double>(queries.size() * repeat)
                           << " checksum=" << grouped_checksum
+                          << '\n';
+                std::cout << "strategy=" << strategy.name
+                          << " order=group_local"
+                          << " groups=" << grouped.groups.size()
+                          << " mismatches=" << local_mismatches
+                          << " grouped_ns_per_query=" << ns_per_query(grouped_local_elapsed, queries.size(), repeat)
+                          << " rows_per_query=" << static_cast<double>(grouped_local_stats.rows_scanned) /
+                                 static_cast<double>(queries.size() * repeat)
+                          << " groups_per_query=" << static_cast<double>(grouped_local_stats.groups_visited) /
+                                 static_cast<double>(queries.size() * repeat)
+                          << " checksum=" << grouped_local_checksum
                           << '\n';
             }
             return 0;
@@ -404,7 +464,7 @@ int main(int argc, char** argv) {
         ScanStats grouped_validation_stats;
         for (const QueryVector& query : queries) {
             const Top5 baseline = baseline_top5(refs, query, baseline_validation_stats);
-            const Top5 grouped_top = grouped_top5(grouped, query, grouped_validation_stats);
+            const Top5 grouped_top = grouped_top5(grouped, query, grouped_validation_stats, false);
             if (baseline.fraud_count() != grouped_top.fraud_count()) {
                 ++mismatches;
             }
@@ -424,7 +484,7 @@ int main(int argc, char** argv) {
             queries,
             repeat,
             [&grouped, &grouped_stats](const QueryVector& query) {
-                return grouped_top5(grouped, query, grouped_stats);
+                return grouped_top5(grouped, query, grouped_stats, false);
             }
         );
 

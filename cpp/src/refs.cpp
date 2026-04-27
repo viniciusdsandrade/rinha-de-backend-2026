@@ -384,6 +384,7 @@ void ReferenceSet::build_groups() {
     }
 
     for (ReferenceGroup& group : groups_) {
+        std::array<double, kDimensions> variance{};
         for (std::size_t dim_index = 0; dim_index < kDimensions; ++dim_index) {
             const auto [min_it, max_it] = std::minmax_element(
                 group.dims[dim_index].begin(),
@@ -391,10 +392,33 @@ void ReferenceSet::build_groups() {
             );
             group.min_values[dim_index] = *min_it;
             group.max_values[dim_index] = *max_it;
+
+            double sum = 0.0;
+            double squared_sum = 0.0;
+            for (const float value : group.dims[dim_index]) {
+                sum += static_cast<double>(value);
+                squared_sum += static_cast<double>(value) * static_cast<double>(value);
+            }
+            const double count = static_cast<double>(group.dims[dim_index].size());
+            const double mean = sum / count;
+            variance[dim_index] = (squared_sum / count) - (mean * mean);
+
             if (group.dims[dim_index].capacity() > group.dims[dim_index].size()) {
                 group.dims[dim_index].shrink_to_fit();
             }
         }
+
+        for (std::size_t dim_index = 0; dim_index < kDimensions; ++dim_index) {
+            group.dimension_order[dim_index] = dim_index;
+        }
+        std::sort(
+            group.dimension_order.begin(),
+            group.dimension_order.end(),
+            [&variance](std::size_t left, std::size_t right) {
+                return variance[left] > variance[right];
+            }
+        );
+
         if (group.labels.capacity() > group.labels.size()) {
             group.labels.shrink_to_fit();
         }

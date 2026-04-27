@@ -159,7 +159,6 @@ Classifier::Top5 Classifier::top5_avx2(const QueryVector& query) const noexcept 
         query_lanes[index] = _mm256_set1_ps(query[index]);
     }
 
-    const auto& ordered_dims = refs_.dimension_order();
     std::array<std::pair<float, std::size_t>, kMaxReferenceGroups> group_order{};
     for (std::size_t index = 0; index < groups.size(); ++index) {
         group_order[index] = {lower_bound_distance(groups[index], query), index};
@@ -174,6 +173,7 @@ Classifier::Top5 Classifier::top5_avx2(const QueryVector& query) const noexcept 
 
         const ReferenceGroup& group = groups[group_index];
         const auto& labels = group.labels;
+        const auto& ordered_dims = group.dimension_order;
         const std::size_t rows = labels.size();
         const std::size_t chunks = rows / 8U;
 
