@@ -791,3 +791,46 @@ Checagem pós-reversão no estado original:
 | restore | 2.89ms | 5539.22 | 0 | 0 | 0 |
 
 Resultado: runtime restaurada para o estado aceito, sem resíduo operacional da hipótese rejeitada.
+
+### Experimento adicional: reutilizar buffers do parser por thread
+
+Hipótese: transformar `known_merchants` e `merchant_id` em `thread_local` dentro de `parse_payload` reduziria alocações por requisição sem alterar o contrato.
+
+Mudança temporária:
+
+```cpp
+thread_local std::vector<std::string> known_merchants;
+thread_local std::string merchant_id;
+known_merchants.clear();
+merchant_id.clear();
+```
+
+Validações locais:
+
+- Build do backend/test/benchmark-request: OK.
+- `ctest --test-dir cpp/build --output-on-failure`: `1/1` passou.
+- `benchmark-request-cpp test/test-data.json resources/references.json.gz 3 0`:
+  - `parse_payload_ns_per_query=561.143`.
+  - `parse_vectorize_ns_per_query=620.81`.
+  - `parse_classify_ns_per_query=28754.4`.
+
+Leitura offline: houve melhora em parse contra a referência antiga aproximada (`~592ns`), mas menor que a variante `string_view` já rejeitada no k6.
+
+k6:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.95ms | 5403.54 | 0 | 0 | 0 |
+| 2 | 3.15ms | 5501.90 | 0 | 0 | 0 |
+| 3 | 3.02ms | 5520.47 | 0 | 0 | 0 |
+
+Decisão: rejeitado e revertido. A mudança melhora microbenchmark de parser, mas piora o k6 aquecido e confirma que otimizações pequenas do parser não movem o p99 final de forma sustentável nesta stack.
+
+Checagem pós-reversão com compose reconstruído no código aceito:
+
+| Run | p99 | final_score | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| restore-1 | 3.11ms | 5507.37 | 0 | 0 | 0 |
+| restore-2 | 3.11ms | 5507.60 | 0 | 0 | 0 |
+
+Leitura: o código foi restaurado e não houve erro de detecção/HTTP. Esses dois runs ficaram abaixo dos melhores runs aquecidos anteriores, indicando ruído/carga local no fim da janela, não uma mudança aceita de performance.
