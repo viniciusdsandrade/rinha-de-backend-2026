@@ -5,12 +5,13 @@ import { Counter } from 'k6/metrics';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
 import exec from 'k6/execution';
 
-const testFile = JSON.parse(open('./test-data.json'));
-const expectedStats = testFile.stats;
-
 const testData = new SharedArray('test-data', function () {
-    return testFile.entries;
+    return JSON.parse(open('./test-data.json')).entries;
 });
+const statsArr = new SharedArray('test-stats', function () {
+    return [JSON.parse(open('./test-data.json')).stats];
+});
+const expectedStats = statsArr[0];
 
 const tpCount = new Counter('tp_count');
 const tnCount = new Counter('tn_count');
@@ -20,6 +21,7 @@ const errorCount = new Counter('error_count');
 
 export const options = {
     summaryTrendStats: ['p(99)'],
+    systemTags: ['status', 'method'],
     dns: {
         ttl: '5m',
         select: 'roundRobin',
@@ -29,11 +31,11 @@ export const options = {
             executor: 'ramping-arrival-rate',
             startRate: 1,
             timeUnit: '1s',
-            preAllocatedVUs: 10,
-            maxVUs: 50,
+            preAllocatedVUs: 100,
+            maxVUs: 250,
             gracefulStop: '10s',
             stages: [
-                { duration: '120s', target: 750 },
+                { duration: '120s', target: 900 },
             ],
         },
     },
@@ -52,20 +54,20 @@ export default function () {
     const idx = exec.scenario.iterationInTest;
     if (idx >= testData.length) return;
     const entry = testData[idx];
-    const expected = entry.info.expected_response;
+    const expectedApproved = entry.expected_approved;
 
     const res = http.post(
         'http://localhost:9999/fraud-score',
         JSON.stringify(entry.request),
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: { 'Content-Type': 'application/json' }, timeout: '2001ms' }
     );
 
     if (res.status === 200) {
         const body = JSON.parse(res.body);
-        // Per-request scoring: compare against expected.approved
-        // expected.approved === true  --> legit transaction
-        // expected.approved === false --> fraud transaction
-        if (expected.approved === body.approved) {
+        // Per-request scoring: compare against expectedApproved
+        // expectedApproved === true  --> legit transaction
+        // expectedApproved === false --> fraud transaction
+        if (expectedApproved === body.approved) {
             if (body.approved) tnCount.add(1); // correctly approved legit
             else tpCount.add(1);               // correctly denied fraud
         } else {
@@ -78,7 +80,6 @@ export default function () {
 }
 
 export function handleSummary(data) {
-    // Constantes do scoring (ver docs/superpowers/specs/2026-04-22-logarithmic-scoring-design.md)
     const K = 1000;
     const T_MAX_MS = 1000;
     const P99_MIN_MS = 1;
