@@ -3824,3 +3824,39 @@ Resultado no benchmark oficial local atualizado:
 Leitura: a primeira run foi ligeiramente melhor, mas a repetição voltou para `3.09ms`, pior que a melhor e a faixa média do split `0.40/0.40/0.20`. O resultado sugere que `0.16 CPU` deixa o nginx perto demais do limite ou aumenta variabilidade de scheduling. Como a meta é ganho sustentável, não basta capturar um melhor caso isolado.
 
 Decisão: rejeitado. `docker-compose.yml` voltou para o split aceito `api1/api2=0.40 CPU` e `nginx=0.20 CPU`.
+
+### Experimento aceito: split intermediário de CPU
+
+Hipótese: o split `0.42/0.42/0.16` mostrou um melhor caso alto, mas variância ruim. O ponto intermediário `0.41/0.41/0.18` poderia preservar parte do ganho de CPU nas APIs sem pressionar tanto o nginx.
+
+Alteração testada:
+
+```text
+api1/api2: 0.40 CPU -> 0.41 CPU cada
+nginx:     0.20 CPU -> 0.18 CPU
+total:     1.00 CPU mantido
+memória:   inalterada
+```
+
+Validação:
+
+```text
+docker inspect:
+  api1 NanoCpus=410000000 Memory=173015040
+  api2 NanoCpus=410000000 Memory=173015040
+  nginx NanoCpus=180000000 Memory=20971520
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| `0.40/0.40/0.20` aceito | 1 | 3.03ms | 0 | 0 | 0 | 5518.50 |
+| `0.40/0.40/0.20` aceito | 2 | 2.96ms | 0 | 0 | 0 | 5528.15 |
+| `0.41/0.41/0.18` | 1 | 2.98ms | 0 | 0 | 0 | 5525.95 |
+| `0.41/0.41/0.18` | 2 | 2.98ms | 0 | 0 | 0 | 5526.35 |
+
+Leitura: o split intermediário não superou a melhor run isolada do `0.40/0.40/0.20`, mas reproduziu duas runs quase idênticas abaixo de `3.0ms`, com score médio melhor que as duas runs do split anterior e sem sinal de instabilidade do nginx. Para submissão, esse ponto é mais defensável que perseguir o melhor caso isolado.
+
+Decisão: aceito. `docker-compose.yml` passa a usar `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
