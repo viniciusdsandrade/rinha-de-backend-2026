@@ -2880,3 +2880,33 @@ Resultados no benchmark oficial local atualizado:
 Leitura: a variante com 2 APIs não superou o melhor single-run de 3 APIs (`5541.51`), mas foi mais estável do que a repetição de 3 APIs (`5526.32`) e ficou acima do melhor aceito anterior à redistribuição (`5528.47`). Como a topologia continua 100% conforme o regulamento (`LB + 2 APIs`, sem lógica no LB, bridge, 1 CPU/350MB) e reduz a quantidade de processos disputando scheduler, ela é um candidato melhor para o estado experimental atual.
 
 Decisão: aceito no branch experimental. O melhor single-run do dia permanece `5541.51` com 3 APIs, mas o estado atual passa a ser 2 APIs por estabilidade local.
+
+### Experimento aceito: calibrar CPU entre 2 APIs e nginx
+
+Hipótese: com apenas 2 APIs, o gargalo poderia pender para o nginx ou para as APIs. Foram testados dois deslocamentos simétricos mantendo a mesma topologia de 2 APIs, a mesma memória e o mesmo total exato de `1.00 CPU`.
+
+Validações de limites efetivos:
+
+```text
+api=0.37 x2, nginx=0.26:
+/perf-noon-tuning-api1-1 nano=370000000 mem=173015040
+/perf-noon-tuning-api2-1 nano=370000000 mem=173015040
+/perf-noon-tuning-nginx-1 nano=259999984 mem=20971520
+
+api=0.35 x2, nginx=0.30:
+/perf-noon-tuning-api1-1 nano=350000000 mem=173015040
+/perf-noon-tuning-api2-1 nano=350000000 mem=173015040
+/perf-noon-tuning-nginx-1 nano=300000000 mem=20971520
+```
+
+Resultados no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `api=0.37 x2`, `nginx=0.26` | 2.92ms | 0 | 0 | 0 | 5534.69 | rejeitado como marginal |
+| `api=0.35 x2`, `nginx=0.30` run #1 | 2.85ms | 0 | 0 | 0 | 5545.37 | repetir |
+| `api=0.35 x2`, `nginx=0.30` run #2 | 2.90ms | 0 | 0 | 0 | 5537.88 | aceitar |
+
+Leitura: tirar CPU do nginx praticamente não mudou o resultado (`5534.57 -> 5534.69`) e ficou dentro de ruído. Dar mais CPU ao nginx, por outro lado, produziu o melhor single-run da rodada (`5545.37`) e uma confirmação ainda acima das variantes de 2 APIs anteriores. O sinal reforça que, no estado atual, a cauda é mais sensível a proxy/throttling/scheduling do que a uma pequena fatia extra de CPU no classificador.
+
+Decisão: aceito no branch experimental. O `docker-compose.yml` passa a usar `api1/api2=0.35 CPU, 165MB` e `nginx=0.30 CPU, 20MB`.
