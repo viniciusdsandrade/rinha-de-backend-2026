@@ -1392,3 +1392,34 @@ Resultado offline:
 | Controle pareado recente | 156575-158264 | 0 | 0 | 0 |
 
 Decisão: revertido sem k6. A otimização é correta e preservou os testes, mas não mostrou ganho offline sustentável. O custo de timestamp não é dominante frente ao IVF/proxy nesta stack.
+
+### Experimento rejeitado: `-ffast-math` no runtime IVF
+
+Hipótese: relaxar regras de ponto flutuante no binário da API e no benchmark IVF poderia acelerar cálculo de query/centróide sem alterar o índice gerado. O `prepare-ivf-cpp` foi mantido sem `-ffast-math` para isolar o runtime.
+
+Escopo testado:
+
+```text
+rinha-backend-2026-cpp: -ffast-math
+benchmark-ivf-cpp:      -ffast-math
+prepare-ivf-cpp:        inalterado
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-2048.bin 3 0 1 1 1
+```
+
+Resultado offline:
+
+| Run | ns/query | FP | FN | parse_errors |
+|---:|---:|---:|---:|---:|
+| 1 | 158824 | 0 | 0 | 0 |
+| 2 | 159939 | 0 | 0 | 0 |
+| 3 | 157271 | 0 | 0 | 0 |
+| Controle pareado recente | 156575-158264 | 0 | 0 | 0 |
+
+Decisão: revertido sem k6. Não houve ganho offline claro, e manter `-ffast-math` aumenta risco sem retorno mensurável.
