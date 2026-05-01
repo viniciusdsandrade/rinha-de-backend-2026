@@ -3741,3 +3741,51 @@ p99_score=2476.94
 Leitura: o ganho isolado de append não apareceu no endpoint real. O custo extra de reservar 768 bytes por request e a pressão adicional de heap/cache pioraram o p99 em `0.21ms`, uma perda grande demais para considerar ruído aceitável.
 
 Decisão: rejeitado e revertido. O hot path voltou a usar `body = std::string{}` sem reserva explícita.
+
+### Experimento aceito: redistribuição de CPU para APIs
+
+Hipótese: com nginx em modo `stream` L4 usando UDS, o load balancer provavelmente estava superdimensionado em `0.30 CPU`, enquanto a classificação IVF nas APIs continuava sendo o caminho dominante. Transferir CPU do nginx para as duas APIs poderia reduzir throttling dos classificadores sem aumentar erros.
+
+Alteração testada:
+
+```text
+api1/api2: 0.35 CPU -> 0.40 CPU cada
+nginx:     0.30 CPU -> 0.20 CPU
+total:     1.00 CPU mantido
+memória:   inalterada em 165MB + 165MB + 20MB = 350MB
+```
+
+Validação:
+
+```text
+docker inspect:
+  api1 NanoCpus=400000000 Memory=173015040
+  api2 NanoCpus=400000000 Memory=173015040
+  nginx NanoCpus=200000000 Memory=20971520
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline alinhado restaurado (`0.35/0.35/0.30`) | referência | 3.12ms | 0 | 0 | 0 | 5505.57 |
+| `0.40/0.40/0.20` | 1 | 3.03ms | 0 | 0 | 0 | 5518.50 |
+| `0.40/0.40/0.20` | 2 | 2.96ms | 0 | 0 | 0 | 5528.15 |
+
+Breakdown da melhor run:
+
+```text
+TP=24037
+TN=30022
+FP=0
+FN=0
+HTTP=0
+weighted_errors_E=0
+detection_score=3000
+p99_score=2528.15
+```
+
+Leitura: o ganho reproduziu em duas runs consecutivas e manteve acurácia perfeita. A melhor run local reduziu p99 em `0.16ms` contra o baseline alinhado e elevou o score em `22.58` pontos. Isso confirma que, no cenário atual, o nginx precisa de menos CPU que as APIs e que o gargalo marginal está mais próximo do classificador/worker C++.
+
+Decisão: aceito. `docker-compose.yml` fica com `api1/api2=0.40 CPU` e `nginx=0.20 CPU`.
