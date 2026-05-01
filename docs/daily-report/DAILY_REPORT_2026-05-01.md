@@ -1250,3 +1250,39 @@ Resultado k6:
 | Controle limpo nginx `stream` | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
 
 Decisão: revertido. A mudança preservou correção, mas piorou a cauda. A cópia evitada pelo simdjson não é o gargalo dominante no compose oficial local; a reserva por request e o caminho adicional de parser não compensaram sob k6.
+
+### Experimento rejeitado: retunar quantidade de clusters IVF
+
+Hipótese: o ponto ótimo do IVF poderia estar levemente fora de `2048` clusters. Menos clusters reduzem custo de seleção de centróide/bbox, mas aumentam o número médio de vetores escaneados por bucket; mais clusters fazem o inverso. Como isso muda o índice gerado, a validação inicial foi offline contra o dataset oficial local antes de qualquer alteração no `Dockerfile`.
+
+Comando-base:
+
+```text
+prepare-ivf-cpp /tmp/rinha-2026-official-data/references.json.gz /tmp/rinha-ivf-official-<clusters>.bin <clusters> 65536 6
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-<clusters>.bin <repeat> 0 1 1 1
+```
+
+Varredura inicial:
+
+| Clusters | ns/query | FP | FN | parse_errors |
+|---:|---:|---:|---:|---:|
+| 256 | 343633 | 0 | 0 | 0 |
+| 512 | 243761 | 0 | 0 | 0 |
+| 1024 | 175780 | 0 | 0 | 0 |
+| 1536 | 162293 | 0 | 0 | 0 |
+| 1792 | 160102 | 0 | 0 | 0 |
+| 2048 | 160804 | 0 | 0 | 0 |
+| 2304 | 161012 | 0 | 0 | 0 |
+| 2560 | 162993 | 0 | 0 | 0 |
+| 4096 | 191418 | 0 | 0 | 0 |
+
+Revalidação pareada do melhor candidato contra o baseline:
+
+| Ordem | Clusters | ns/query | FP | FN | parse_errors |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 2048 | 156575 | 0 | 0 | 0 |
+| 2 | 1792 | 158942 | 0 | 0 | 0 |
+| 3 | 2048 | 158264 | 0 | 0 | 0 |
+| 4 | 1792 | 160563 | 0 | 0 | 0 |
+
+Decisão: rejeitado. `1792` pareceu competitivo na primeira varredura, mas perdeu nas execuções pareadas. `2048` continua sendo o ponto mais robusto entre os tamanhos testados, então o índice do `Dockerfile` permanece inalterado.
