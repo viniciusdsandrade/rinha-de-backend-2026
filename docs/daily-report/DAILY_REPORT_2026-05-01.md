@@ -992,3 +992,26 @@ Resultado offline:
 | Baseline da rodada | 133.130 | 0 | 0 | 0 | manter |
 
 Decisão: revertido sem k6. A hipótese preservou a métrica e a classificação, mas a redução de locality não compensou o custo extra de acumular/storar/reduzir blocos AVX2; o caminho escalar atual continua melhor para a etapa de seleção de centróide.
+
+### Experimento rejeitado: HAProxy HTTP sobre Unix socket
+
+Hipótese: como a melhor submissão parcial pública em C usa HAProxy HTTP com Unix Domain Socket, testar HAProxy como load balancer da nossa stack poderia reduzir overhead de proxy em relação ao nginx `stream`.
+
+Configuração testada:
+
+```text
+3 APIs C++/uWebSockets
+HAProxy 3.3
+backend via unix@/sockets/api{1,2,3}.sock
+api:     0.27 CPU / 110MB cada
+haproxy: 0.19 CPU / 20MB
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| HAProxy HTTP + 3 APIs | 18.53ms | 0 | 0 | 0 | 4732.12 | rejeitado |
+| nginx `stream` + 3 APIs, controle aceito | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
+
+Decisão: revertido. O HAProxy funciona e mantém a precisão, mas adicionou cauda muito maior na nossa combinação com uWebSockets/UDS. A vantagem observada no líder parece estar acoplada ao servidor C/io_uring e não se transfere diretamente para esta stack C++.
