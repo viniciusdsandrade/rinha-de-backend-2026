@@ -928,3 +928,26 @@ Resultado k6:
 | Checkpoint aceito anterior | 3.12ms | 0 | 0 | 0 | 5505.63 | manter |
 
 Decisão: revertido. A remoção de headers é funcionalmente segura, mas não melhorou a cauda no k6 local.
+
+### Run de controle após reversões
+
+Depois de reverter os experimentos rejeitados (`content-length reserve`, 2 APIs e `NO_WRITEMARK`), subi novamente o estado aceito da branch para garantir que o runtime não ficou contaminado por imagens/containers dos testes anteriores.
+
+Configuração de controle:
+
+```text
+3 APIs + nginx stream
+IVF_FAST_NPROBE=1
+IVF_FULL_NPROBE=1
+IVF_BOUNDARY_FULL=false
+IVF_BBOX_REPAIR=true
+repair=0..5
+```
+
+Resultado:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Observação |
+|---|---:|---:|---:|---:|---:|---|
+| Controle pós-reversões | 3.03ms | 0 | 0 | 0 | 5518.47 | melhor run da branch até agora |
+
+Conclusão: o melhor estado técnico permanece `early-exit bbox + nprobe=1`. A melhor run local da branch subiu para `5518.47`, com `0` erro de detecção e `p99=3.03ms`.
