@@ -1988,3 +1988,38 @@ Resultado k6:
 | `api=0.26`, `nginx=0.22`, aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
 
 Decisão: revertido. Além de piorar p99, o uso de limites decimais mais finos não se justifica sem ganho claro; `api=0.26/nginx=0.22` permanece o ponto mais defensável desta família.
+
+### Experimento rejeitado: capturar `AppState*` no hot path
+
+Hipótese: o callback `onData` capturava `std::shared_ptr<AppState>` por valor a cada request. Capturar um ponteiro cru para `AppState`, com lifetime garantido pelo `shared_ptr` em `main` durante `app.run()`, poderia remover incremento/decremento atômico do hot path.
+
+Mudança temporária:
+
+```cpp
+const AppState* state_ptr = state.get();
+app.post("/fraud-score", [state_ptr](auto* res, auto*) {
+    res->onData([res, state_ptr, body = std::string{}](...) mutable {
+        // ...
+        state_ptr->classify(payload, classification, error);
+    });
+});
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `AppState*` no callback | 3.15ms | 0 | 0 | 0 | 5502.09 | rejeitado |
+| `std::shared_ptr<AppState>` atual + split aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
+
+Decisão: revertido. A hipótese era tecnicamente plausível, mas o k6 indicou piora. O efeito provável é alteração de layout/código gerado do callback maior que qualquer economia de referência atômica.
