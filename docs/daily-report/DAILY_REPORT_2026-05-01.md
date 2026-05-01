@@ -1581,3 +1581,34 @@ Resultado offline:
 | Estado aceito anterior (`MaxNprobe=1` simples) | 65118.6-66817.3 | 0 | 0 | 0 | manter |
 
 Decisão: revertido sem k6. A simplificação manual não melhorou de forma estável e provavelmente atrapalhou o perfil gerado pelo compilador. O caminho aceito continua sendo apenas instanciar `fraud_count_once_fixed<1>` e manter o corpo genérico.
+
+### Experimento rejeitado: flags `-fno-exceptions` / `-fno-rtti`
+
+Hipótese: como o hot path de produção não depende de exceções nem RTTI, remover esse suporte poderia reduzir tamanho/overhead do binário. A primeira tentativa aplicou `-fno-exceptions -fno-rtti` no target da API.
+
+Resultado de build:
+
+```text
+main.cpp:84:14: error: exception handling disabled, use '-fexceptions' to enable
+} catch (...) {
+```
+
+A causa é o parser de variáveis de ambiente (`std::stoul`) em `main.cpp`. Para manter escopo mínimo, não reescrevi esse trecho só para testar flag de compilação. A hipótese foi reduzida para `-fno-rtti` apenas.
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp -j2
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `-fno-rtti` | 3.49ms | 0 | 0 | 0 | 5457.09 | rejeitado |
+| `nprobe=1` especializado, aceito | 3.10-3.37ms | 0 | 0 | 0 | 5472.90-5508.92 | manter |
+
+Decisão: revertido. `-fno-exceptions` não compila sem refatorar parsing de env, e `-fno-rtti` piorou a cauda frente ao melhor estado da branch. Não vale aumentar complexidade de build por ganho inexistente.
