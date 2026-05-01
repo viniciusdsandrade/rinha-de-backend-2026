@@ -1163,3 +1163,17 @@ Resultado k6:
 | Controle aceito anterior | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
 
 Decisão: revertido. A mudança não melhorou p99 e ainda aumenta a superfície de risco de lifetime em aborts. O `shared_ptr` atual fica mantido por ser mais seguro e mais estável no k6.
+
+### Run de controle após rejeições HTTP/parser
+
+Depois dos experimentos rejeitados de `Content-Type`, MCC por `switch` e `RequestContext` cru, reconstruí a imagem no estado aceito para separar regressão real de variação do ambiente.
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Observação |
+|---|---:|---:|---:|---:|---:|---|
+| Controle limpo pós-rejeições | 3.19ms | 0 | 0 | 0 | 5496.81 | faixa atual da máquina |
+| Melhor run local da branch | 3.03ms | 0 | 0 | 0 | 5518.47 | melhor histórico local |
+| Prévia oficial da submissão | 2.83ms | 0 | 0 | 0 | 5548.91 | melhor evidência oficial |
+
+Leitura: a máquina local está mais próxima do controle pós-HAProxy (`3.17ms / 5498.46`) do que da melhor run histórica (`3.03ms / 5518.47`). Mesmo assim, os experimentos recentes em `3.34-3.37ms` ficaram abaixo desse controle limpo, então permanecem rejeitados.
