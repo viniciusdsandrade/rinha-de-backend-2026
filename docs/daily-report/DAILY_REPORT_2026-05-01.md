@@ -2292,3 +2292,31 @@ Leitura: embora o parser manual tenha gerado o mesmo vetor, ele foi `~75%` mais 
 Decisão: protótipo revertido integralmente. Nenhuma mudança de produção foi mantida.
 
 Próxima hipótese com melhor relação risco/retorno: avaliar HAProxy TCP/UDS com a topologia atual somente se a configuração dos líderes trouxer diferença concreta frente ao nginx stream; caso contrário, o próximo salto material exige servidor HTTP próprio ou monoio/io_uring, que deve ser tratado como branch/experimento estrutural separado.
+
+### Experimento rejeitado: HAProxy TCP/UDS no lugar do nginx stream
+
+Hipótese: os líderes `thiagorigonatti-c` e `jairoblatt-rust` usam HAProxy com Unix Domain Socket; portanto, talvez parte do gap viesse do nginx stream atual.
+
+Mudança temporária:
+
+- `nginx:1.27-alpine` substituído por `haproxy:3.0-alpine`.
+- HAProxy em `mode tcp`, `balance roundrobin`, três backends UDS (`api1`, `api2`, `api3`).
+- CPU/memória mantidas no mesmo orçamento do LB atual (`0.22 CPU / 20MB`) para isolar a variável proxy.
+- APIs, IVF, parser, UDS e split `api=0.26` mantidos iguais.
+
+Validações:
+
+```text
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| HAProxy TCP/UDS, 3 APIs | 3.21ms | 0 | 0 | 0 | 5493.72 | rejeitado |
+| nginx stream aceito | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
+
+Leitura: HAProxy isolado piorou a latência local. A vantagem dos líderes não é o HAProxy em si; ela vem do conjunto servidor próprio/monoio/io_uring + parser integrado + layout quantizado. A configuração foi revertida para nginx stream.
