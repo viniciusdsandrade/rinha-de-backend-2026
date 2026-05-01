@@ -2188,3 +2188,31 @@ Comparação com o início da rodada de hoje:
 | Submissão oficial anterior | 2.83ms | 5548.91 | 0 | Ainda melhor que a melhor run local da janela por `+22.42` pontos |
 
 Leitura técnica: a melhora sustentável desta janela veio de balancear CPU para o nginx sem retirar CPU demais das APIs. As demais hipóteses mexeram em hot path, alocador, build flags ou proxy, mas não superaram a série aceita. O próximo salto material provavelmente não está em knobs marginais de C++/nginx; deve vir de uma mudança estrutural no modelo de serving, no formato de parsing ou em reduzir ainda mais trabalho de classificação por request.
+
+### Experimento rejeitado pós-fechamento: `proxy_timeout 5s`
+
+Hipótese: reduzir o timeout de proxy do nginx stream de `30s` para `5s` poderia diminuir manutenção de estado de conexões presas sem afetar requisições normais.
+
+Mudança temporária:
+
+```nginx
+proxy_timeout 5s;
+```
+
+Validações:
+
+```text
+docker compose exec -T nginx nginx -t
+docker compose restart nginx
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `proxy_timeout 5s` | 3.04ms | 0 | 0 | 0 | 5516.55 | rejeitado |
+| `proxy_timeout 30s` + split aceito | 2.98-3.03ms | 0 | 0 | 0 | 5519.22-5526.49 | manter |
+
+Decisão: revertido. A mudança é operacionalmente razoável, mas não melhora score local; manter o default já validado evita mexer na semântica de conexões longas sem retorno mensurável.
