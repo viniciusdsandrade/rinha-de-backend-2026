@@ -1886,3 +1886,42 @@ Resultado k6:
 | split aceito `api=0.27`, `nginx=0.19` | 3.12-3.28ms | 0 | 0 | 0 | 5483.58-5505.61 | manter |
 
 Decisão: revertido. O nginx continua sensível a CPU neste stack; reduzir o limite dele piorou p99 de forma clara sem alterar detecção.
+
+### Experimento aceito: redistribuir CPU para nginx (`api=0.26`, `nginx=0.22`)
+
+Controle pós-recriação do estado aceito anterior:
+
+| Configuração | p99 | FP | FN | HTTP | Score |
+|---|---:|---:|---:|---:|---:|
+| `api=0.27`, `nginx=0.19` | 3.04ms | 0 | 0 | 0 | 5517.18 |
+
+Hipótese: o experimento anterior mostrou que reduzir CPU do nginx para `0.16` piora muito o p99. O teste inverso aumenta o nginx para `0.22` e reduz as APIs para `0.26`, ainda respeitando o teto total de `1.00 CPU`.
+
+Mudança:
+
+```yaml
+api1/api2/api3:
+  cpus: "0.26"
+nginx:
+  cpus: "0.22"
+```
+
+Validações:
+
+```text
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+k6 run /tmp/rinha-2026-official-run/test.js
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | Run | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `api=0.26`, `nginx=0.22` | 1 | 3.02ms | 0 | 0 | 0 | 5520.04 | candidato |
+| `api=0.26`, `nginx=0.22` | 2 | 2.98ms | 0 | 0 | 0 | 5526.49 | candidato |
+| `api=0.26`, `nginx=0.22` | 3 | 3.02ms | 0 | 0 | 0 | 5519.71 | aceito |
+
+Decisão: aceito. O ganho é pequeno, mas reproduziu em três rodadas sequenciais sem impacto de detecção, e a mudança é apenas redistribuição de CPU dentro do mesmo orçamento. A leitura prática é que o nginx ainda precisa de mais folga que `0.19 CPU` nesta topologia de três APIs.
