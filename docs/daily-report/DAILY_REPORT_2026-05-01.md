@@ -1141,3 +1141,25 @@ Resultado k6:
 | Controle aceito anterior | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
 
 Decisão: revertido. Apesar do ganho offline de aproximadamente 1,7%, a cauda no k6 piorou. Este reforça que microganhos de CPU abaixo de poucos microssegundos não são suficientes se mudam layout/branching do binário de forma desfavorável para o runtime sob proxy e throttling.
+
+### Experimento rejeitado: `RequestContext` com ponteiro cru
+
+Hipótese: substituir `std::make_shared<RequestContext>` por `new/delete` explícito e limpar `onAborted` ao finalizar evitaria refcount atômico por requisição e removeria o branch `context->aborted` do caminho normal.
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `RequestContext` com ponteiro cru | 3.34ms | 0 | 0 | 0 | 5476.35 | rejeitado |
+| Controle aceito anterior | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
+
+Decisão: revertido. A mudança não melhorou p99 e ainda aumenta a superfície de risco de lifetime em aborts. O `shared_ptr` atual fica mantido por ser mais seguro e mais estável no k6.
