@@ -575,3 +575,149 @@ Risco residual:
 
 - A repetição do melhor candidato caiu para `5477.45`; a diferença parece ruído local de p99, não regressão funcional.
 - A configuração 3 APIs é mais apertada em memória que 2 APIs. Se o ambiente oficial contabilizar memória de forma mais severa, o plano B seguro é 2 APIs com `api=0.41`, `nginx=0.18`, score local observado `5487.92`.
+
+## Rodada pós-submissão em branch experimental `perf/noon-tuning`
+
+Após a abertura e merge do PR oficial de participante (`zanfranceschi/rinha-de-backend-2026#593`), a investigação continuou fora da branch `submission`, em uma worktree isolada baseada em `origin/perf/ivf-index`.
+
+Objetivo desta etapa:
+
+- Manter `submission` intacta.
+- Buscar ganho concreto e sustentável de score local.
+- Registrar tanto hipóteses rejeitadas quanto hipóteses aceitas.
+- Usar o mesmo benchmark oficial local atualizado (`54.100` entradas, alvo `900 RPS`, timeout `2001ms`).
+
+### Baseline congelado da branch experimental
+
+Configuração inicial:
+
+```text
+3 APIs + nginx stream
+api1/api2/api3: 0.27 CPU / 110MB cada
+nginx: 0.19 CPU / 20MB
+IVF2048 com fast_nprobe=1, full_nprobe=2, boundary_full=true, bbox_repair=true, repair=0..5
+```
+
+Validações antes dos experimentos:
+
+```text
+cmake --build ...: OK
+ctest --test-dir cpp/build --output-on-failure: 1/1 passed
+docker compose config -q: OK
+GET /ready: 204
+memória idle: ~95.8MiB por API / 110MB
+```
+
+Baseline k6 desta worktree:
+
+| Configuração | p99 | FP | FN | HTTP | Score |
+|---|---:|---:|---:|---:|---:|
+| Baseline `perf/noon-tuning` | 3.31ms | 0 | 0 | 0 | 5480.16 |
+
+Leitura: reproduziu a mesma faixa da melhor submissão (`~3.24ms` a `~3.33ms`), com ruído relevante de p99 entre execuções.
+
+### Experimentos de nginx/LB
+
+| Hipótese | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `worker_processes=2`, mantendo `reuseport` | 3.28ms | 0 | 0 | 0 | 5484.77 | inconclusivo, ganho pequeno |
+| Repetição `2 workers + reuseport` | 3.28ms | 0 | 0 | 0 | 5484.54 | confirma faixa, mas não supera melhor histórico |
+| `worker_processes=2`, sem `reuseport` | 3.27ms | 0 | 0 | 0 | 5485.36 | promissor inicialmente |
+| `worker_processes=1`, sem `reuseport` | 3.29ms | 0 | 0 | 0 | 5482.37 | rejeitado |
+| `worker_processes=2`, sem `reuseport`, `multi_accept off` | 3.30ms | 0 | 0 | 0 | 5481.01 | rejeitado |
+| APIs `0.28` CPU, nginx `0.16` CPU | 3.40ms | 0 | 0 | 0 | 5468.25 | rejeitado |
+| APIs `0.26` CPU, nginx `0.22` CPU | 3.28ms | 0 | 0 | 0 | 5483.63 | rejeitado |
+| Rebuild + confirmação de `2 workers` sem `reuseport` | 3.34ms | 0 | 0 | 0 | 5476.37 | rejeitado por não reproduzir |
+| Configuração original no mesmo estado pós-rebuild | 3.28ms | 0 | 0 | 0 | 5484.09 | mantida como referência |
+
+Conclusão: nenhuma mudança de nginx/LB mostrou ganho sustentável. A melhor leitura é que a cauda local está dominada por ruído de agendamento e proxy, não por uma flag específica de nginx.
+
+### Experimentos de parser/hot path HTTP
+
+| Hipótese | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Parse direto do chunk quando request chega em chunk único | 3.73ms | 0 | 0 | 0 | 5428.00 | rejeitado |
+| Repetição do parse direto do chunk | 3.32ms | 0 | 0 | 0 | 5478.58 | rejeitado; não bate baseline |
+| `merchant.id` e `known_merchants` como `string_view` temporário | 3.46ms | 0 | 0 | 0 | 5460.36 | rejeitado |
+
+Conclusão: micro-otimizações no parser não melhoraram a cauda do k6. O parser atual com cópia simples para `RequestContext::body` continua sendo a escolha mais estável.
+
+### Experimentos de reparo IVF
+
+| Hipótese | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Reparar apenas votos `0..4` (`MAX=4`) | 3.01ms | 3 | 0 | 0 | 5341.07 | rejeitado; 3 FP |
+| Reparar apenas votos `1..5` (`MIN=1`) | 3.21ms | 0 | 4 | 0 | 5159.45 | rejeitado; 4 FN |
+
+Conclusão: o reparo exato em todo o intervalo `0..5` é necessário para manter `0` erro no dataset oficial local. A fórmula de score pune mais os erros do que recompensa a queda marginal de p99.
+
+### Experimento aceito: IVF single-pass equivalente
+
+Achado técnico: a configuração anterior fazia:
+
+```text
+fast_nprobe=1
+full_nprobe=2
+boundary_full=true
+repair_min=0
+repair_max=5
+```
+
+Como qualquer resultado de `fraud_count` está sempre em `0..5`, o `boundary_full=true` com `repair=0..5` executava sempre a busca rápida e, em seguida, a busca completa. A primeira busca era redundante para o resultado final.
+
+Nova configuração experimental:
+
+```text
+IVF_FAST_NPROBE=2
+IVF_FULL_NPROBE=2
+IVF_BOUNDARY_FULL=false
+IVF_BBOX_REPAIR=true
+IVF_REPAIR_MIN_FRAUDS=0
+IVF_REPAIR_MAX_FRAUDS=5
+```
+
+Com isso a API executa diretamente a busca efetiva final (`nprobe=2` + `bbox_repair`) uma única vez.
+
+Microbenchmark isolado do classificador:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Caminho anterior: `fast=1`, `full=2`, `boundary=true`, `repair=0..5` | 115.692 | 0 | 0 | 0 | baseline |
+| Single-pass: `fast=2`, `full=2`, `boundary=false` | 103.368 | 0 | 0 | 0 | aceito |
+
+Ganho isolado: cerca de `10.6%` menos tempo por query no classificador, sem mudar acurácia.
+
+Validação k6 oficial local:
+
+| Configuração | p99 | FP | FN | HTTP | Score |
+|---|---:|---:|---:|---:|---:|
+| Single-pass IVF, run 1 | 3.30ms | 0 | 0 | 0 | 5481.44 |
+| Single-pass IVF, run 2 | 3.27ms | 0 | 0 | 0 | 5484.83 |
+
+Decisão: manter em branch experimental porque é uma melhoria técnica real e preserva `0` erro. No k6, o ganho aparece como neutralidade/leve melhora dentro do ruído, não como salto decisivo de score. Ainda assim, remove trabalho redundante do hot path e aumenta margem de CPU.
+
+### Estado final da branch experimental
+
+Mudança mantida:
+
+```text
+docker-compose.yml
+- adiciona IVF_FAST_NPROBE=2 nas 3 APIs
+- muda IVF_BOUNDARY_FULL de true para false
+- mantém IVF_FULL_NPROBE=2, IVF_BBOX_REPAIR=true e repair=0..5
+```
+
+Mudanças rejeitadas e revertidas:
+
+- Alterações de nginx (`worker_processes`, `reuseport`, `multi_accept`).
+- Redistribuição de CPU entre nginx e APIs.
+- Otimizações de parser com chunk direto.
+- Otimizações de parser usando `string_view` para merchant temporário.
+- Redução parcial do intervalo de reparo IVF.
+
+Próximas hipóteses com melhor relação risco/retorno:
+
+- Criar benchmark local focado em cauda p95/p99 por etapa dentro da API para separar parse, vectorize, IVF e resposta HTTP.
+- Testar uma versão do IVF que remova a passada rápida diretamente no código, em vez de depender apenas de ENV, para reduzir condicionais no hot path.
+- Investigar uma estratégia de índice menor/mais cache-friendly mantendo `0` erro, mas só com validação offline completa antes do k6.
+- Avaliar se uma submissão com o single-pass deve substituir a imagem pública atual depois de 3 runs k6 consecutivas mostrarem média igual ou melhor que a branch `submission` atual.

@@ -6,8 +6,9 @@ services:
     image: rinha-backend-2026-cpp-api:local
     environment:
       UNIX_SOCKET_PATH: /sockets/api1.sock
+      IVF_FAST_NPROBE: "2"
       IVF_FULL_NPROBE: "2"
-      IVF_BOUNDARY_FULL: "true"
+      IVF_BOUNDARY_FULL: "false"
       IVF_BBOX_REPAIR: "true"
       IVF_REPAIR_MIN_FRAUDS: "0"
       IVF_REPAIR_MAX_FRAUDS: "5"
@@ -25,8 +26,9 @@ services:
     <<: *api
     environment:
       UNIX_SOCKET_PATH: /sockets/api2.sock
+      IVF_FAST_NPROBE: "2"
       IVF_FULL_NPROBE: "2"
-      IVF_BOUNDARY_FULL: "true"
+      IVF_BOUNDARY_FULL: "false"
       IVF_BBOX_REPAIR: "true"
       IVF_REPAIR_MIN_FRAUDS: "0"
       IVF_REPAIR_MAX_FRAUDS: "5"
@@ -35,8 +37,9 @@ services:
     <<: *api
     environment:
       UNIX_SOCKET_PATH: /sockets/api3.sock
+      IVF_FAST_NPROBE: "2"
       IVF_FULL_NPROBE: "2"
-      IVF_BOUNDARY_FULL: "true"
+      IVF_BOUNDARY_FULL: "false"
       IVF_BBOX_REPAIR: "true"
       IVF_REPAIR_MIN_FRAUDS: "0"
       IVF_REPAIR_MAX_FRAUDS: "5"
