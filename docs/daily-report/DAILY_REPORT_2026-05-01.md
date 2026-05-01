@@ -2932,3 +2932,24 @@ Resultado no benchmark oficial local atualizado:
 Leitura: o ponto `0.32` passou do ótimo local. A cauda voltou para a faixa antiga e apareceu um pico transitório de VUs perto do fim da run, compatível com backend mais apertado. Isso indica que o nginx precisava de mais CPU que `0.28`, mas tirar mais do que `0.30` das APIs degrada o equilíbrio.
 
 Decisão: rejeitado e revertido. O estado aceito volta para `api=0.35 x2` e `nginx=0.30`.
+
+### Experimento rejeitado: `worker_processes 2` no nginx
+
+Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
+
+Validação operacional:
+
+```text
+GET /ready => 204
+processos nginx no container => 3 (master + 2 workers)
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `worker_processes 2` | 2.87ms | 0 | 0 | 0 | 5542.10 | rejeitado como não material |
+
+Leitura: o resultado é bom, mas não supera claramente o estado aceito com 1 worker (`5545.37` no melhor, `5537.88` na confirmação). Como dois workers adicionam mais disputa de scheduler dentro de apenas `0.30 CPU` de nginx e não trouxeram ganho inquestionável, a mudança não merece entrar no estado atual.
+
+Decisão: rejeitado e revertido. O nginx volta para `worker_processes 1`.
