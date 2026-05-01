@@ -1675,3 +1675,40 @@ Resultado k6:
 | `nprobe=1` especializado, aceito | 3.10-3.37ms | 0 | 0 | 0 | 5472.90-5508.92 | manter |
 
 Decisão: revertido. A flag compila quando o parsing é ajustado, mas não entrega ganho mensurável e piora a cauda local. Não vale trocar código simples de bootstrap por parsing manual apenas para uma flag sem retorno.
+
+### Experimento rejeitado: carregar `fraud_count` até a serialização da resposta
+
+Hipótese: no modo IVF o número de fraudes dos 5 vizinhos já existe como inteiro. Guardar esse valor em `Classification` e fazer `classification_json` por `switch` inteiro evitaria `fraud_score * 5`, `std::floor` e `std::clamp` no final de cada request.
+
+Mudanças temporárias:
+
+```cpp
+struct Classification {
+    bool approved = true;
+    float fraud_score = 0.0f;
+    std::uint8_t fraud_count = 0;
+};
+```
+
+```cpp
+switch (classification.fraud_count) { ... }
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `fraud_count` no `Classification` | 3.54ms | 0 | 0 | 0 | 5450.84 | rejeitado |
+| `nprobe=1` especializado, aceito | 3.10-3.37ms | 0 | 0 | 0 | 5472.90-5508.92 | manter |
+
+Decisão: revertido. A micro-remoção de operações float não compensou o novo campo no layout de `Classification` / código gerado. O caminho anterior com `fraud_score` continua melhor na prática.
