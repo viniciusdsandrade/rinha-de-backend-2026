@@ -2236,3 +2236,59 @@ Resultado:
 | série final anterior no mesmo estado versionado | 3.02-3.05ms | 0 | 0 | 0 | 5516.00-5520.43 | referência principal |
 
 Leitura: sem falhas de detecção ou HTTP. A piora isolada parece variação ambiental após muitas rodadas sequenciais de build/k6, não mudança de configuração mantida. O estado versionado continua sendo `api=0.26/nginx=0.22`, `proxy_timeout 30s`, backlog UDS padrão e alocador padrão.
+
+## Janela investigativa 15h-18h: leitura dos líderes e experimento de parser manual
+
+### Achado externo: líderes reduziram custo fixo de servidor/parser
+
+Fontes consultadas:
+
+- `https://github.com/thiagorigonatti/rinha-2026` (`thiagorigonatti-c`, ranking parcial informado: `1.25ms`, `0%`, `5901.92`).
+- `https://github.com/jairoblatt/rinha-2026-rust` (`jairoblatt-rust`, `1.45ms`, `0%`, `5838.50`).
+- `https://github.com/joojf/rinha-2026` (`joojf`, `1.50ms`, `0%`, `5823.94`).
+- `https://github.com/MuriloChianfa/cpp-fraud-detection-rinha-2026` (`murilochianfa-cpp-fraud-detection-rinha-2026`, `2.84ms`, `0%`, `5546.41`).
+- `https://github.com/devRaelBraga/rinha-2026-xgboost` (`hisrael-xgboost-go`, `2.60ms`, `0%`, `5404.29`).
+
+Resumo técnico do achado:
+
+- O líder em C usa servidor HTTP manual com `io_uring`, UDS, HAProxy, índice binário IVF/K-Means, vetores `int16`, AVX2, top-5 determinístico e respostas HTTP pré-montadas.
+- As soluções Rust de topo usam `monoio`/`io_uring`, parser HTTP/JSON manual, UDS, respostas constantes e busca IVF quantizada.
+- As soluções acima de `~5820` pontos não parecem ganhar por trocar apenas nginx/HAProxy ou por microflag de compilação. O padrão recorrente é remover framework/parsing genérico do caminho quente.
+
+Hipótese derivada: antes de reescrever servidor, testar a menor fatia reaproveitável no stack atual: parser manual direto para `QueryVector`, mantendo uWebSockets e IVF atuais.
+
+### Experimento rejeitado: parser manual direto para `QueryVector`
+
+Mudança temporária testada:
+
+- Adição de `parse_query_vector(std::string_view, QueryVector&, std::string&)` em C++.
+- Uso temporário desse parser no caminho IVF para evitar `simdjson::dom`, `Payload`, `std::string` de timestamps/MCC e `known_merchants`.
+- Teste TDD de equivalência contra `parse_payload + vectorize` nos payloads: legítimo, fraude, clamp/MCC default/merchant desconhecido e merchant duplicado.
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-request-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+./cpp/build/benchmark-request-cpp test/test-data.json resources/references.json.gz 3 5000
+```
+
+Resultado funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado offline:
+
+| Caminho | ns/query | Checksum | Decisão |
+|---|---:|---:|---|
+| `parse_payload` | 605.48 | `1010687232893484` | referência |
+| `parse_payload + vectorize` | 673.399 | `10261833810798` | referência efetiva atual |
+| `parse_query_vector` manual | 1175.91 | `10261833810798` | rejeitado |
+
+Leitura: embora o parser manual tenha gerado o mesmo vetor, ele foi `~75%` mais lento que o caminho atual `simdjson + vectorize`. A implementação ingênua baseada em múltiplos `std::string_view::find` e parser numérico manual não reproduz o ganho dos líderes; o ganho deles vem de um parser mais radical, sequencial/fixo, integrado ao servidor e ao layout de resposta. Rodar k6 seria desperdício: a hipótese já falhou no microbenchmark mecânico.
+
+Decisão: protótipo revertido integralmente. Nenhuma mudança de produção foi mantida.
+
+Próxima hipótese com melhor relação risco/retorno: avaliar HAProxy TCP/UDS com a topologia atual somente se a configuração dos líderes trouxer diferença concreta frente ao nginx stream; caso contrário, o próximo salto material exige servidor HTTP próprio ou monoio/io_uring, que deve ser tratado como branch/experimento estrutural separado.
