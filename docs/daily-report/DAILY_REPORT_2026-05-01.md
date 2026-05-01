@@ -2570,3 +2570,41 @@ Resultado k6:
 | 3 APIs `0.26` + nginx `0.22` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
 
 Conclusão: aumentar o nginx também não ajuda. O ponto atual `0.26/0.26/0.26 + 0.22` segue como split mais robusto: `0.10` falta CPU para o LB; `0.25` tira CPU demais das APIs e piora p99.
+### Experimento rejeitado: servidor C++ epoll/UDS sem uWebSockets
+
+Hipótese: os repositórios líderes indicam que parte relevante do gap está no custo fixo de servidor/framework. O líder em C (`https://github.com/thiagorigonatti/rinha-2026`) usa HTTP manual com `io_uring`, UDS, IVF quantizado `int16`, AVX2 e respostas HTTP pré-montadas; os líderes Rust (`https://github.com/jairoblatt/rinha-2026-rust` e `https://github.com/joojf/rinha-2026`) usam `monoio`/UDS, parser HTTP/JSON manual e respostas constantes. Para isolar apenas a camada de servidor, foi criado temporariamente um binário C++ `epoll`/UDS mantendo exatamente o parser `simdjson`, a vetorização e o IVF atuais.
+
+Mudança temporária testada:
+
+- Novo `cpp/src/epoll_main.cpp` com servidor HTTP mínimo sobre `epoll`, socket UDS, `GET /ready`, `POST /fraud-score`, keep-alive e seis respostas HTTP completas pré-montadas.
+- Novo target CMake `rinha-backend-2026-cpp-epoll`.
+- Dockerfile temporariamente apontado para o binário epoll.
+- Primeiro screening com a topologia atual de `3 APIs + nginx`; segundo screening com a topologia dos líderes de `2 APIs` mais fortes.
+
+Validações funcionais:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-epoll rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+curl /ready => 204
+POST real do dataset => {"approved":false,"fraud_score":1.0}
+```
+
+Resultado funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 oficiais locais da janela:
+
+| Variante | Topologia/recursos | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---|---:|---:|---:|---:|---:|---|
+| Controle uWebSockets aceito | `3 APIs 0.26 CPU / nginx 0.22 CPU` | 3.23ms | 0 | 0 | 0 | 5491.33 | referência da janela |
+| epoll/UDS | `3 APIs 0.26 CPU / nginx 0.22 CPU` | 3.16ms | 0 | 0 | 0 | 5500.35 | repetir |
+| epoll/UDS | `3 APIs 0.26 CPU / nginx 0.22 CPU` | 3.10ms | 0 | 0 | 0 | 5508.86 | melhor do screening |
+| epoll/UDS | `2 APIs 0.40 CPU / nginx 0.20 CPU` | 3.15ms | 0 | 0 | 0 | 5501.08 | rejeitado |
+
+Leitura: remover uWebSockets e escrever a resposta HTTP completa manualmente trouxe um ganho pequeno contra o controle ruim da própria janela (`3.23ms -> 3.10ms` no melhor caso), mas não superou a faixa histórica aceita da solução atual (`~2.98-3.05ms`) nem chegou perto do patamar dos líderes (`~1.25-1.50ms`). O resultado mostra que servidor próprio isolado não basta enquanto o parser/vetorização seguem via `simdjson + Payload + strings`; o ganho dos líderes vem do conjunto integrado servidor manual + parser byte-level + vetor `int16` direto + kernel de busca ajustado, não apenas da troca de framework.
+
+Decisão: rejeitado e revertido integralmente. Nenhum arquivo de produção do experimento epoll foi mantido. Se essa linha for retomada, o próximo teste precisa ser estrutural de verdade: parser byte-level direto para `i16[14]` integrado ao servidor, ou adoção controlada de uma base C/io_uring já validada, porque um epoll C++ mantendo o hot path atual não entrega ganho sustentável.
