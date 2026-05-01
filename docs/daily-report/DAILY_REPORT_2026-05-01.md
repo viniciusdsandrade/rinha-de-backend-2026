@@ -2956,6 +2956,21 @@ Leitura: a hipótese é correta para alguns líderes, mas não para o nosso layo
 
 Decisão: rejeitado e revertido. O kernel aceito continua sendo `u64 + prune parcial`.
 
+### Experimento rejeitado: prefetch manual no scan de blocos IVF
+
+Hipótese: o scanner do `joojf/rinha-2026` faz `_mm_prefetch` de blocos futuros antes de calcular a distância do bloco atual. Como nosso layout de bloco também tem `8 lanes x 14 dimensões`, foi testado o mesmo padrão com prefetch de `block + 8` em duas linhas do bloco (`base` e `base + 7*lanes`).
+
+Resultado offline com o dataset oficial local atualizado (`54.100` payloads, índice `3.000.000` refs, `bbox_repair=true`, `0 FP/FN`):
+
+| Variante | ns/query | FP | FN | checksum | Decisão |
+|---|---:|---:|---:|---:|---|
+| Kernel aceito sem prefetch manual | 67016.3 | 0 | 0 | 92435214 | manter |
+| Kernel temporário com prefetch `block+8` | 67236.4 | 0 | 0 | 92435214 | rejeitar |
+
+Leitura: o acesso do nosso scanner já está suficientemente sequencial para o prefetcher de hardware. O prefetch manual adicionou instruções e piorou levemente o microbenchmark (~0,3%). Como o k6 é mais ruidoso que esse delta, não há justificativa para levar a hipótese para benchmark completo.
+
+Decisão: rejeitado e revertido. O scan permanece sem prefetch manual.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
