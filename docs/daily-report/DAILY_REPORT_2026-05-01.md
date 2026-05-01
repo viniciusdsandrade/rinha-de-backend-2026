@@ -3442,3 +3442,29 @@ Resultado no benchmark oficial local atualizado:
 Leitura: a mudança não superou o estado aceito e adiciona uma opção de segurança que só se justifica quando necessária para `io_uring`. Como o ganho não apareceu no stack epoll/uWebSockets, ela não deve entrar na submissão.
 
 Decisão: rejeitado e revertido. O compose voltou sem `security_opt`; `docker compose config` confirmou a remoção e `/ready` voltou `204` após recriação.
+
+### Experimento rejeitado: `proxy_buffer_size 1k` no nginx stream
+
+Hipótese: a documentação oficial do nginx stream proxy indica `proxy_buffer_size` com default de `16k`; como o payload e a resposta desta API são pequenos, reduzir para `1k` poderia diminuir pressão de memória/cache no load balancer sem alterar semântica de proxy TCP.
+
+Fonte consultada: https://nginx.org/en/docs/stream/ngx_stream_proxy_module.html
+
+Validação:
+
+```text
+docker compose up -d --force-recreate nginx
+docker compose exec -T nginx nginx -t => ok
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `proxy_buffer_size 1k` | 2.97ms | 0 | 0 | 0 | 5526.58 | rejeitado |
+
+Leitura: o resultado ficou bom dentro do drift local recente, mas não superou a submissão oficial parcial (`2.83ms`, `5548.91`) nem o melhor estado aceito local. A alteração também adiciona mais um knob de infraestrutura sem evidência clara de benefício.
+
+Observação operacional: após editar `nginx.conf` via patch, o container do nginx chegou a validar um arquivo truncado por causa do bind mount sobre inode antigo. A validação correta exigiu recriar o serviço (`docker compose up -d --force-recreate nginx`) antes de rodar `nginx -t`.
+
+Decisão: rejeitado e revertido. O nginx voltou sem `proxy_buffer_size` explícito.
