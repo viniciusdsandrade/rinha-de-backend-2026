@@ -3106,6 +3106,27 @@ Resultado de validação no benchmark oficial local atualizado:
 
 Leitura: como não havia diff pendente de código/compose e a detecção permaneceu perfeita, esse número não invalida o estado aceito anterior (`2.85-2.90ms`, `5537.88-5545.37`). A rodada foi feita após vários k6 consecutivos e recriações de containers; portanto a interpretação correta é ruído/deriva térmica ou de scheduler da máquina local, não regressão funcional.
 
+### Experimento rejeitado: `q_grid` quantizado para seleção de centróides
+
+Hipótese: o C líder quantiza a query e usa `q_grid = q_i16 / scale` também para selecionar os centróides IVF. O nosso código selecionava centróides com o `QueryVector` float original e só usava `i16` no scan. Alinhar a seleção de centróides com o espaço quantizado poderia reduzir pequena divergência entre fase de probe e fase de scan.
+
+Resultado offline com o dataset oficial local atualizado:
+
+| Variante | ns/query | FP | FN | checksum | Leitura |
+|---|---:|---:|---:|---:|---|
+| seleção com `QueryVector` float original | 67016.3 | 0 | 0 | 92435214 | baseline |
+| seleção com `q_grid` quantizado | 66587.7 | 0 | 0 | 92435214 | ganho offline |
+
+Resultado no benchmark oficial local atualizado após rebuild da imagem:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `q_grid` quantizado | 3.20ms | 0 | 0 | 0 | 5494.45 | rejeitar |
+
+Leitura: a hipótese é tecnicamente interessante e melhorou o microbenchmark em ~0,6%, mas não reproduziu no benchmark completo. Como o objetivo desta fase é melhoria sustentável e inquestionável, o resultado offline isolado não é suficiente para aceitar a mudança.
+
+Decisão: rejeitado e revertido. O código voltou a selecionar centróides com o `QueryVector` float original. A imagem local foi rebuildada e o stack respondeu `GET /ready => 204` no estado restaurado.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
