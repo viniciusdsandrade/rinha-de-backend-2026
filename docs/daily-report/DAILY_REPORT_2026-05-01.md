@@ -2532,3 +2532,22 @@ Resultado k6:
 | 3 APIs `0.26` + nginx `0.22` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
 
 Conclusão: a alocação API-heavy não se transfere para nosso stack. Com apenas duas APIs, o ramp final acumulou VUs e explodiu a cauda apesar de manter zero erro de detecção. A terceira API continua necessária para estabilidade de p99 nesta implementação C++/uWebSockets.
+
+### Experimento rejeitado: 3 APIs com nginx reduzido para `0.10 CPU`
+
+Hipótese: mantendo três APIs, talvez o nginx estivesse superalocado em `0.22 CPU`. Como os líderes Rust usam nginx menor, testei realocar CPU para as APIs sem mudar topologia.
+
+Mudança temporária:
+
+- `api1/api2/api3`: `0.30 CPU / 110MB` cada.
+- nginx: `0.10 CPU / 20MB`.
+- Total preservado: `1.00 CPU / 350MB`.
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 3 APIs `0.30` + nginx `0.10` | 49.96ms | 0 | 0 | 0 | 4301.39 | rejeitado |
+| 3 APIs `0.26` + nginx `0.22` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
+
+Conclusão: nesta stack, o nginx precisa de margem de CPU para não formar fila no final do ramp. Realocar CPU do LB para APIs piora drasticamente a cauda, mesmo com zero falhas funcionais. Configuração revertida para `nginx=0.22` e APIs `0.26`.
