@@ -3026,6 +3026,45 @@ Leitura: o teste não está limitado por FD/backlog no nosso stack atual. A muda
 
 Decisão: rejeitado e revertido. O compose voltou sem `ulimits` e sem `sysctls`.
 
+### Experimento rejeitado: nginx HTTP upstream por request
+
+Hipótese: o nosso nginx `stream` faz balanceamento L4 por conexão. Como o k6 usa keep-alive, parte da carga pode ficar concentrada em menos conexões e reduzir a igualdade entre APIs. Repositórios líderes usam balanceamento HTTP ou servidores que aceitam mais diretamente o custo de request-level routing. Foi testado nginx em modo `http` com upstream UDS e `keepalive 256`, sem inspecionar payload nem aplicar lógica de negócio.
+
+Configuração temporária:
+
+```nginx
+http {
+    upstream api {
+        server unix:/sockets/api1.sock;
+        server unix:/sockets/api2.sock;
+        keepalive 256;
+    }
+
+    server {
+        listen 9999 reuseport backlog=4096;
+        keepalive_timeout 75s;
+        keepalive_requests 100000;
+
+        location / {
+            proxy_pass http://api;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_buffering off;
+        }
+    }
+}
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| nginx HTTP upstream por request | 3.09ms | 0 | 0 | 0 | 5510.41 | rejeitar |
+
+Leitura: a hipótese é válida em tese, mas no nosso stack o overhead HTTP do proxy supera qualquer ganho de balanceamento por request. O `stream` L4 por UDS continua mais eficiente.
+
+Decisão: rejeitado e revertido. O nginx voltou para `stream` com upstream UDS e `listen 9999 reuseport backlog=4096`.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
