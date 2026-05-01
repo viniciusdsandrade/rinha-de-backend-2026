@@ -2631,3 +2631,26 @@ Resultados offline:
 Leitura: no nosso layout/repair, `K=256` torna o repair exato caro demais porque cada cluster é muito grande. Desligar o repair reduz o custo bruto, mas introduz `1077` erros ponderados (`276 FP + 3*267 FN`), derrubando o score de detecção muito mais do que qualquer ganho plausível de p99 compensaria. O líder C consegue usar `K=256` porque o restante do stack dele é outro: parser/servidor/io_uring/kernel `int16` manual, não apenas a escolha de clusters.
 
 Decisão: rejeitado sem k6. O índice de produção permanece em `2048` clusters.
+
+### Experimento rejeitado: `cpuset` por container
+
+Hipótese: as soluções Rust de topo usam `cpuset` para reduzir migração e ruído do scheduler, mantendo o limite total de CPU via `cpus`. A máquina local/Docker expõe `16` CPUs, então foi testado pinning isolado sem alterar recursos: `api1 -> CPU 0`, `api2 -> CPU 1`, `api3 -> CPU 2`, `nginx -> CPU 3`.
+
+Validação de configuração:
+
+```text
+/perf-noon-tuning-api1-1 cpuset=0 nano=259999984 mem=115343360
+/perf-noon-tuning-api2-1 cpuset=1 nano=259999984 mem=115343360
+/perf-noon-tuning-api3-1 cpuset=2 nano=259999984 mem=115343360
+/perf-noon-tuning-nginx-1 cpuset=3 nano=220000000 mem=20971520
+```
+
+Resultado k6:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Stack aceito + `cpuset` | 3.23ms | 0 | 0 | 0 | 5490.94 | rejeitado |
+
+Leitura: pinning manual não reduziu jitter nesta máquina; pelo contrário, fixou cada processo em um core específico e piorou a cauda frente à faixa aceita sem pinning. O benefício visto nas soluções Rust não é portável para esta topologia C++/nginx atual.
+
+Decisão: revertido. O `docker-compose.yml` permanece sem `cpuset`.
