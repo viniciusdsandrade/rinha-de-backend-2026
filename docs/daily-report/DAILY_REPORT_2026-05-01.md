@@ -3171,6 +3171,46 @@ Próximos experimentos assertivos para nova rodada:
 2. Se o item 1 for caro demais, portar primeiro o handler para um parser manual que gere `QueryVector`/`i16` sem `simdjson::dom` e sem `std::string` no hot path, mas só aceitar se o k6 reproduzir.
 3. Rodar nova bateria somente após cooldown da máquina, porque a validação final do estado aceito caiu de `2.85-2.90ms` para `3.02ms` sem diff, sinal forte de drift local após cargas consecutivas.
 
+### Escopo técnico do próximo experimento estrutural
+
+A leitura do servidor C líder mostrou que o próximo experimento não deve ser "trocar uWebSockets por qualquer coisa", e sim substituir o caminho HTTP inteiro por um servidor mínimo mensurável:
+
+```text
+socket UDS não bloqueante
+io_uring para ACCEPT/READ/WRITE
+pool fixa de conexões
+buffer fixo por conexão
+parser HTTP mínimo:
+  - localizar \r\n\r\n
+  - reconhecer GET /ready
+  - reconhecer POST /fraud-score
+  - ler Content-Length
+  - passar body ao vetorizador
+respostas HTTP completas pré-montadas para score 0..5
+reuso de conexão keep-alive
+```
+
+Partes que podem ser reaproveitadas do código atual:
+
+```text
+cpp/src/ivf.cpp
+cpp/include/rinha/ivf.hpp
+cpp/src/vectorize.cpp inicialmente, até substituir por parser manual
+Dockerfile / prepare-ivf-cpp / index.bin
+docker-compose.yml com 2 APIs + nginx stream + UDS
+```
+
+Critério de aceite para essa próxima etapa:
+
+```text
+1. core_tests ou teste equivalente de contrato HTTP passando
+2. benchmark offline sem FP/FN
+3. k6 oficial local atualizado com 0% falhas
+4. duas runs consecutivas acima do melhor estado aceito atual, não só um outlier
+```
+
+Leitura: sem esse critério, há risco alto de trocar framework, aumentar complexidade e ganhar apenas ruído. O objetivo da próxima rodada deve ser provar que o overhead restante é do servidor HTTP, não do IVF.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
