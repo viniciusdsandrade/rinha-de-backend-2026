@@ -1712,3 +1712,41 @@ Resultado k6:
 | `nprobe=1` especializado, aceito | 3.10-3.37ms | 0 | 0 | 0 | 5472.90-5508.92 | manter |
 
 Decisão: revertido. A micro-remoção de operações float não compensou o novo campo no layout de `Classification` / código gerado. O caminho anterior com `fraud_score` continua melhor na prática.
+
+### Experimento aceito: remover `shared_ptr<RequestContext>` por POST
+
+Hipótese: o endpoint `POST /fraud-score` alocava um `std::shared_ptr<RequestContext>` por requisição apenas para compartilhar `aborted` e `body` entre `onAborted` e `onData`. Como o fluxo normal responde sincronamente no `onData` final, manter o corpo dentro da própria closure de `onData` e usar `onAborted` vazio elimina uma alocação e contadores atômicos por POST sem alterar contrato de resposta.
+
+Mudança aplicada:
+
+```cpp
+res->onAborted([]() {});
+res->onData([res, state, body = std::string{}](std::string_view chunk, bool is_last) mutable {
+    body.append(chunk.data(), chunk.size());
+    ...
+});
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+k6 run /tmp/rinha-2026-official-run/test.js
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | Run | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| body na closure `onData` | 1 | 3.28ms | 0 | 0 | 0 | 5483.58 | candidato |
+| body na closure `onData` | 2 | 3.14ms | 0 | 0 | 0 | 5503.54 | candidato |
+| body na closure `onData` | 3 | 3.12ms | 0 | 0 | 0 | 5505.61 | aceito |
+| `nprobe=1` especializado, aceito anterior | 1 | 3.37ms | 0 | 0 | 0 | 5472.90 | referência |
+| `nprobe=1` especializado, aceito anterior | 2 | 3.10ms | 0 | 0 | 0 | 5508.92 | referência |
+
+Decisão: aceito na branch experimental. A melhor run ainda não supera a submissão oficial já processada (`2.83ms / 5548.91`), mas a sequência de três rodadas ficou estável e melhora a média local sobre o estado aceito anterior, preservando detecção perfeita.

@@ -30,11 +30,6 @@ struct ListenerConfig {
     std::string unix_socket_path;
 };
 
-struct RequestContext {
-    bool aborted = false;
-    std::string body;
-};
-
 struct AppState {
     explicit AppState(rinha::Classifier classifier_in) : classifier(std::move(classifier_in)) {}
     AppState(rinha::IvfIndex ivf_in, rinha::IvfSearchConfig ivf_config_in)
@@ -232,23 +227,16 @@ int run_server(const ListenerConfig& config, const std::shared_ptr<AppState>& st
     });
 
     app.post("/fraud-score", [state](auto* res, auto*) {
-        auto context = std::make_shared<RequestContext>();
-        res->onAborted([context]() {
-            context->aborted = true;
-        });
-        res->onData([res, context, state](std::string_view chunk, bool is_last) {
-            if (context->aborted) {
-                return;
-            }
-
-            context->body.append(chunk.data(), chunk.size());
+        res->onAborted([]() {});
+        res->onData([res, state, body = std::string{}](std::string_view chunk, bool is_last) mutable {
+            body.append(chunk.data(), chunk.size());
             if (!is_last) {
                 return;
             }
 
             rinha::Payload payload;
             std::string error;
-            if (!rinha::parse_payload(context->body, payload, error)) {
+            if (!rinha::parse_payload(body, payload, error)) {
                 res->writeStatus("400 Bad Request");
                 res->endWithoutBody();
                 return;
