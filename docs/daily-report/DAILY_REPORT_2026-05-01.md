@@ -1826,3 +1826,33 @@ Request Failed error="Post \"http://localhost:9999/fraud-score\": EOF"
 ```
 
 Decisão: revertido. O handler vazio é necessário para o ciclo de vida do uWebSockets neste fluxo; removê-lo causa EOF em praticamente todas as requisições e aciona corte de detecção.
+
+### Experimento rejeitado: `thread_local` para `known_merchants`
+
+Hipótese: `parse_payload` cria um `std::vector<std::string>` local por request para armazenar `customer.known_merchants` até ler `merchant.id`. Como o parser simdjson já é `thread_local`, reutilizar também a capacidade do vector poderia reduzir alocação por request sem alterar a semântica.
+
+Mudança temporária:
+
+```cpp
+thread_local std::vector<std::string> known_merchants;
+known_merchants.clear();
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `thread_local known_merchants` | 3.50ms | 0 | 0 | 0 | 5455.41 | rejeitado |
+| body na closure, aceito | 3.12-3.28ms | 0 | 0 | 0 | 5483.58-5505.61 | manter |
+
+Decisão: revertido. A alocação do vector não apareceu como gargalo real; o TLS provavelmente aumentou custo de acesso/pressão de cache frente ao vector local pequeno.
