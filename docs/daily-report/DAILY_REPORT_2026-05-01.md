@@ -2464,3 +2464,41 @@ Resultado:
 | Mensagem observada | `io_uring_init_failed... : Success` | sem k6 |
 
 Conclusão: o backend `io_uring` vendorizado no uSockets não é um caminho sustentável para esta submissão. Ele compila, mas não inicializa de forma confiável no ambiente Docker atual; além disso, o próprio upstream marca esse caminho como work-in-progress. A alteração foi revertida e a imagem aceita foi reconstruída com epoll/uWebSockets.
+
+### Experimento rejeitado: IVF `12/24` com repair apenas na fronteira
+
+Hipótese: os Rust do top 3 parcial usam índice com `K=4096` e reprocessamento só quando a votação inicial cai perto do threshold (`2` ou `3` fraudes). A nossa configuração aceita usa `K=2048`, `nprobe=1` e `bbox_repair=true` em todas as consultas. Testei uma variação intermediária: manter o índice atual `2048`, fazer primeiro passe aproximado com `12` probes, e executar `bbox_repair` completo só quando o primeiro voto fosse `2` ou `3`.
+
+Fontes que motivaram a hipótese:
+
+- `joojf/rinha-2026`: `K=4096`, `FAST_NPROBE=12`, `FULL_NPROBE=24`, retry quando `fast == 2 || fast == 3`.
+- `jairoblatt/rinha-2026-rust`: `K=4096`, `FAST_NPROBE=16`, `FULL_NPROBE=24`, retry quando `fast == 2 || fast == 3`.
+- Nosso benchmark anterior mostrou que `nprobe` sem repair introduz poucos erros, mas qualquer FP/FN derruba bastante o score; por isso o teste manteve repair na fronteira.
+
+Screening offline:
+
+```text
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json <index> 2/3 0 <fast> <full> <bbox_repair> <min> <max>
+```
+
+| Configuração | ns/query | FP | FN | Failure rate | Decisão |
+|---|---:|---:|---:|---:|---|
+| `2048`, atual `1/1`, repair todas | 82364 | 0 | 0 | 0% | referência |
+| `2048`, `12/24`, sem repair | 58079.9 | 6 | 3 | 0.0055% | rejeitado por erro |
+| `2048`, `16/24`, sem repair | 74684.9 | 6 | 3 | 0.0055% | rejeitado por erro |
+| `4096`, `12/24`, sem repair | 43389.7 | 6 | 9 | 0.0092% | rejeitado por erro |
+| `4096`, `16/24`, sem repair | 53146.5 | 6 | 9 | 0.0092% | rejeitado por erro |
+| `4096`, `64/64`, sem repair | 306900 | 4 | 2 | 0.0055% | rejeitado por erro e custo |
+| `2048`, `1/1`, repair só `2..3` | 14455.3 | 42 | 60 | 0.0943% | rejeitado por erro |
+| `2048`, `12/24`, repair só `2..3` | 59379.2 | 0 | 0 | 0% | testar em k6 |
+| `4096`, `12/24`, repair só `2..3` | 49005 | 4 | 0 | 0.0037% | rejeitado por erro |
+
+Validação k6 da única variante sem erro:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `2048`, `12/24`, repair só `2..3`, run 1 | 3.02ms | 0 | 0 | 0 | 5520.61 | inconclusivo |
+| `2048`, `12/24`, repair só `2..3`, run 2 | 3.09ms | 0 | 0 | 0 | 5510.33 | rejeitado |
+| Configuração aceita `1/1`, repair todas | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
+
+Conclusão: o microbenchmark mostrou redução real de CPU no classificador, mas esse ganho não virou p99 melhor no compose oficial local. Como a segunda run ficou fora da melhor faixa recente, a mudança foi revertida. O aprendizado é que o gargalo de p99 atual não é apenas custo médio do IVF; variações que reduzem ns/query ainda precisam reduzir cauda end-to-end para serem aceitas.
