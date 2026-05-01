@@ -1558,3 +1558,26 @@ Resultado k6:
 | Controle fresco da janela | 1 | 3.66ms | 0 | 0 | 0 | 5436.83 | superado |
 
 Decisão: aceito na branch experimental. O ganho não supera a submissão oficial já processada (`2.83ms / 5548.91`), mas é um ganho técnico sustentável sobre o estado aceito da janela: mantém detecção perfeita, reduz custo offline do IVF e melhora o p99 local em duas execuções consecutivas contra o controle fresco.
+
+### Experimento rejeitado: caminho interno dedicado para `fraud_count_once_fixed<1>`
+
+Hipótese: depois de aceitar a instanciação `MaxNprobe=1`, um caminho interno ainda mais direto poderia remover `std::array`, `fill`, `insert_probe` e o loop genérico de `already_scanned`, usando apenas `best_cluster` e `best_distance` no caso de um único probe.
+
+Validações:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-2048.bin 3 0 1 1 1
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-2048.bin 3 0 1 1 1
+```
+
+Resultado offline:
+
+| Run | ns/query | FP | FN | parse_errors | Decisão |
+|---:|---:|---:|---:|---:|---|
+| 1 | 65626.3 | 0 | 0 | 0 | equivalente |
+| 2 | 70511.6 | 0 | 0 | 0 | pior |
+| Estado aceito anterior (`MaxNprobe=1` simples) | 65118.6-66817.3 | 0 | 0 | 0 | manter |
+
+Decisão: revertido sem k6. A simplificação manual não melhorou de forma estável e provavelmente atrapalhou o perfil gerado pelo compilador. O caminho aceito continua sendo apenas instanciar `fraud_count_once_fixed<1>` e manter o corpo genérico.
