@@ -2910,3 +2910,25 @@ Resultados no benchmark oficial local atualizado:
 Leitura: tirar CPU do nginx praticamente não mudou o resultado (`5534.57 -> 5534.69`) e ficou dentro de ruído. Dar mais CPU ao nginx, por outro lado, produziu o melhor single-run da rodada (`5545.37`) e uma confirmação ainda acima das variantes de 2 APIs anteriores. O sinal reforça que, no estado atual, a cauda é mais sensível a proxy/throttling/scheduling do que a uma pequena fatia extra de CPU no classificador.
 
 Decisão: aceito no branch experimental. O `docker-compose.yml` passa a usar `api1/api2=0.35 CPU, 165MB` e `nginx=0.30 CPU, 20MB`.
+
+### Experimento rejeitado: empurrar nginx para `0.32 CPU`
+
+Hipótese: como `nginx=0.30` melhorou a cauda, talvez ainda houvesse ganho deslocando mais CPU do backend para o proxy. Foi testado `api=0.34 x2` e `nginx=0.32`, mantendo `1.00 CPU / 350MB`.
+
+Validação de limites efetivos:
+
+```text
+/perf-noon-tuning-api1-1 nano=340000000 mem=173015040
+/perf-noon-tuning-api2-1 nano=340000000 mem=173015040
+/perf-noon-tuning-nginx-1 nano=320000000 mem=20971520
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `api=0.34 x2`, `nginx=0.32` | 2.96ms | 0 | 0 | 0 | 5528.70 | rejeitado |
+
+Leitura: o ponto `0.32` passou do ótimo local. A cauda voltou para a faixa antiga e apareceu um pico transitório de VUs perto do fim da run, compatível com backend mais apertado. Isso indica que o nginx precisava de mais CPU que `0.28`, mas tirar mais do que `0.30` das APIs degrada o equilíbrio.
+
+Decisão: rejeitado e revertido. O estado aceito volta para `api=0.35 x2` e `nginx=0.30`.
