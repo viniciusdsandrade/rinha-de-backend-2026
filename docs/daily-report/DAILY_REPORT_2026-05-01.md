@@ -2142,3 +2142,49 @@ Resultado k6:
 | `proxy_next_upstream` padrão + split aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
 
 Decisão: revertido. O comportamento padrão do nginx ficou melhor. Remover failover não trouxe ganho e ainda reduziria resiliência se alguma API fechasse conexão durante o teste.
+
+## Fechamento da janela até 15h
+
+Estado efetivamente mantido na branch `perf/noon-tuning`:
+
+- `docker-compose.yml`: split de CPU ajustado para três APIs com `0.26 CPU / 110MB` cada e nginx com `0.22 CPU / 20MB`, totalizando `1.00 CPU / 350MB`.
+- `cpp/src/main.cpp`: body HTTP armazenado diretamente na closure do `onData`, removendo a alocação do `RequestContext` por request.
+- `cpp/src/ivf.cpp`: especialização do caminho `nprobe=1` mantida de rodadas anteriores.
+
+Experimentos rejeitados nesta janela final:
+
+- `api=0.28/nginx=0.16`: piorou para `4.52ms / 5344.43`.
+- `api=0.25/nginx=0.25`: oscilou entre `3.01ms / 5521.50` e `3.07ms / 5513.12`.
+- `api=0.255/nginx=0.235`: piorou para `3.06ms / 5514.90`.
+- `AppState*` no hot path: piorou para `3.15ms / 5502.09`.
+- `-fomit-frame-pointer`: piorou para `3.18ms / 5497.56`.
+- `MALLOC_ARENA_MAX=1`: piorou para `3.07ms / 5512.31`.
+- backlog UDS `4096` no uSockets: piorou para `3.32ms / 5479.27`.
+- `proxy_next_upstream off`: piorou para `3.05ms / 5515.08`.
+
+Melhor run obtida na janela:
+
+| Configuração | p99 | FP | FN | HTTP | Score |
+|---|---:|---:|---:|---:|---:|
+| `api=0.26`, `nginx=0.22` | 2.98ms | 0 | 0 | 0 | 5526.49 |
+
+Controle final no estado mantido:
+
+| Run | p99 | FP | FN | HTTP | Score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.02ms | 0 | 0 | 0 | 5520.43 |
+| 2 | 3.05ms | 0 | 0 | 0 | 5516.00 |
+| 3 | 3.03ms | 0 | 0 | 0 | 5519.22 |
+
+Média do controle final: `p99 ~3.03ms`, score médio `5518.55`, `0` falhas.
+
+Comparação com o início da rodada de hoje:
+
+| Referência | p99 | Score | Falhas | Observação |
+|---|---:|---:|---:|---|
+| Controle fresco inicial | 3.66ms | 5436.83 | 0 | Antes dos ajustes aceitos da janela |
+| Melhor run da janela | 2.98ms | 5526.49 | 0 | Ganho de `+89.66` pontos sobre o controle inicial |
+| Controle final médio | ~3.03ms | 5518.55 | 0 | Ganho médio de `+81.72` pontos sobre o controle inicial |
+| Submissão oficial anterior | 2.83ms | 5548.91 | 0 | Ainda melhor que a melhor run local da janela por `+22.42` pontos |
+
+Leitura técnica: a melhora sustentável desta janela veio de balancear CPU para o nginx sem retirar CPU demais das APIs. As demais hipóteses mexeram em hot path, alocador, build flags ou proxy, mas não superaram a série aceita. O próximo salto material provavelmente não está em knobs marginais de C++/nginx; deve vir de uma mudança estrutural no modelo de serving, no formato de parsing ou em reduzir ainda mais trabalho de classificação por request.
