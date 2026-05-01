@@ -894,3 +894,24 @@ Validações:
 | Checkpoint aceito anterior | 3.12ms | 0 | 0 | 0 | 5505.63 | manter |
 
 Decisão: revertido. O custo de buscar/parsear header no hot path é maior do que qualquer economia de alocação para payloads desse tamanho.
+
+### Experimento rejeitado: voltar para 2 APIs com early-exit
+
+Hipótese: com o classificador IVF mais barato após early-exit, uma topologia de 2 APIs poderia ganhar por dar mais CPU para cada instância e reduzir contenção de processos.
+
+Configuração testada:
+
+```text
+api1/api2: 0.41 CPU / 165MB cada
+nginx:     0.18 CPU / 20MB
+total:     1.00 CPU / 350MB
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 2 APIs + nginx `0.18`, early-exit | 4.88ms | 0 | 0 | 0 | 5311.54 | rejeitado |
+| 3 APIs + nginx `0.19`, checkpoint aceito | 3.12ms | 0 | 0 | 0 | 5505.63 | manter |
+
+Decisão: revertido. Mesmo com classificador mais barato, 2 APIs piora a cauda local. A topologia de 3 APIs segue melhor para absorver o ramp de 900 RPS.
