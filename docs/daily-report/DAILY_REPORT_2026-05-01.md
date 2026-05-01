@@ -2084,3 +2084,32 @@ Resultado k6:
 | alocador glibc padrão + split aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
 
 Decisão: revertido. O alocador padrão ficou melhor neste workload; limitar arenas não reduziu a cauda e adicionaria configuração operacional sem retorno.
+
+### Experimento rejeitado: backlog do Unix socket da API em `4096`
+
+Hipótese: o nginx expõe `listen 9999 reuseport backlog=4096`, mas o uSockets usa backlog fixo `512` ao criar o Unix socket da API. Aumentar o backlog interno para `4096` poderia evitar fila curta entre nginx e APIs durante ramp de conexão.
+
+Mudança temporária em `cpp/third_party/uWebSockets/uSockets/src/bsd.c`:
+
+```c
+listen(listenFd, 4096)
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| UDS backlog `4096` | 3.32ms | 0 | 0 | 0 | 5479.27 | rejeitado |
+| UDS backlog padrão `512` + split aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
+
+Decisão: revertido. O backlog padrão do uSockets é melhor neste workload; aumentar a fila interna não reduz cauda e provavelmente aumenta buffering/latência entre nginx e APIs.
