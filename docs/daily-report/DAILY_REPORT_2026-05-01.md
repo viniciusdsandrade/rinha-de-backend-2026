@@ -2608,3 +2608,26 @@ Resultados k6 oficiais locais da janela:
 Leitura: remover uWebSockets e escrever a resposta HTTP completa manualmente trouxe um ganho pequeno contra o controle ruim da própria janela (`3.23ms -> 3.10ms` no melhor caso), mas não superou a faixa histórica aceita da solução atual (`~2.98-3.05ms`) nem chegou perto do patamar dos líderes (`~1.25-1.50ms`). O resultado mostra que servidor próprio isolado não basta enquanto o parser/vetorização seguem via `simdjson + Payload + strings`; o ganho dos líderes vem do conjunto integrado servidor manual + parser byte-level + vetor `int16` direto + kernel de busca ajustado, não apenas da troca de framework.
 
 Decisão: rejeitado e revertido integralmente. Nenhum arquivo de produção do experimento epoll foi mantido. Se essa linha for retomada, o próximo teste precisa ser estrutural de verdade: parser byte-level direto para `i16[14]` integrado ao servidor, ou adoção controlada de uma base C/io_uring já validada, porque um epoll C++ mantendo o hot path atual não entrega ganho sustentável.
+
+### Experimento rejeitado: índice IVF com `K=256` inspirado no líder C
+
+Hipótese: o líder parcial em C (`https://github.com/thiagorigonatti/rinha-2026`) usa `IVF_CLUSTERS=256` e `IVF_NPROBE=1`. Nossa submissão usa `2048` clusters. Menos clusters reduzem o custo de escolher centróides e avaliar bounding boxes, mas aumentam o tamanho médio de cada cluster; a hipótese era que a geometria `K=256` pudesse reduzir overhead total também no nosso kernel.
+
+Comandos:
+
+```text
+./cpp/build/prepare-ivf-cpp /tmp/rinha-2026-official-data/references.json.gz /tmp/rinha-ivf-official-256.bin 256 65536 6
+./cpp/build/benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-256.bin 3 0 1 1 1 0 5
+./cpp/build/benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-256.bin 3 0 1 1 0 0 5
+```
+
+Resultados offline:
+
+| Índice/runtime | ns/query | FP | FN | parse_errors | failure_rate | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `K=256`, `nprobe=1`, bbox repair `0..5` | 192594 | 0 | 0 | 0 | 0% | correto, lento demais |
+| `K=256`, `nprobe=1`, sem bbox repair | 68272 | 276 | 267 | 0 | 0.334566% | rejeitado por erro |
+
+Leitura: no nosso layout/repair, `K=256` torna o repair exato caro demais porque cada cluster é muito grande. Desligar o repair reduz o custo bruto, mas introduz `1077` erros ponderados (`276 FP + 3*267 FN`), derrubando o score de detecção muito mais do que qualquer ganho plausível de p99 compensaria. O líder C consegue usar `K=256` porque o restante do stack dele é outro: parser/servidor/io_uring/kernel `int16` manual, não apenas a escolha de clusters.
+
+Decisão: rejeitado sem k6. O índice de produção permanece em `2048` clusters.
