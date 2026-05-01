@@ -2799,3 +2799,25 @@ Resultados:
 Leitura: novamente houve ganho no microbenchmark, mas piora no p99 real. Nesta região do código, o k6 parece mais sensível a variabilidade/cache/branching do que ao `ns/query` médio medido isoladamente.
 
 Decisão: rejeitado e revertido. A ordem natural do `bbox_lower_bound` foi restaurada.
+
+### Experimento rejeitado: trocar nginx stream por HAProxy TCP/UDS
+
+Hipótese: os líderes `thiagorigonatti/rinha-2026` e `jairoblatt/rinha-2026-rust` usam HAProxy com Unix sockets, enquanto nossa stack usa nginx `stream`. Foi testada a troca isolada do load balancer, mantendo as mesmas 3 APIs, os mesmos sockets, a mesma porta `9999`, o mesmo orçamento (`0.22 CPU / 20MB`) e nenhuma lógica de aplicação no LB.
+
+Configuração temporária:
+
+- `haproxy:3.0-alpine`.
+- `mode tcp`, `balance roundrobin`, `nbthread 1`, `tune.bufsize 16384`.
+- Upstreams `unix@/sockets/api1.sock`, `api2.sock`, `api3.sock`.
+
+Resultados k6:
+
+| LB | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| HAProxy run #1 | 3.04ms | 0 | 0 | 0 | 5517.59 | repetir |
+| HAProxy run #2 | 3.21ms | 0 | 0 | 0 | 5494.13 | rejeitado |
+| nginx stream aceito | 2.96-3.12ms | 0 | 0 | 0 | 5506.17-5528.47 | manter |
+
+Leitura: HAProxy funcionou corretamente e ficou competitivo, mas não superou nginx no mesmo cenário. A segunda rodada mostrou cauda pior, e a troca adiciona uma mudança estrutural sem ganho sustentado.
+
+Decisão: rejeitado e revertido. O stack volta para nginx `stream`.
