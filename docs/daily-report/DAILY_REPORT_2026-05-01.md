@@ -881,3 +881,16 @@ Validação k6 da melhor ordem offline:
 | Checkpoint aceito anterior | 3.12ms | 0 | 0 | 0 | 5505.63 | manter |
 
 Decisão: revertido. A ordem customizada melhora o microbenchmark do classificador, mas piora a cauda end-to-end no k6. Nesta stack, k6 continua sendo gate soberano.
+
+### Experimento rejeitado: reservar body por `content-length`
+
+Hipótese: ler o header `content-length` e chamar `context->body.reserve(size)` poderia evitar realocações do `std::string` no recebimento do payload.
+
+Validações:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `content-length` + `body.reserve` | 3.69ms | 0 | 0 | 0 | 5432.44 | rejeitado |
+| Checkpoint aceito anterior | 3.12ms | 0 | 0 | 0 | 5505.63 | manter |
+
+Decisão: revertido. O custo de buscar/parsear header no hot path é maior do que qualquer economia de alocação para payloads desse tamanho.
