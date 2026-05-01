@@ -1121,3 +1121,23 @@ Resultado k6:
 | Controle aceito anterior | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
 
 Decisão: revertido. A alteração é compatível com o contrato observado e mantém acurácia, mas piora a cauda do k6. O header explícito atual continua sendo a opção mais estável nesta stack.
+
+### Experimento rejeitado: MCC por `switch` numérico
+
+Hipótese: substituir a cadeia de comparações `std::string == "5411"` etc. por decodificação fixa dos 4 dígitos e `switch` numérico reduziria custo de vetorização sem alterar a regra oficial nem o default `0.5`.
+
+Resultado offline pareado:
+
+| Configuração | ns/query | FP | FN | parse_errors |
+|---|---:|---:|---:|---:|
+| Baseline antes da mudança | 156.673 | 0 | 0 | 0 |
+| MCC por `switch` | 153.945 | 0 | 0 | 0 |
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| MCC por `switch` | 3.37ms | 0 | 0 | 0 | 5472.84 | rejeitado |
+| Controle aceito anterior | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
+
+Decisão: revertido. Apesar do ganho offline de aproximadamente 1,7%, a cauda no k6 piorou. Este reforça que microganhos de CPU abaixo de poucos microssegundos não são suficientes se mudam layout/branching do binário de forma desfavorável para o runtime sob proxy e throttling.
