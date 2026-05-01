@@ -2394,3 +2394,36 @@ Validação k6 da única variante promissora:
 | `nprobe=1`, `bbox_repair=true` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
 
 Decisão: manter `IVF_FAST_NPROBE=1`, `IVF_FULL_NPROBE=1`, `IVF_BBOX_REPAIR=true`. O ganho offline de `nprobe=2` foi pequeno e não sobreviveu ao benchmark completo.
+
+### Experimento rejeitado: `seccomp=unconfined` isolado nas APIs
+
+Hipótese: os repositórios líderes que usam `io_uring` declaram `security_opt: seccomp=unconfined`; antes de mexer no event loop, valia isolar se só remover o filtro seccomp já reduzia overhead no nosso stack uWebSockets/nginx atual.
+
+Mudança temporária:
+
+- Adicionado `security_opt: [seccomp=unconfined]` no anchor comum das APIs.
+- Nenhuma mudança de código, imagem, recursos, nginx, número de APIs ou parâmetros IVF.
+- Total de recursos preservado em `1.00 CPU / 350MB`.
+
+Fontes que motivaram a hipótese:
+
+- `thiagorigonatti/rinha-2026`: C + `io_uring`, UDS, HAProxy, `seccomp=unconfined`.
+- `jairoblatt/rinha-2026-rust`: Rust + `monoio`, UDS, HAProxy, `seccomp=unconfined`.
+- `joojf/rinha-2026`: Rust + `monoio`, UDS, nginx, `seccomp=unconfined`.
+
+Validação:
+
+```text
+docker compose up -d --force-recreate
+curl -fsS http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| APIs com `seccomp=unconfined` | 3.16ms | 0 | 0 | 0 | 5500.67 | rejeitado |
+| Configuração aceita sem `security_opt` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
+
+Conclusão: `seccomp=unconfined` não melhora o stack atual de forma isolada. O valor dessa opção nos líderes provavelmente vem de destravar `io_uring`/runtime específico, não de reduzir overhead no caminho epoll/uWebSockets atual. A mudança foi revertida.
