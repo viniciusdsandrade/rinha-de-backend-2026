@@ -383,7 +383,8 @@ std::uint64_t bbox_lower_bound(
     const std::vector<std::int16_t>& bbox_min,
     const std::vector<std::int16_t>& bbox_max,
     std::uint32_t cluster,
-    const std::array<std::int16_t, kDimensions>& query
+    const std::array<std::int16_t, kDimensions>& query,
+    std::uint64_t stop_after
 ) noexcept {
     const std::size_t base = static_cast<std::size_t>(cluster) * kDimensions;
     std::uint64_t sum = 0;
@@ -393,6 +394,9 @@ std::uint64_t bbox_lower_bound(
             sum += sqdiff_i16(target, bbox_min[base + dim]);
         } else if (target > bbox_max[base + dim]) {
             sum += sqdiff_i16(target, bbox_max[base + dim]);
+        }
+        if (sum > stop_after) {
+            return sum;
         }
     }
     return sum;
@@ -791,7 +795,8 @@ std::uint8_t IvfIndex::fraud_count_once_fixed(
             if (already_scanned) {
                 continue;
             }
-            if (bbox_lower_bound(bbox_min_, bbox_max_, cluster, query_i16) <= top.worst_distance()) {
+            const std::uint64_t worst = top.worst_distance();
+            if (bbox_lower_bound(bbox_min_, bbox_max_, cluster, query_i16, worst) <= worst) {
                 scan_blocks(top, blocks_, labels_, orig_ids_, offsets_[cluster], offsets_[cluster + 1U], query_i16);
             }
         }

@@ -721,3 +721,97 @@ Próximas hipóteses com melhor relação risco/retorno:
 - Testar uma versão do IVF que remova a passada rápida diretamente no código, em vez de depender apenas de ENV, para reduzir condicionais no hot path.
 - Investigar uma estratégia de índice menor/mais cache-friendly mantendo `0` erro, mas só com validação offline completa antes do k6.
 - Avaliar se uma submissão com o single-pass deve substituir a imagem pública atual depois de 3 runs k6 consecutivas mostrarem média igual ou melhor que a branch `submission` atual.
+
+## Rodada pós-checkpoint `perf/noon-tuning` - 10h11
+
+Contexto: após publicar o checkpoint `1aefc5d` em `origin/perf/noon-tuning`, continuei a investigação em branch não-submission. O objetivo desta rodada foi atacar o custo do repair exato do IVF sem aceitar aproximações que introduzam FP/FN.
+
+### Screening offline de configurações IVF
+
+Comando-base:
+
+```bash
+cpp/build/benchmark-ivf-cpp /tmp/rinha-2026-official-data/test-data.json /tmp/rinha-2026-index.bin ...
+```
+
+Resultados relevantes antes de mexer no código:
+
+| Configuração | ns/query | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| `nprobe=1`, bbox repair direto | 104.536 | 0 | 0 | correto, mas mais lento que `nprobe=2` no estado anterior |
+| `nprobe=2`, bbox repair direto | 102.306 | 0 | 0 | melhor configuração exata pré-patch |
+| `nprobe=3`, bbox repair direto | 108.438 | 0 | 0 | rejeitado |
+| `nprobe=4`, bbox repair direto | 107.460 | 0 | 0 | rejeitado |
+| `nprobe=1`, sem bbox repair | 12.757 | 429 | 444 | rejeitado por detecção |
+| `nprobe=2`, sem bbox repair | 16.806 | 156 | 150 | rejeitado por detecção |
+| Híbrido `fast=1`, `full=2`, repair `2..3` | 17.071 | 63 | 90 | rejeitado por detecção |
+| Híbrido `fast=1`, `full=2`, repair `1..4` | 16.641 | 9 | 12 | rejeitado por detecção |
+| Híbrido `fast=1`, `full=2`, repair `0..4` | 57.866 | 9 | 0 | rejeitado por detecção |
+| Híbrido `fast=1`, `full=2`, repair `1..5` | 71.781 | 0 | 12 | rejeitado por detecção |
+| Híbrido `fast=1`, `full=2`, repair `0..5` | 116.744 | 0 | 0 | correto, mas redundante/lento |
+
+Conclusão do screening: os modos aproximados são muito rápidos, mas qualquer FP/FN derruba o score de forma pior do que o ganho de p99. O caminho útil continua sendo reduzir custo do modo exato.
+
+### Experimento aceito: early-exit no lower bound das bounding boxes
+
+Hipótese: durante o repair, `bbox_lower_bound` calculava as 14 dimensões mesmo quando a soma parcial já excedia `top.worst_distance()`. Como esses clusters nunca podem conter um candidato melhor, a função pode parar assim que `sum > worst`, preservando exatamente a mesma decisão.
+
+Mudança aplicada:
+
+```text
+cpp/src/ivf.cpp
+- bbox_lower_bound agora recebe stop_after
+- retorna assim que a soma parcial excede o pior vizinho atual
+- a chamada cacheia top.worst_distance() por cluster antes da comparação
+```
+
+Validação offline pós-patch:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| `nprobe=2`, bbox repair direto, repeat 5 | 70.096 | 0 | 0 | 0 | aceito |
+| `nprobe=1`, bbox repair direto, repeat 5 | 69.691 | 0 | 0 | 0 | aceito e ligeiramente melhor |
+
+Ganho isolado: o modo exato caiu de aproximadamente `102.306 ns/query` para `69.691 ns/query`, cerca de `31.9%` menos tempo por query no classificador.
+
+Justificativa técnica para `nprobe=1`: com bbox repair habilitado, `nprobe` só define os clusters iniciais usados para preencher o top-5. Depois disso, qualquer cluster cujo lower bound ainda possa vencer o pior vizinho atual é escaneado. Como o lower bound da bounding box é conservador, essa poda preserva a busca exata no índice.
+
+### Validação k6 oficial local
+
+Configuração testada:
+
+```text
+IVF_FAST_NPROBE=1
+IVF_FULL_NPROBE=1
+IVF_BOUNDARY_FULL=false
+IVF_BBOX_REPAIR=true
+IVF_REPAIR_MIN_FRAUDS=0
+IVF_REPAIR_MAX_FRAUDS=5
+```
+
+Resultados:
+
+| Run | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| early-exit + `nprobe=1`, run 1 | 3.18ms | 0 | 0 | 0 | 5497.76 | aceito |
+| early-exit + `nprobe=1`, run 2 | 3.12ms | 0 | 0 | 0 | 5505.63 | aceito; melhor run da branch |
+
+Comparação contra o melhor estado anterior desta branch:
+
+| Estado | Melhor p99 | Melhor score | FP | FN | HTTP |
+|---|---:|---:|---:|---:|---:|
+| Single-pass IVF pré-patch | 3.27ms | 5484.83 | 0 | 0 | 0 |
+| Early-exit bbox + `nprobe=1` | 3.12ms | 5505.63 | 0 | 0 | 0 |
+
+Ganho observado no melhor k6: `+20.80` pontos e `-0.15ms` de p99 contra o melhor checkpoint anterior da branch. Contra a submissão pública final registrada antes da rodada (`3.24ms`, `5489.47`), a melhor run experimental melhora `+16.16` pontos e `-0.12ms` de p99.
+
+### Decisão
+
+Manter o patch de early-exit e reduzir `IVF_FAST_NPROBE`/`IVF_FULL_NPROBE` para `1` nesta branch experimental. A mudança é sustentável porque:
+
+- preserva a busca exata por argumento de lower bound conservador;
+- manteve `0` FP/FN no benchmark offline e em duas execuções k6 completas;
+- reduz CPU do classificador de forma material;
+- melhora o score end-to-end de forma reproduzida.
+
+Próximo passo investigativo: procurar outra poda exata no hot path do IVF, preferencialmente evitando trabalho em `already_scanned` ou melhorando a representação das bounding boxes, mas sem aceitar modos aproximados com erro.
