@@ -3529,3 +3529,34 @@ Resultado no benchmark oficial local:
 Leitura: o On Demand parecia promissor no microbenchmark, mas falhou no critério que importa: preservação semântica no stack completo. A repetição do mesmo padrão de `123 FP / 117 FN` visto no experimento anterior indica que a troca de API do parser alterou alguma dimensão sensível, provavelmente por consumo/ordem/lifetime em objetos aninhados ou por diferença na extração de strings. O teste unitário atual e o checksum agregado do microbenchmark não são suficientes para capturar essa classe de divergência.
 
 Decisão: rejeitado e revertido. O parser DOM atual permanece, porque é mais robusto semanticamente no dataset oficial local. Antes de qualquer nova tentativa nessa linha, o próximo pré-requisito é criar um comparador payload-a-payload de vetor DOM vs parser candidato, falhando na primeira dimensão divergente.
+
+### Experimento rejeitado sem k6: `Payload` com buffer textual fixo
+
+Hipótese: `transaction_requested_at` e `last_transaction_timestamp` têm 20 bytes e podem exceder o SSO comum de `std::string`; trocar os campos textuais persistidos do `Payload` por buffers fixos pequenos (`FixedString`) poderia reduzir alocações por request mantendo o parser DOM atual.
+
+Alteração testada:
+
+```text
+Payload.transaction_requested_at: std::string -> FixedString<32>
+Payload.last_transaction_timestamp: std::string -> FixedString<32>
+Payload.merchant_mcc: std::string -> FixedString<8>
+parse_timestamp: const std::string& -> std::string_view
+mcc_risk: const std::string& -> std::string_view
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target test benchmark-request-cpp -j8 => tests 100% passed
+```
+
+Microbenchmark offline:
+
+| Variante | parse_payload | parse_vectorize | parse_classify | Decisão |
+|---|---:|---:|---:|---|
+| baseline histórico DOM | ~630ns | ~696ns | ~28.9us | referência |
+| `Payload` com buffer fixo (`repeat=20`) | 709.29ns | 670.02ns | 29.93us | rejeitado |
+
+Leitura: a hipótese reduziu uma possível fonte de heap allocation, mas aumentou custo do parser puro e piorou o caminho agregado com classificação. O ganho em `parse_vectorize` não compensa a piora de `parse_payload` e `parse_classify`; levar isso para k6 seria ruído caro.
+
+Decisão: rejeitado e revertido sem k6. `Payload` voltou a usar `std::string`; `cmake --build cpp/build --target test -j8` voltou a passar 100%.
