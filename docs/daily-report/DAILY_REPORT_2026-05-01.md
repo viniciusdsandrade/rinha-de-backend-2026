@@ -915,3 +915,16 @@ Resultado k6:
 | 3 APIs + nginx `0.19`, checkpoint aceito | 3.12ms | 0 | 0 | 0 | 5505.63 | manter |
 
 Decisão: revertido. Mesmo com classificador mais barato, 2 APIs piora a cauda local. A topologia de 3 APIs segue melhor para absorver o ramp de 900 RPS.
+
+### Experimento rejeitado: `UWS_HTTPRESPONSE_NO_WRITEMARK`
+
+Hipótese: remover os headers automáticos `Date` e `uWebSockets` gerados pelo uWebSockets em cada resposta reduziria bytes e escritas no hot path. A API não exige esses headers, então a mudança seria compatível se melhorasse p99.
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `UWS_HTTPRESPONSE_NO_WRITEMARK` | 3.24ms | 0 | 0 | 0 | 5489.23 | rejeitado |
+| Checkpoint aceito anterior | 3.12ms | 0 | 0 | 0 | 5505.63 | manter |
+
+Decisão: revertido. A remoção de headers é funcionalmente segura, mas não melhorou a cauda no k6 local.
