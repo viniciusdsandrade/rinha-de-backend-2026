@@ -1286,3 +1286,47 @@ Revalidação pareada do melhor candidato contra o baseline:
 | 4 | 1792 | 160563 | 0 | 0 | 0 |
 
 Decisão: rejeitado. `1792` pareceu competitivo na primeira varredura, mas perdeu nas execuções pareadas. `2048` continua sendo o ponto mais robusto entre os tamanhos testados, então o índice do `Dockerfile` permanece inalterado.
+
+### Tentativa interrompida: benchmark de request genérico
+
+Objetivo: medir isoladamente se o parser DOM do simdjson ainda era gargalo relevante antes de iniciar uma reescrita manual do parser.
+
+Comando iniciado:
+
+```text
+benchmark-request-cpp /tmp/rinha-2026-official-run/test-data.json resources/references.json.gz 20
+```
+
+Resultado: interrompido manualmente. O benchmark existente também executa uma etapa final de classificador exato, o que torna o comando pesado demais para esta rodada e pouco representativo da stack atual baseada em IVF. A conclusão operacional é não usar esse binário como gate para parser sem antes criar um modo leve específico para parse/vectorize.
+
+### Experimento rejeitado: early-skip no scan AVX2 por bloco
+
+Hipótese: no `scan_blocks_avx2`, calcular as primeiras 7 dimensões e pular as 7 restantes quando todas as 8 lanes do bloco já excedem o pior top-5 atual reduziria bastante CPU no repair do IVF sem alterar a distância exata dos candidatos que continuam.
+
+Validações:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-2048.bin 3 0 1 1 1
+docker compose up -d --build --remove-orphans
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado offline:
+
+| Configuração | ns/query | FP | FN | parse_errors |
+|---|---:|---:|---:|---:|
+| Early-skip AVX2, run 1 | 123066 | 0 | 0 | 0 |
+| Early-skip AVX2, run 2 | 119977 | 0 | 0 | 0 |
+| Early-skip AVX2, run 3 | 122376 | 0 | 0 | 0 |
+| Controle pareado recente | 156575-158264 | 0 | 0 | 0 |
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Early-skip AVX2 por bloco | 3.33ms | 0 | 0 | 0 | 5477.05 | rejeitado |
+| Controle limpo nginx `stream` | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
+
+Decisão: revertido. O ganho offline foi real, mas não transferiu para o compose oficial local. A hipótese provável é que o hot path ficou mais branchy e menos previsível, enquanto a cauda do k6 continua dominada por proxy/throttling/scheduler. Como o score piorou, o scan AVX2 full-pass permanece.
