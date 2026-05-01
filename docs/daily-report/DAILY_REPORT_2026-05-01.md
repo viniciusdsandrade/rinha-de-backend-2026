@@ -2320,3 +2320,32 @@ Resultado k6:
 | nginx stream aceito | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
 
 Leitura: HAProxy isolado piorou a latência local. A vantagem dos líderes não é o HAProxy em si; ela vem do conjunto servidor próprio/monoio/io_uring + parser integrado + layout quantizado. A configuração foi revertida para nginx stream.
+
+### Experimento rejeitado: duas APIs maiores com nginx stream
+
+Hipótese: os líderes concentram CPU em duas APIs grandes (`~0.40 CPU` cada) em vez de três APIs menores; talvez o nosso stack estivesse pagando overhead de uma terceira instância e subalocando CPU para cada processo.
+
+Mudança temporária:
+
+- Removida `api3` do `docker-compose.yml` e do upstream nginx.
+- `api1/api2`: `0.39 CPU / 165MB` cada.
+- nginx mantido em `0.22 CPU / 20MB`.
+- Total preservado: `1.00 CPU / 350MB`.
+
+Validações:
+
+```text
+docker compose up -d --build --remove-orphans
+docker compose exec -T nginx nginx -t
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `2 APIs x 0.39 CPU` + nginx `0.22` | 3.12ms | 0 | 0 | 0 | 5505.62 | rejeitado |
+| `3 APIs x 0.26 CPU` + nginx `0.22` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
+
+Leitura: no nosso stack uWebSockets/nginx, a terceira API ainda ajuda mais do que concentrar CPU em duas APIs. A topologia de duas APIs só parece vantajosa quando o servidor por API é muito mais barato, como nos líderes com C/io_uring ou Rust/monoio. Configuração revertida para três APIs.
