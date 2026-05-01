@@ -1220,3 +1220,33 @@ Resultado k6:
 | Controle limpo nginx `stream` | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
 
 Decisão: revertido. O HAProxy TCP funciona e é muito melhor que HAProxy HTTP nesta stack, mas ainda perde para nginx `stream` no controle fresco. O LB principal permanece nginx.
+
+### Experimento rejeitado: parser com `padded_string_view`
+
+Hipótese: reservar capacidade fixa no corpo HTTP e parsear com `simdjson::padded_string_view` evitaria a cópia interna feita por `simdjson::padded_string`, reduzindo custo no hot path do `POST /fraud-score`.
+
+Contexto medido do dataset de teste:
+
+```text
+payload size: min=358 bytes, max=469 bytes, avg=434.544 bytes
+reserva testada: 1024 bytes por RequestContext
+fallback: se capacity < size + SIMDJSON_PADDING, usa parse_payload original
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `padded_string_view` + reserva 1024 | 3.33ms | 0 | 0 | 0 | 5477.44 | rejeitado |
+| Controle limpo nginx `stream` | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
+
+Decisão: revertido. A mudança preservou correção, mas piorou a cauda. A cópia evitada pelo simdjson não é o gargalo dominante no compose oficial local; a reserva por request e o caminho adicional de parser não compensaram sob k6.
