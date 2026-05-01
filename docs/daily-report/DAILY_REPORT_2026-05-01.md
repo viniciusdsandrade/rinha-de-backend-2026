@@ -2778,3 +2778,24 @@ Resultado offline:
 Leitura: a ordem reordenada preservou a acurácia, mas piorou o kernel. A explicação mais provável é que o layout SoA por dimensão e a distribuição real do dataset favorecem a ordem natural das dimensões iniciais; antecipar flags/sentinelas não compensou o custo de acesso e reduziu a eficiência da poda.
 
 Decisão: rejeitado e revertido. A poda parcial permanece com dimensões `0..7` antes do check.
+
+### Experimento rejeitado: reordenar dimensões no `bbox_lower_bound`
+
+Hipótese: a reordenação de dimensões foi ruim no scanner AVX2, mas poderia ajudar no `bbox_lower_bound`, pois ali a função só precisa ultrapassar `worst` para abortar cedo. A soma final do lower bound permanece idêntica; apenas a ordem da soma foi alterada.
+
+Mudança temporária:
+
+```text
+ordem testada no bbox: [5, 6, 11, 9, 10, 0, 2, 7, 8, 12, 1, 3, 4, 13]
+```
+
+Resultados:
+
+| Etapa | p99/ns_query | FP | FN | HTTP/parse errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Offline com bbox reordenado | 67548.5 ns/query | 0 | 0 | 0 | n/a | levar ao k6 |
+| k6 com bbox reordenado | 3.45ms | 0 | 0 | 0 | 5461.94 | rejeitado |
+
+Leitura: novamente houve ganho no microbenchmark, mas piora no p99 real. Nesta região do código, o k6 parece mais sensível a variabilidade/cache/branching do que ao `ns/query` médio medido isoladamente.
+
+Decisão: rejeitado e revertido. A ordem natural do `bbox_lower_bound` foi restaurada.
