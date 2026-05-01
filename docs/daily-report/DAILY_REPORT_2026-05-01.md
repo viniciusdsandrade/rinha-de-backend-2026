@@ -2502,3 +2502,33 @@ Validação k6 da única variante sem erro:
 | Configuração aceita `1/1`, repair todas | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
 
 Conclusão: o microbenchmark mostrou redução real de CPU no classificador, mas esse ganho não virou p99 melhor no compose oficial local. Como a segunda run ficou fora da melhor faixa recente, a mudança foi revertida. O aprendizado é que o gargalo de p99 atual não é apenas custo médio do IVF; variações que reduzem ns/query ainda precisam reduzir cauda end-to-end para serem aceitas.
+
+### Experimento rejeitado: 2 APIs com alocação API-heavy `0.45/0.45/0.10`
+
+Hipótese: os líderes Rust usam duas APIs maiores e nginx pequeno (`0.45 CPU` por API, `0.10 CPU` no nginx). O teste anterior com duas APIs havia usado `0.39/0.39/0.22`, então ainda faltava medir a alocação API-heavy mais próxima do top 3.
+
+Mudança temporária:
+
+- Removida `api3` do `docker-compose.yml`.
+- Removida `api3.sock` do upstream nginx.
+- `api1/api2`: `0.45 CPU / 165MB`.
+- nginx: `0.10 CPU / 20MB`.
+- Total preservado: `1.00 CPU / 350MB`.
+
+Validação:
+
+```text
+docker compose up -d --force-recreate --remove-orphans
+curl -fsS http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 2 APIs `0.45` + nginx `0.10` | 48.48ms | 0 | 0 | 0 | 4314.46 | rejeitado |
+| 2 APIs `0.39` + nginx `0.22` | 3.12ms | 0 | 0 | 0 | 5505.62 | rejeitado anterior |
+| 3 APIs `0.26` + nginx `0.22` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
+
+Conclusão: a alocação API-heavy não se transfere para nosso stack. Com apenas duas APIs, o ramp final acumulou VUs e explodiu a cauda apesar de manter zero erro de detecção. A terceira API continua necessária para estabilidade de p99 nesta implementação C++/uWebSockets.
