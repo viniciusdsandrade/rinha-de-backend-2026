@@ -1361,3 +1361,34 @@ Resultado k6:
 | Controle limpo nginx `stream` | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
 
 Decisão: revertido. A ordem do líder C faz sentido no layout SoA linear dele e no scalar com poda por dimensão. No nosso layout de blocos `dim * lanes`, a ordem natural preserva melhor localidade e vence no compose.
+
+### Experimento rejeitado: fast path de timestamp para março/2026
+
+Hipótese: os payloads oficiais locais usam timestamps em `2026-03`, então um fast path validado para esse mês poderia evitar parte do parsing genérico de data/hora, mantendo fallback completo para qualquer outro timestamp.
+
+Checagem do dataset:
+
+```text
+transaction.requested_at e last_transaction.timestamp: 97328 ocorrências em 2026-03
+epoch 2026-03-01T00:00:00Z: 1772323200
+weekday de 2026-03-01: domingo
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-2048.bin 3 0 1 1 1
+```
+
+Resultado offline:
+
+| Run | ns/query | FP | FN | parse_errors |
+|---:|---:|---:|---:|---:|
+| 1 | 154720 | 0 | 0 | 0 |
+| 2 | 158390 | 0 | 0 | 0 |
+| 3 | 160153 | 0 | 0 | 0 |
+| Controle pareado recente | 156575-158264 | 0 | 0 | 0 |
+
+Decisão: revertido sem k6. A otimização é correta e preservou os testes, mas não mostrou ganho offline sustentável. O custo de timestamp não é dominante frente ao IVF/proxy nesta stack.
