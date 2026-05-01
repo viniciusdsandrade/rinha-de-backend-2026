@@ -2055,3 +2055,32 @@ Resultado k6:
 | build aceito atual | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
 
 Decisão: revertido. A flag é tecnicamente segura, mas piorou a cauda no stack completo. O build atual com `x86-64-v3` sem `-fomit-frame-pointer` permanece mais competitivo.
+
+### Experimento rejeitado: `MALLOC_ARENA_MAX=1`
+
+Hipótese: cada API processa o hot path em um único event loop. Limitar o glibc malloc a uma arena poderia reduzir ruído/overhead de alocação em `std::string`, `simdjson::padded_string` e temporários pequenos.
+
+Mudança temporária:
+
+```yaml
+environment:
+  MALLOC_ARENA_MAX: "1"
+```
+
+Validações:
+
+```text
+docker compose config --quiet
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `MALLOC_ARENA_MAX=1` | 3.07ms | 0 | 0 | 0 | 5512.31 | rejeitado |
+| alocador glibc padrão + split aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
+
+Decisão: revertido. O alocador padrão ficou melhor neste workload; limitar arenas não reduziu a cauda e adicionaria configuração operacional sem retorno.
