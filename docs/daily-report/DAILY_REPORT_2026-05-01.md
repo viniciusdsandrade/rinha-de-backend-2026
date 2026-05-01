@@ -3015,3 +3015,26 @@ Resultado no benchmark oficial local atualizado:
 Leitura: o pinning manual voltou a piorar a cauda. A limitação por `NanoCpus` parece interagir melhor com o scheduler do Docker quando os processos podem migrar, em vez de ficarem fixos em três CPUs específicas.
 
 Decisão: rejeitado e revertido. O `docker-compose.yml` permanece sem `cpuset`.
+
+### Experimento rejeitado: ponto intermediário `api=0.345`, `nginx=0.31`
+
+Hipótese: como `api=0.35/nginx=0.30` foi bom e `api=0.34/nginx=0.32` piorou, o ponto intermediário poderia ser o melhor equilíbrio fino entre backend e proxy.
+
+Validação de limites efetivos:
+
+```text
+/perf-noon-tuning-api1-1 nano=345000000 mem=173015040
+/perf-noon-tuning-api2-1 nano=345000000 mem=173015040
+/perf-noon-tuning-nginx-1 nano=310000000 mem=20971520
+```
+
+Resultados no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `api=0.345 x2`, `nginx=0.31` run #1 | 2.85ms | 0 | 0 | 0 | 5545.86 | repetir |
+| `api=0.345 x2`, `nginx=0.31` run #2 | 3.15ms | 0 | 0 | 0 | 5502.10 | rejeitar |
+
+Leitura: o primeiro resultado foi o melhor single-run do dia por margem mínima, mas não reproduziu. A queda para `5502.10` na repetição torna o ponto instável demais para aceitar. Como a diferença positiva era menor que 1 ponto e a regressão foi grande, o resultado deve ser tratado como outlier.
+
+Decisão: rejeitado e revertido. O estado aceito volta para `api=0.35 x2` e `nginx=0.30`.
