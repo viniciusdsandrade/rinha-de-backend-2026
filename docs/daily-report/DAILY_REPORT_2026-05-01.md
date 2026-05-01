@@ -1642,3 +1642,36 @@ Resultado k6:
 | `nprobe=1` especializado, aceito | 3.10-3.37ms | 0 | 0 | 0 | 5472.90-5508.92 | manter |
 
 Decisão: revertido. A troca remove um dispatch trivial, mas introduz indireção por ponteiro e alocação heap no estado da aplicação. Na prática, a cauda ficou pior que a otimização aceita de `nprobe=1`; o `std::variant` continua suficientemente barato e mais simples.
+
+### Experimento rejeitado: habilitar `-fno-exceptions` com parsing de env sem exceção
+
+Hipótese: a tentativa anterior de `-fno-exceptions` falhou porque `main.cpp` ainda usava `std::stoul` / `std::stoi` com `catch (...)`. Substituir temporariamente esse parsing por uma rotina manual sem exceção permitiria medir a flag de forma justa. Como parsing de env não está no hot path, a única chance de ganho seria redução de tamanho/overhead do binário.
+
+Mudanças temporárias:
+
+```cpp
+std::optional<std::uint32_t> parse_u32(std::string_view value);
+```
+
+```cmake
+target_compile_options(rinha-backend-2026-cpp PRIVATE -fno-exceptions)
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| parsing manual + `-fno-exceptions` | 3.64ms | 0 | 0 | 0 | 5439.49 | rejeitado |
+| `nprobe=1` especializado, aceito | 3.10-3.37ms | 0 | 0 | 0 | 5472.90-5508.92 | manter |
+
+Decisão: revertido. A flag compila quando o parsing é ajustado, mas não entrega ganho mensurável e piora a cauda local. Não vale trocar código simples de bootstrap por parsing manual apenas para uma flag sem retorno.
