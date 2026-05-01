@@ -3396,3 +3396,27 @@ GET /ready => 204
 ```
 
 Próxima hipótese com maior chance real: implementar um servidor manual separado e opcional, começando por um alvo isolado (`rinha-backend-2026-cpp-manual`) em vez de alterar o binário aceito. O critério mínimo para continuar esse caminho é compilar localmente, passar contrato HTTP, manter 0 FP/FN e mostrar k6 acima do estado aceito em duas runs consecutivas. Sem isso, a troca de servidor vira complexidade sem ganho sustentável.
+
+### Experimento rejeitado: reduzir `LIBUS_RECV_BUFFER_LENGTH`
+
+Hipótese: o `uSockets` vendorizado define `LIBUS_RECV_BUFFER_LENGTH=524288` por padrão. Como os payloads reais do teste ficam em torno de `435 bytes` em média e `472 bytes` no máximo observado pelo benchmark offline, um buffer global de 512KB poderia gerar pressão desnecessária de cache/memória. Foi testado `LIBUS_RECV_BUFFER_LENGTH=16384` no target `usockets`.
+
+Validação:
+
+```text
+cmake --build cpp/build --target test rinha-backend-2026-cpp -j8
+ctest via target test => 100% passed
+docker compose build api1
+docker compose up -d --force-recreate
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `LIBUS_RECV_BUFFER_LENGTH=16384` | 3.37ms | 0 | 0 | 0 | 5472.28 | rejeitado |
+
+Leitura: reduzir o buffer piorou a cauda. O default de 512KB não parece ser gargalo mensurável no nosso caminho, ou o `uSockets` se beneficia do buffer maior no fluxo interno de leitura. Esta classe de tuning interno do framework é menos promissora que trocar o servidor inteiro por um caminho manual.
+
+Decisão: rejeitado e revertido. `cpp/CMakeLists.txt` voltou a definir apenas `LIBUS_NO_SSL` para `usockets`; imagem Docker reconstruída no estado aceito e `/ready` validado em `204`.
