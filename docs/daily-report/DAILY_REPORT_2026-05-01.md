@@ -951,3 +951,23 @@ Resultado:
 | Controle pós-reversões | 3.03ms | 0 | 0 | 0 | 5518.47 | melhor run da branch até agora |
 
 Conclusão: o melhor estado técnico permanece `early-exit bbox + nprobe=1`. A melhor run local da branch subiu para `5518.47`, com `0` erro de detecção e `p99=3.03ms`.
+
+### Experimento rejeitado: resposta direta por bucket
+
+Hipótese: no caminho IVF, retornar diretamente o bucket `0..5` de fraude evitaria construir `Classification`, multiplicar `fraud_count * 0.2f` e recalcular o bucket com `floor` no hot path de resposta.
+
+Validações locais antes do k6:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Bucket direto no `main.cpp` | 4.43ms | 0 | 0 | 0 | 5353.67 | rejeitado |
+| Controle aceito anterior | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
+
+Decisão: revertido. A alteração é funcionalmente correta, mas piora a cauda de forma relevante. A hipótese provável é que a mudança de assinatura/ramificação não reduz o custo dominante e atrapalha a otimização do compilador no caminho atual.
