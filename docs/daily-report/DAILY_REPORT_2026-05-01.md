@@ -1197,3 +1197,26 @@ Resultado k6:
 | Controle limpo pós-rejeições | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
 
 Decisão: revertido. A técnica do líder é coerente no C/io_uring dele, mas no nosso C++/uWebSockets o pequeno ganho offline virou pior cauda no k6.
+
+### Experimento rejeitado: HAProxy TCP/L4 sobre Unix socket
+
+Hipótese: o HAProxy HTTP já havia sido rejeitado, mas ainda faltava testar HAProxy em modo TCP/L4, equivalente conceitual ao nginx `stream`, para separar custo de proxy HTTP de custo do balanceador.
+
+Configuração testada:
+
+```text
+HAProxy 3.3
+mode tcp
+3 APIs C++/uWebSockets via /sockets/api{1,2,3}.sock
+api:     0.27 CPU / 110MB cada
+haproxy: 0.19 CPU / 20MB
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| HAProxy TCP/L4 + 3 APIs | 3.25ms | 0 | 0 | 0 | 5488.38 | rejeitado |
+| Controle limpo nginx `stream` | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
+
+Decisão: revertido. O HAProxy TCP funciona e é muito melhor que HAProxy HTTP nesta stack, mas ainda perde para nginx `stream` no controle fresco. O LB principal permanece nginx.
