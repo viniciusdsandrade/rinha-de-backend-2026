@@ -1423,3 +1423,25 @@ Resultado offline:
 | Controle pareado recente | 156575-158264 | 0 | 0 | 0 |
 
 Decisão: revertido sem k6. Não houve ganho offline claro, e manter `-ffast-math` aumenta risco sem retorno mensurável.
+
+### Experimento rejeitado: remover `res->cork` na resposta HTTP
+
+Hipótese: como cada resposta já cabe em um payload JSON pequeno e pré-formatado, escrever header e body diretamente poderia reduzir overhead no hot path do uWebSockets. O teste removeu apenas o wrapper `res->cork`, mantendo `Content-Type` e corpo idênticos.
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Sem `res->cork` | 3.20ms | 0 | 0 | 0 | 5494.61 | rejeitado |
+| Controle recente | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
+
+Decisão: revertido. A diferença ficou dentro da zona de ruído e levemente pior que o controle recente, então não há evidência sustentável para remover `res->cork`. O caminho atual permanece mais seguro por preservar o agrupamento de escrita recomendado pelo uWebSockets.
