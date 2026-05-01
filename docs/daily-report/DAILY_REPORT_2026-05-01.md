@@ -2349,3 +2349,48 @@ Resultado k6:
 | `3 APIs x 0.26 CPU` + nginx `0.22` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
 
 Leitura: no nosso stack uWebSockets/nginx, a terceira API ainda ajuda mais do que concentrar CPU em duas APIs. A topologia de duas APIs só parece vantajosa quando o servidor por API é muito mais barato, como nos líderes com C/io_uring ou Rust/monoio. Configuração revertida para três APIs.
+
+### Screening rejeitado: IVF aproximado sem reparo e `nprobe=2` com reparo
+
+Hipótese: os Rust de topo usam IVF aproximado com múltiplos probes e sem reparo exato; talvez fosse possível trocar um pequeno erro de detecção por grande redução de latência, ou usar mais probes com `bbox_repair=true` para reduzir o custo do reparo exato.
+
+Validação offline:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp -j2
+docker cp perf-noon-tuning-api1-1:/app/data/index.bin /tmp/rinha-2026-research/current/index.bin
+./cpp/build/benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-2026-research/current/index.bin 1 0 <fast> <full> <bbox_repair>
+```
+
+Resultados offline sem `bbox_repair`:
+
+| Configuração | ns/query | FP | FN | Failure rate | Decisão |
+|---|---:|---:|---:|---:|---|
+| `nprobe=1`, sem repair | 13929.8 | 143 | 148 | 0.5379% | rejeitado |
+| `nprobe=2`, sem repair | 16024.6 | 52 | 50 | 0.1885% | rejeitado |
+| `nprobe=4`, sem repair | 23326.3 | 10 | 12 | 0.0407% | rejeitado |
+| `nprobe=8`, sem repair | 38254.8 | 6 | 3 | 0.0166% | rejeitado |
+| `nprobe=12`, sem repair | 57842.1 | 4 | 2 | 0.0111% | rejeitado |
+| `nprobe=16`, sem repair | 70164.0 | 3 | 1 | 0.0074% | rejeitado |
+| `nprobe=24`, sem repair | 97791.0 | 2 | 1 | 0.0055% | rejeitado |
+
+Leitura: mesmo erros pequenos custam caro na fórmula. Exemplo: `nprobe=4` tem `E = 10*1 + 12*3 = 46`, o que gera penalidade absoluta de aproximadamente `-501` pontos; mesmo que a latência saturasse em `1ms`, a troca ficaria no limite e não é sustentável.
+
+Resultados offline com `bbox_repair=true`:
+
+| Configuração | ns/query | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| `nprobe=1`, repair | 72640.0 | 0 | 0 | referência |
+| `nprobe=2`, repair | 70404.0 | 0 | 0 | testar em k6 |
+| `nprobe=4`, repair | 74292.8 | 0 | 0 | rejeitado |
+| `nprobe=8`, repair | 83350.7 | 0 | 0 | rejeitado |
+| `nprobe=12`, repair | 100915.0 | 0 | 0 | rejeitado |
+
+Validação k6 da única variante promissora:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `nprobe=2`, `bbox_repair=true` | 3.16ms | 0 | 0 | 0 | 5499.83 | rejeitado |
+| `nprobe=1`, `bbox_repair=true` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
+
+Decisão: manter `IVF_FAST_NPROBE=1`, `IVF_FULL_NPROBE=1`, `IVF_BBOX_REPAIR=true`. O ganho offline de `nprobe=2` foi pequeno e não sobreviveu ao benchmark completo.
