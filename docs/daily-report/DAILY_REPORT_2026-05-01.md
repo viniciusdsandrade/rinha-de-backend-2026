@@ -1856,3 +1856,33 @@ Resultado k6:
 | body na closure, aceito | 3.12-3.28ms | 0 | 0 | 0 | 5483.58-5505.61 | manter |
 
 Decisão: revertido. A alocação do vector não apareceu como gargalo real; o TLS provavelmente aumentou custo de acesso/pressão de cache frente ao vector local pequeno.
+
+### Experimento rejeitado: redistribuir CPU para APIs (`api=0.28`, `nginx=0.16`)
+
+Hipótese: depois de estabilizar três APIs, mover CPU do nginx para as APIs poderia reduzir throttling no hot path de classificação. O split testado manteve o orçamento total em `1.00 CPU`, alterando cada API de `0.27` para `0.28` e o nginx de `0.19` para `0.16`.
+
+Mudança temporária:
+
+```yaml
+api1/api2/api3:
+  cpus: "0.28"
+nginx:
+  cpus: "0.16"
+```
+
+Validações:
+
+```text
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `api=0.28`, `nginx=0.16` | 4.52ms | 0 | 0 | 0 | 5344.43 | rejeitado |
+| split aceito `api=0.27`, `nginx=0.19` | 3.12-3.28ms | 0 | 0 | 0 | 5483.58-5505.61 | manter |
+
+Decisão: revertido. O nginx continua sensível a CPU neste stack; reduzir o limite dele piorou p99 de forma clara sem alterar detecção.
