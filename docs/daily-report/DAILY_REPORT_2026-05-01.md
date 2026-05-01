@@ -1015,3 +1015,36 @@ Resultado k6:
 | nginx `stream` + 3 APIs, controle aceito | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
 
 Decisão: revertido. O HAProxy funciona e mantém a precisão, mas adicionou cauda muito maior na nossa combinação com uWebSockets/UDS. A vantagem observada no líder parece estar acoplada ao servidor C/io_uring e não se transfere diretamente para esta stack C++.
+
+### Run de controle após retorno para nginx
+
+Depois do teste com HAProxy, subi novamente o compose com nginx `stream` e removi órfãos do serviço anterior para evitar porta contaminada.
+
+Resultado:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Observação |
+|---|---:|---:|---:|---:|---:|---|
+| Controle nginx pós-HAProxy | 3.17ms | 0 | 0 | 0 | 5498.46 | runtime limpo, abaixo da melhor run local |
+
+Conclusão: o controle continua correto, mas com variação normal de cauda. O melhor local da branch segue `3.03ms / 5518.47`; a melhor prévia oficial da submissão foi `2.83ms / 5548.91`.
+
+### Experimento rejeitado: quantização sem `std::lround`
+
+Hipótese: substituir `std::lround(value * 10000)` por arredondamento manual equivalente reduziria custo de libm no caminho quente, já que cada requisição quantiza 14 dimensões.
+
+Validações:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+./cpp/build/benchmark-ivf-cpp /tmp/rinha-2026-official-data/test-data.json /tmp/rinha-2026-index.bin 5 0 1 1 1
+```
+
+Resultado offline:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Arredondamento manual | 158.110 | 0 | 0 | 0 | rejeitado |
+| Baseline da rodada | 133.130 | 0 | 0 | 0 | manter |
+
+Decisão: revertido sem k6. A alteração preserva classificação, mas piora o tempo. A hipótese provável é que `std::lround` já está bem otimizado no build atual e a expressão manual introduz branch/conversão menos favorável.
