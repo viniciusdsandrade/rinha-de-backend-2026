@@ -3468,3 +3468,32 @@ Leitura: o resultado ficou bom dentro do drift local recente, mas não superou a
 Observação operacional: após editar `nginx.conf` via patch, o container do nginx chegou a validar um arquivo truncado por causa do bind mount sobre inode antigo. A validação correta exigiu recriar o serviço (`docker compose up -d --force-recreate nginx`) antes de rodar `nginx -t`.
 
 Decisão: rejeitado e revertido. O nginx voltou sem `proxy_buffer_size` explícito.
+
+### Experimento rejeitado: `known_merchants` inline com `string_view`
+
+Hipótese: manter `simdjson`, mas remover alocações evitáveis na comparação de `customer.known_merchants` contra `merchant.id`. O `test/test-data.json` local tem no máximo 5 merchants conhecidos por payload; por isso foi testado armazenamento inline com `std::array<std::string_view, 8>` e fallback para overflow, preservando a API e o restante da vetorização.
+
+Investigação prévia:
+
+```text
+jq '[.entries[].request.customer.known_merchants | length] | max' test/test-data.json => 5
+cmake --build cpp/build --target test benchmark-request-cpp -j8 => tests 100% passed
+```
+
+Microbenchmark offline:
+
+| Variante | parse_payload | parse_vectorize | parse_classify |
+|---|---:|---:|---:|
+| baseline histórico simdjson | ~630ns | ~696ns | ~28.9us |
+| `string_view` inline run 1 | 575.56ns | 605.84ns | 29.17us |
+| `string_view` inline run 2 | 572.05ns | 633.31ns | 30.25us |
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `known_merchants` inline com `string_view` | 4.71ms | 123 | 117 | 0 | 3003.62 | rejeitado |
+
+Leitura: o microbenchmark indicou ganho de parser, mas o k6 revelou alteração semântica severa. A causa mais provável é que as `std::string_view` obtidas do `simdjson::dom::element::get(std::string_view&)` não são uma substituição segura para as strings materializadas neste fluxo, porque a área interna usada para strings pode ser reusada/invalidadada conforme outros campos são acessados. Isso afeta diretamente `known_merchant`, altera a dimensão 11 e gera FP/FN.
+
+Decisão: rejeitado e revertido. `cpp/src/request.cpp` voltou a materializar `known_merchants` e `merchant_id` como `std::string`; `cmake --build cpp/build --target test -j8` voltou a passar 100%.
