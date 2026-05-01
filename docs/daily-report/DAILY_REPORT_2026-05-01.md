@@ -2933,6 +2933,29 @@ Leitura: o ponto `0.32` passou do ótimo local. A cauda voltou para a faixa anti
 
 Decisão: rejeitado e revertido. O estado aceito volta para `api=0.35 x2` e `nginx=0.30`.
 
+### Experimento rejeitado: acumulador AVX2 `i32` no scan IVF
+
+Hipótese: os repositórios líderes consultados usam kernels AVX2 com distâncias acumuladas em registradores de 32 bits para reduzir custo por bloco. O nosso kernel usa acumuladores de 64 bits e faz prune parcial após as 8 primeiras dimensões. Foi testada uma versão temporária em `cpp/src/ivf.cpp` que substituía o par `lo/hi` de `u64` por um acumulador AVX2 `i32` e inseria as 8 lanes diretamente no top-5.
+
+Fontes cruzadas:
+
+```text
+thiagorigonatti/rinha-2026: C + io_uring + HAProxy + IVF256 + int16 + AVX2
+jairoblatt/rinha-2026-rust: Rust + monoio/io_uring + HAProxy + IVF + int16 + AVX2
+joojf/rinha-2026: Rust + monoio/io_uring + nginx + UDS + int16 + AVX2
+```
+
+Resultado offline com o dataset oficial local atualizado (`54.100` payloads, índice `3.000.000` refs, `bbox_repair=true`, `0 FP/FN`):
+
+| Variante | ns/query | FP | FN | checksum | Decisão |
+|---|---:|---:|---:|---:|---|
+| Kernel aceito `u64 + prune parcial` | 67016.3 | 0 | 0 | 92435214 | manter |
+| Kernel temporário `i32 sem prune parcial` | 67838.5 | 0 | 0 | 92435214 | rejeitar |
+
+Leitura: a hipótese é correta para alguns líderes, mas não para o nosso layout atual. A versão `i32` preservou a classificação, porém perdeu ~1,2% offline. O custo menor do acumulador não compensou a remoção do prune parcial após 8 dimensões, que evita calcular as 6 dimensões restantes em blocos sem chance de entrar no top-5.
+
+Decisão: rejeitado e revertido. O kernel aceito continua sendo `u64 + prune parcial`.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
