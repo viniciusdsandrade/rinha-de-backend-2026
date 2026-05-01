@@ -2678,3 +2678,26 @@ Resultado k6 local:
 Leitura: a implementação líder não reproduziu localmente o ranking parcial informado (`1.25ms`, `5901.92`) nesta máquina/benchmark, ficando inclusive abaixo da nossa stack C++ atual nas melhores rodadas locais. Isso não invalida a estratégia do líder no ambiente oficial, mas reduz o valor de copiar knobs isolados a partir do compose dele. A conclusão prática para nossa investigação é continuar exigindo validação local por hipótese; ranking externo serve como fonte de ideias, não como prova de ganho transferível.
 
 Decisão: calibração encerrada, stack externa derrubada e nossa stack restaurada com `/ready` 204. Nenhuma mudança de produção.
+
+### Experimento rejeitado: aceitar erro de detecção para reduzir p99 (`nprobe=8` sem reparo)
+
+Hipótese: como o score de latência é logarítmico e o ranking parcial valoriza fortemente `p99` abaixo de `2ms`, poderia valer a pena desligar o reparo exato e aumentar o `nprobe` para reduzir custo de busca, aceitando uma quantidade muito pequena de erros. Este teste foi inspirado nas soluções Rust de topo, que usam busca aproximada com retry seletivo perto da fronteira, mas aqui foi isolado apenas o efeito de `nprobe` sem o reparo por bounding box.
+
+Mudança temporária:
+
+```text
+IVF_FAST_NPROBE=8
+IVF_FULL_NPROBE=8
+IVF_BOUNDARY_FULL=false
+IVF_BBOX_REPAIR=false
+```
+
+Resultado k6 oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | failure_rate | p99_score | detection_score | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `nprobe=8`, sem bbox repair | 2.95ms | 6 | 3 | 0 | 0.02% | 2529.60 | 2638.76 | 5168.36 | rejeitado |
+
+Leitura: a latência realmente melhorou em relação ao controle ruim da janela (`3.23ms -> 2.95ms`) e ficou no mesmo patamar das melhores execuções históricas da stack exata. Porém a perda de detecção derrubou o score para `5168.36`, muito abaixo do estado aceito com zero erro (`~5516-5526` local e `5548.91` na submissão anterior). A fórmula penaliza fortemente qualquer erro absoluto mesmo com taxa baixa; neste caso `6 FP + 3 FN` custaram aproximadamente `377` pontos líquidos frente a uma melhora pequena de p99.
+
+Decisão: rejeitado e revertido. Para avançar nessa linha, não basta "aproximar mais"; é necessário um mecanismo de retry seletivo que preserve `0 FP / 0 FN` no dataset oficial local, ou uma queda de p99 muito maior que não apareceu aqui.
