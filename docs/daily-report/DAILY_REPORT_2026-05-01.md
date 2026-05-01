@@ -2551,3 +2551,22 @@ Resultado k6:
 | 3 APIs `0.26` + nginx `0.22` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
 
 Conclusão: nesta stack, o nginx precisa de margem de CPU para não formar fila no final do ramp. Realocar CPU do LB para APIs piora drasticamente a cauda, mesmo com zero falhas funcionais. Configuração revertida para `nginx=0.22` e APIs `0.26`.
+
+### Experimento rejeitado: nginx aumentado para `0.25 CPU`
+
+Hipótese: como reduzir o nginx para `0.10 CPU` explodiu a cauda, talvez o p99 ainda estivesse limitado pelo LB e pudesse melhorar com mais CPU no nginx, sacrificando pouco das APIs.
+
+Mudança temporária:
+
+- `api1/api2/api3`: `0.25 CPU / 110MB` cada.
+- nginx: `0.25 CPU / 20MB`.
+- Total preservado: `1.00 CPU / 350MB`.
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 3 APIs `0.25` + nginx `0.25` | 3.13ms | 0 | 0 | 0 | 5504.97 | rejeitado |
+| 3 APIs `0.26` + nginx `0.22` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
+
+Conclusão: aumentar o nginx também não ajuda. O ponto atual `0.26/0.26/0.26 + 0.22` segue como split mais robusto: `0.10` falta CPU para o LB; `0.25` tira CPU demais das APIs e piora p99.
