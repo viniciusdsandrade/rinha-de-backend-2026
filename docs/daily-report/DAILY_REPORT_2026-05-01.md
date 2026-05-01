@@ -1069,3 +1069,33 @@ Resultado offline:
 | Baseline da rodada | 133.130 | 0 | 0 | 0 | manter |
 
 Decisão: revertido sem k6. Apesar de ser coerente com a CPU oficial, a troca piorou muito no microbenchmark local da nossa base C++/simdjson/uWebSockets. Sem sinal local positivo, não vale arriscar o binário da submissão.
+
+### Experimento rejeitado: centróides row-major no índice IVF
+
+Hipótese: o índice atual armazena centróides em layout transposto (`dim * clusters + cluster`), mas o hot path escalar percorre `cluster -> dim`. Trocar o arquivo binário para layout row-major (`cluster * 14 + dim`) poderia reduzir acessos com stride durante a escolha do centróide mais próximo.
+
+Alterações testadas:
+
+```text
+kMagic IVF8 -> IVF9 para evitar carregar índice antigo incompatível
+centroids_[cluster * 14 + dim] no build
+centroids_[cluster * 14 + dim] na consulta
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target prepare-ivf-cpp benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+cpp/build/prepare-ivf-cpp /tmp/rinha-2026-official-data/references.json.gz /tmp/rinha-2026-index-rowmajor.bin 2048 65536 6
+./cpp/build/benchmark-ivf-cpp /tmp/rinha-2026-official-data/test-data.json /tmp/rinha-2026-index-rowmajor.bin 5 0 1 1 1
+```
+
+Resultado offline:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Centróides row-major | 149.714 | 0 | 0 | 0 | rejeitado |
+| Baseline da rodada | 133.130 | 0 | 0 | 0 | manter |
+
+Decisão: revertido sem k6. A correção foi preservada, mas o hot path ficou mais lento. A interpretação provável é que o custo dominante não é o stride dos 14 floats por centróide, ou que o layout transposto atual interage melhor com cache/prefetch no conjunto real de consultas.
