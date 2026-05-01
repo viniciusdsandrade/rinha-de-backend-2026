@@ -1925,3 +1925,35 @@ Resultado k6:
 | `api=0.26`, `nginx=0.22` | 3 | 3.02ms | 0 | 0 | 0 | 5519.71 | aceito |
 
 Decisão: aceito. O ganho é pequeno, mas reproduziu em três rodadas sequenciais sem impacto de detecção, e a mudança é apenas redistribuição de CPU dentro do mesmo orçamento. A leitura prática é que o nginx ainda precisa de mais folga que `0.19 CPU` nesta topologia de três APIs.
+
+### Experimento rejeitado: redistribuir CPU em partes iguais (`api=0.25`, `nginx=0.25`)
+
+Hipótese: se o ganho do split `api=0.26/nginx=0.22` veio de gargalo no LB, aumentar o nginx para `0.25 CPU` poderia reduzir mais o p99. O custo seria reduzir cada API para `0.25 CPU`, mantendo o total em `1.00 CPU`.
+
+Mudança temporária:
+
+```yaml
+api1/api2/api3:
+  cpus: "0.25"
+nginx:
+  cpus: "0.25"
+```
+
+Validações:
+
+```text
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | Run | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `api=0.25`, `nginx=0.25` | 1 | 3.01ms | 0 | 0 | 0 | 5521.50 | candidato fraco |
+| `api=0.25`, `nginx=0.25` | 2 | 3.07ms | 0 | 0 | 0 | 5513.12 | rejeitado |
+| `api=0.26`, `nginx=0.22`, aceito | 1-3 | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
+
+Decisão: revertido. O split igualado não melhora a média e aumenta dispersão. A hipótese mais provável é que `0.22 CPU` já dá folga suficiente ao nginx, enquanto `0.25 CPU` começa a roubar CPU útil das APIs.
