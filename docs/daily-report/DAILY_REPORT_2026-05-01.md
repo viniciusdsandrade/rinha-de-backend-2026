@@ -3420,3 +3420,25 @@ Resultado no benchmark oficial local atualizado:
 Leitura: reduzir o buffer piorou a cauda. O default de 512KB não parece ser gargalo mensurável no nosso caminho, ou o `uSockets` se beneficia do buffer maior no fluxo interno de leitura. Esta classe de tuning interno do framework é menos promissora que trocar o servidor inteiro por um caminho manual.
 
 Decisão: rejeitado e revertido. `cpp/CMakeLists.txt` voltou a definir apenas `LIBUS_NO_SSL` para `usockets`; imagem Docker reconstruída no estado aceito e `/ready` validado em `204`.
+
+### Experimento rejeitado: `seccomp=unconfined`
+
+Hipótese: o stack C líder usa `security_opt: seccomp=unconfined`, principalmente para viabilizar `io_uring`. Mesmo sem ativar `io_uring`, remover o filtro seccomp poderia reduzir overhead de syscalls no caminho Docker/nginx/API. A mudança foi testada nos dois serviços de API e no nginx, sem alterar CPU, memória, rede ou binário.
+
+Validação:
+
+```text
+docker compose config => security_opt aplicado em api1, api2 e nginx
+docker compose up -d --force-recreate
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `seccomp=unconfined` | 3.05ms | 0 | 0 | 0 | 5516.04 | rejeitado |
+
+Leitura: a mudança não superou o estado aceito e adiciona uma opção de segurança que só se justifica quando necessária para `io_uring`. Como o ganho não apareceu no stack epoll/uWebSockets, ela não deve entrar na submissão.
+
+Decisão: rejeitado e revertido. O compose voltou sem `security_opt`; `docker compose config` confirmou a remoção e `/ready` voltou `204` após recriação.
