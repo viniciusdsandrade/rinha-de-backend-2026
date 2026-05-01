@@ -971,3 +971,24 @@ Resultado k6:
 | Controle aceito anterior | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
 
 Decisão: revertido. A alteração é funcionalmente correta, mas piora a cauda de forma relevante. A hipótese provável é que a mudança de assinatura/ramificação não reduz o custo dominante e atrapalha a otimização do compilador no caminho atual.
+
+### Experimento rejeitado: centróide AVX2 especializado para `nprobe=1`
+
+Hipótese: como os centróides são armazenados em layout transposto (`dim * clusters + cluster`) e a configuração aceita usa `nprobe=1`, uma busca do centróide mais próximo em blocos AVX2 de 8 clusters poderia trocar acessos com stride por leituras contíguas e reduzir o custo antes do repair.
+
+Validações:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+./cpp/build/benchmark-ivf-cpp /tmp/rinha-2026-official-data/test-data.json /tmp/rinha-2026-index.bin 5 0 1 1 1
+```
+
+Resultado offline:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Centróide AVX2 `nprobe=1` | 140.727 | 0 | 0 | 0 | rejeitado |
+| Baseline da rodada | 133.130 | 0 | 0 | 0 | manter |
+
+Decisão: revertido sem k6. A hipótese preservou a métrica e a classificação, mas a redução de locality não compensou o custo extra de acumular/storar/reduzir blocos AVX2; o caminho escalar atual continua melhor para a etapa de seleção de centróide.
