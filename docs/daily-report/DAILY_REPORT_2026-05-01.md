@@ -1445,3 +1445,27 @@ Resultado k6:
 | Controle recente | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
 
 Decisão: revertido. A diferença ficou dentro da zona de ruído e levemente pior que o controle recente, então não há evidência sustentável para remover `res->cork`. O caminho atual permanece mais seguro por preservar o agrupamento de escrita recomendado pelo uWebSockets.
+
+### Experimento rejeitado: `ulimits nofile` e `seccomp=unconfined` nas APIs
+
+Hipótese: a implementação C líder usa ajustes de runtime do container para reduzir overhead de syscalls/event-loop. Testei apenas `security_opt: seccomp=unconfined` e `ulimits.nofile=1048576` nas três APIs, sem alterar CPU, memória, nginx, imagem ou código.
+
+Validações:
+
+```text
+docker compose up -d --no-build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+k6 run /tmp/rinha-2026-official-run/test.js
+docker compose up -d --no-build --remove-orphans  # após reverter para estado aceito
+```
+
+Resultado k6:
+
+| Configuração | Run | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `ulimits` + `seccomp=unconfined` | 1 | 3.16ms | 0 | 0 | 0 | 5499.67 | inconclusivo |
+| `ulimits` + `seccomp=unconfined` | 2 | 3.23ms | 0 | 0 | 0 | 5490.14 | rejeitado |
+| Controle recente | 1 | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
+
+Decisão: revertido. A primeira execução parecia ligeiramente melhor, mas a repetição perdeu desempenho. Como a mudança aumenta a superfície operacional e o ganho não reproduziu, ela não é sustentável para submissão.
