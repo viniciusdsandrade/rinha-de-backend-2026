@@ -2113,3 +2113,32 @@ Resultado k6:
 | UDS backlog padrão `512` + split aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
 
 Decisão: revertido. O backlog padrão do uSockets é melhor neste workload; aumentar a fila interna não reduz cauda e provavelmente aumenta buffering/latência entre nginx e APIs.
+
+### Experimento rejeitado: `proxy_next_upstream off` no nginx stream
+
+Hipótese: as APIs ficam estáveis durante o teste; portanto, desabilitar retry de upstream no nginx stream poderia reduzir lógica no caminho do proxy e evitar tentativa de failover desnecessária.
+
+Mudança temporária:
+
+```nginx
+proxy_next_upstream off;
+```
+
+Validações:
+
+```text
+docker compose up -d --build --remove-orphans
+docker compose exec -T nginx nginx -t
+docker compose restart nginx
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `proxy_next_upstream off` | 3.05ms | 0 | 0 | 0 | 5515.08 | rejeitado |
+| `proxy_next_upstream` padrão + split aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
+
+Decisão: revertido. O comportamento padrão do nginx ficou melhor. Remover failover não trouxe ganho e ainda reduziria resiliência se alguma API fechasse conexão durante o teste.
