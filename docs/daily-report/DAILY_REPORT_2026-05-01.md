@@ -515,11 +515,12 @@ Resultados principais:
 | 2 APIs, nginx `0.20`, exato | 3.29ms | 0 | 0 | 0 | 5482.76 | melhor 2 APIs nesse split |
 | 2 APIs, nginx `0.18`, exato | 3.25ms | 0 | 0 | 0 | 5487.92 | melhor 2 APIs |
 | 2 APIs, nginx `0.16`, exato | 3.44ms | 0 | 0 | 0 | 5463.58 | rejeitado |
-| 3 APIs, nginx `0.19`, exato | 3.24ms | 0 | 0 | 0 | 5488.99 | melhor run local |
+| 3 APIs, nginx `0.19`, exato | 3.24ms | 0 | 0 | 0 | 5488.99 | melhor run local antes da branch final |
 | 3 APIs, nginx `0.22`, exato | 3.27ms | 0 | 0 | 0 | 5484.79 | rejeitado |
 | 3 APIs, nginx `0.19`, exato, repetição | 3.33ms | 0 | 0 | 0 | 5477.45 | confirma faixa, mas mostra ruído |
+| Branch `submission` final, imagem pública GHCR | 3.24ms | 0 | 0 | 0 | 5489.47 | melhor run da rodada |
 
-Melhor run obtida na rodada:
+Melhor run obtida na rodada, já usando a branch `submission` minimalista e a imagem pública `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission` puxada do GHCR:
 
 ```json
 {
@@ -534,23 +535,23 @@ Melhor run obtida na rodada:
     },
     "failure_rate": "0%",
     "weighted_errors_E": 0,
-    "p99_score": { "value": 2488.99, "cut_triggered": false },
+    "p99_score": { "value": 2489.47, "cut_triggered": false },
     "detection_score": {
       "value": 3000,
       "rate_component": 3000,
       "absolute_penalty": 0,
       "cut_triggered": false
     },
-    "final_score": 5488.99
+    "final_score": 5489.47
   }
 }
 ```
 
 Comparação com o ranking parcial informado:
 
-- Melhor run local nova (`5488.99`, `p99=3.24ms`, `0%`) ficaria entre o 4º colocado (`5546.41`) e o 5º (`5404.29`).
+- Melhor run local nova (`5489.47`, `p99=3.24ms`, `0%`) ficaria entre o 4º colocado (`5546.41`) e o 5º (`5404.29`).
 - Para alcançar o 4º colocado mantendo `0%` falhas, o p99 precisa cair de `~3.24ms` para perto de `2.84ms`.
-- O salto contra a submissão minimalista anterior é material: de `2034.28` para `5488.99` na melhor run local, ganho de `+3454.71` pontos.
+- O salto contra a submissão minimalista anterior é material: de `2034.28` para `5489.47` na melhor run local, ganho de `+3455.19` pontos.
 
 ### Decisão técnica
 
@@ -568,7 +569,7 @@ Justificativa:
 - Mantém `0 FP`, `0 FN`, `0 HTTP` no dataset oficial local.
 - Cabe no limite declarado: `1.00 CPU` e `350MB`.
 - Memória observada em idle: ~`96MB` por API dentro do limite de `110MB`.
-- Melhor score local observado: `5488.99`.
+- Melhor score local observado: `5489.47`.
 
 Risco residual:
 
