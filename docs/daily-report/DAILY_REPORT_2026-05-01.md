@@ -2821,3 +2821,30 @@ Resultados k6:
 Leitura: HAProxy funcionou corretamente e ficou competitivo, mas não superou nginx no mesmo cenário. A segunda rodada mostrou cauda pior, e a troca adiciona uma mudança estrutural sem ganho sustentado.
 
 Decisão: rejeitado e revertido. O stack volta para nginx `stream`.
+
+### Experimento aceito: redistribuir CPU do classificador para o nginx
+
+Hipótese: depois da poda parcial no scanner AVX2, o gargalo de cauda passou a depender mais do proxy/throttling do que do custo bruto de cada API. A stack aceita usava `3 APIs x 0.26 CPU` e `nginx 0.22 CPU`. Foi testada uma redistribuição mantendo exatamente `1.00 CPU` total e a mesma memória (`3 x 110MB + 20MB`), sem mudar topologia, número de APIs, socket Unix, imagem ou lógica de aplicação.
+
+Validação de limites efetivos via Docker:
+
+```text
+/perf-noon-tuning-api1-1 nano=240000000 mem=115343360
+/perf-noon-tuning-api2-1 nano=240000000 mem=115343360
+/perf-noon-tuning-api3-1 nano=240000000 mem=115343360
+/perf-noon-tuning-nginx-1 nano=280000000 mem=20971520
+```
+
+Resultados no benchmark oficial local atualizado (`/tmp/rinha-2026-official-run/test.js`, `54.100` entradas, alvo `900 RPS`):
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `api=0.25`, `nginx=0.25` | 2.99ms | 0 | 0 | 0 | 5523.66 | pior que o melhor aceito |
+| `api=0.24`, `nginx=0.28` run #1 | 2.87ms | 0 | 0 | 0 | 5541.51 | repetir |
+| `api=0.24`, `nginx=0.28` run #2 | 2.98ms | 0 | 0 | 0 | 5526.32 | aceitar |
+
+Nota de método: uma execução acidental de `./run.sh` foi descartada para decisão porque ela usa a massa local menor de `14.500` entradas, não o benchmark oficial local atualizado usado nesta rodada. O resultado não é comparável com os números acima.
+
+Leitura: o ganho é pequeno, mas a alteração é sustentável: preserva `0 FP`, `0 FN`, `0 HTTP`, mantém a soma exata de `1.00 CPU / 350MB`, e melhora o melhor resultado observado da stack atual (`5528.47 -> 5541.51`) sem introduzir complexidade. A segunda execução ficou praticamente empatada com o melhor aceito anterior, então a decisão é aceitar como ajuste de recurso de baixo risco, não como salto estrutural.
+
+Decisão: aceito no branch experimental. O `docker-compose.yml` passa a usar `0.24 CPU` por API e `0.28 CPU` para o nginx.
