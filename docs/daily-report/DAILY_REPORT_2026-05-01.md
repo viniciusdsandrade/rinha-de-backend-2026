@@ -3889,3 +3889,44 @@ Resultado no benchmark oficial local atualizado:
 Leitura: a variável não reduziu p99 e perdeu `2.70` pontos contra a referência imediata. O processo já não parece sofrer com múltiplas arenas; o overhead relevante continua fora desse ajuste.
 
 Decisão: rejeitado e removido do `docker-compose.yml`.
+
+### Experimento rejeitado: `-ffast-math` no binário runtime
+
+Hipótese: o kernel de classificação é intensivo em `float` e poderia se beneficiar de relaxar regras IEEE com `-ffast-math`. O risco era alterar fronteiras de distância/classificação, então a regra de aceitação exigia `0 FP/FN` além de melhora de p99.
+
+Alteração testada:
+
+```text
+target_compile_options(rinha-backend-2026-cpp PRIVATE -ffast-math)
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target test -j8 => tests 100% passed
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `0.41/0.41/0.18` sem `-ffast-math` | 2.98ms | 0 | 0 | 0 | 5526.35 | referência |
+| `-ffast-math` | 3.17ms | 0 | 0 | 0 | 5499.34 | rejeitado |
+
+Breakdown:
+
+```text
+TP=24037
+TN=30021
+FP=0
+FN=0
+HTTP=0
+weighted_errors_E=0
+detection_score=3000
+p99_score=2499.34
+```
+
+Leitura: a flag não quebrou acurácia, mas piorou p99 em `0.19ms`. O compilador já consegue otimizar bem com AVX2/FMA e IPO; `-ffast-math` provavelmente muda heurísticas/ordenação sem ajudar o hot path real.
+
+Decisão: rejeitado e removido do `cpp/CMakeLists.txt`.
