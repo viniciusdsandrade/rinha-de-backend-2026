@@ -2701,3 +2701,32 @@ Resultado k6 oficial local:
 Leitura: a latência realmente melhorou em relação ao controle ruim da janela (`3.23ms -> 2.95ms`) e ficou no mesmo patamar das melhores execuções históricas da stack exata. Porém a perda de detecção derrubou o score para `5168.36`, muito abaixo do estado aceito com zero erro (`~5516-5526` local e `5548.91` na submissão anterior). A fórmula penaliza fortemente qualquer erro absoluto mesmo com taxa baixa; neste caso `6 FP + 3 FN` custaram aproximadamente `377` pontos líquidos frente a uma melhora pequena de p99.
 
 Decisão: rejeitado e revertido. Para avançar nessa linha, não basta "aproximar mais"; é necessário um mecanismo de retry seletivo que preserve `0 FP / 0 FN` no dataset oficial local, ou uma queda de p99 muito maior que não apareceu aqui.
+
+### Experimento aceito: poda parcial conservadora no scanner AVX2 do IVF exato
+
+Hipótese: as implementações mais bem ranqueadas consultadas usam scanner vetorial com poda parcial antes de terminar todas as dimensões. Em especial, `joojf/rinha-2026` calcula parte das dimensões e só segue para o restante quando algum lane ainda pode bater o pior top-5; `jairoblatt/rinha-2026-rust` segue a mesma família de estratégia com IVF e retry seletivo. Nosso scanner AVX2 exato fazia sempre as 14 dimensões para todo bloco candidato durante o reparo por bounding box. A hipótese era que uma poda parcial conservadora reduziria CPU sem mudar métrica, índice, desempate ou acurácia.
+
+Mudança implementada:
+
+- Em `cpp/src/ivf.cpp`, `scan_blocks_avx2` agora acumula primeiro 8 dimensões em `uint64`.
+- Se o top-5 já tem pior distância finita e todas as 8 lanes do bloco estão estritamente acima desse pior valor parcial, o bloco é descartado.
+- Empates e casos iniciais sem top-5 finito continuam pelo caminho completo, preservando o desempate por `id`.
+- A implementação evita o atalho `i32` visto em alguns líderes porque, com sentinela `-1` quantizada para `-10000`, a distância máxima teórica pode passar de `INT32_MAX`.
+
+Validação offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Scanner AVX2 anterior | 84241.6 | 0 | 0 | 0 | referência |
+| Scanner AVX2 com poda parcial `uint64` | 71099.1 | 0 | 0 | 0 | aceitar para k6 |
+
+Validação k6 oficial local:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| k6 #1 | 3.12ms | 0 | 0 | 0 | 5506.17 |
+| k6 #2 | 2.96ms | 0 | 0 | 0 | 5528.47 |
+
+Leitura: o microbenchmark mostrou ganho material de aproximadamente `15.6%` no kernel exato (`84241.6 -> 71099.1 ns/query`) com acurácia perfeita. No k6, o ganho apareceu de forma menos estável porque o p99 também inclui parser, nginx, scheduling e ruído do Docker, mas a segunda rodada atingiu `5528.47`, ligeiramente acima da melhor faixa local anterior (`~5516-5526`) e mantendo `0%` de falhas. A primeira rodada (`5506.17`) ainda ficou dentro da variabilidade ruim da janela, então o ganho deve ser tratado como positivo, porém pequeno.
+
+Decisão: aceito no branch experimental. Próximo passo recomendado: repetir em janela mais limpa antes de promover para `submission`, e investigar uma versão mais agressiva com ordem de dimensões por poder de poda ou parser direto para `i16[14]`.

@@ -474,7 +474,22 @@ void scan_blocks_avx2(
         const std::size_t block_base = static_cast<std::size_t>(block) * kDimensions * kBlockLanes;
         __m256i lo = _mm256_setzero_si256();
         __m256i hi = _mm256_setzero_si256();
-        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+        for (std::size_t dim = 0; dim < 8; ++dim) {
+            acc_dim_i64(lo, hi, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
+        }
+
+        const std::uint64_t worst = top.worst_distance();
+        if (worst <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+            const auto threshold = _mm256_set1_epi64x(static_cast<long long>(worst));
+            const auto lo_gt = _mm256_cmpgt_epi64(lo, threshold);
+            const auto hi_gt = _mm256_cmpgt_epi64(hi, threshold);
+            constexpr int kAllLanesMask = -1;
+            if (_mm256_movemask_epi8(lo_gt) == kAllLanesMask && _mm256_movemask_epi8(hi_gt) == kAllLanesMask) {
+                continue;
+            }
+        }
+
+        for (std::size_t dim = 8; dim < kDimensions; ++dim) {
             acc_dim_i64(lo, hi, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
         }
 
