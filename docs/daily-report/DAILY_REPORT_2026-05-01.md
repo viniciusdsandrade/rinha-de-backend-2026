@@ -2023,3 +2023,35 @@ Resultado k6:
 | `std::shared_ptr<AppState>` atual + split aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
 
 Decisão: revertido. A hipótese era tecnicamente plausível, mas o k6 indicou piora. O efeito provável é alteração de layout/código gerado do callback maior que qualquer economia de referência atômica.
+
+### Experimento rejeitado: `-fomit-frame-pointer` isolado
+
+Hipótese: o teste anterior com flags `haswell` misturou `-march=haswell`, `-mtune=haswell` e `-fomit-frame-pointer`. Esta rodada isolou apenas `-fomit-frame-pointer` no target da API, mantendo `-march=x86-64-v3`, para medir se liberar o registrador de frame pointer ajudaria o hot path.
+
+Mudança temporária:
+
+```cmake
+target_compile_options(rinha-backend-2026-cpp PRIVATE
+    ...
+    -fomit-frame-pointer
+)
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `-fomit-frame-pointer` isolado | 3.18ms | 0 | 0 | 0 | 5497.56 | rejeitado |
+| build aceito atual | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
+
+Decisão: revertido. A flag é tecnicamente segura, mas piorou a cauda no stack completo. O build atual com `x86-64-v3` sem `-fomit-frame-pointer` permanece mais competitivo.
