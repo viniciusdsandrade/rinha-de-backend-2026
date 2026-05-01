@@ -2216,3 +2216,23 @@ Resultado k6:
 | `proxy_timeout 30s` + split aceito | 2.98-3.03ms | 0 | 0 | 0 | 5519.22-5526.49 | manter |
 
 Decisão: revertido. A mudança é operacionalmente razoável, mas não melhora score local; manter o default já validado evita mexer na semântica de conexões longas sem retorno mensurável.
+
+### Sanity check pós-restore do nginx
+
+Após reverter `proxy_timeout 5s` para `proxy_timeout 30s`, o nginx foi validado e reiniciado:
+
+```text
+docker compose exec -T nginx nginx -t
+docker compose restart nginx
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Leitura |
+|---|---:|---:|---:|---:|---:|---|
+| estado aceito restaurado, pós-restore | 3.13ms | 0 | 0 | 0 | 5503.86 | drift de fim de janela |
+| série final anterior no mesmo estado versionado | 3.02-3.05ms | 0 | 0 | 0 | 5516.00-5520.43 | referência principal |
+
+Leitura: sem falhas de detecção ou HTTP. A piora isolada parece variação ambiental após muitas rodadas sequenciais de build/k6, não mudança de configuração mantida. O estado versionado continua sendo `api=0.26/nginx=0.22`, `proxy_timeout 30s`, backlog UDS padrão e alocador padrão.
