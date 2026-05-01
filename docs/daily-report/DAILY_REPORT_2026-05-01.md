@@ -382,3 +382,48 @@ Comparação:
 - Teste oficial local atualizado com dataset antigo embutido: `p99=16.62ms`, `2.27%`, `final_score=2117.12`. No ranking informado, ficaria entre o 8º e o 9º, mas a comparação ainda é imperfeita porque foi local e não executada pela engine oficial.
 
 Conclusão: a stack C++/nginx atual estava competitiva no cenário antigo, mas a atualização para 3M referências deslocou o problema para estratégia de detecção/índice. A melhor submissão executável atual será preparada para conformidade, mas não deve ser tratada como candidata forte ao topo até resolver o dataset novo.
+
+## Preparação da branch `submission`
+
+A branch `submission` foi reduzida para a estrutura minimalista exigida pela documentação atualizada:
+
+```text
+docker-compose.yml
+info.json
+nginx.conf
+```
+
+Commit publicado:
+
+```text
+846f7ca prepare minimal submission
+```
+
+O `docker-compose.yml` aponta para:
+
+```text
+ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission
+```
+
+Validação local da branch `submission`:
+
+- `docker compose up -d --force-recreate --pull never`: OK usando a imagem local já tagueada.
+- `GET /ready`: `204`.
+- `git ls-tree -r --name-only origin/submission`: contém apenas `docker-compose.yml`, `info.json`, `nginx.conf`.
+
+Benchmark oficial local atualizado rodando exatamente a branch `submission` minimalista:
+
+| p99 | final_score | failure_rate | FP | FN | HTTP |
+|---:|---:|---:|---:|---:|---:|
+| 20.12ms | 2034.28 | 2.27% | 642 | 587 | 0 |
+
+Comparação com o ranking parcial informado: `2034.28` pontos ficaria entre o 8º colocado (`4170.45`) e o 9º (`1214.12`). O melhor run local atualizado anterior da mesma imagem (`2117.12`) também ficaria nesse intervalo. O gargalo competitivo atual é acurácia contra o dataset novo, não erro HTTP.
+
+Bloqueio operacional: a imagem foi construída localmente como `linux/amd64`, mas o push para GHCR falhou:
+
+```text
+failed to push ghcr.io/viniciusdsandrade/rinha-de-backend-2026:cpp-submission-20260501:
+denied: permission_denied: The token provided does not match expected scopes.
+```
+
+Diagnóstico: o token autenticado no `gh` possui `read:packages`, mas não `write:packages`. A tentativa de `gh auth refresh -s write:packages` entrou em fluxo interativo de browser e expirou. Portanto, a branch `submission` está preparada, mas a submissão ainda não deve ser enviada à engine oficial até a imagem pública ser publicada ou o compose apontar para outro registry público válido.
