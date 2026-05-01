@@ -3087,6 +3087,25 @@ Leitura: reduzir o nginx de `0.30` para `0.29` piorou a cauda mesmo devolvendo C
 
 Decisão: rejeitado e revertido. O estado aceito permanece `api=0.35 x2`, `nginx=0.30`.
 
+### Validação de estado aceito após a rodada de reversões
+
+Depois dos experimentos temporários de nginx/compose, o stack foi restaurado para o estado aceito:
+
+```text
+api1/api2: 0.35 CPU, 165MB
+nginx:     0.30 CPU, 20MB
+nginx:     stream + UDS + reuseport
+GET /ready => 204
+```
+
+Resultado de validação no benchmark oficial local atualizado:
+
+| Estado | p99 | FP | FN | HTTP errors | final_score | Leitura |
+|---|---:|---:|---:|---:|---:|---|
+| aceito restaurado após sequência de testes | 3.02ms | 0 | 0 | 0 | 5520.34 | drift de ambiente |
+
+Leitura: como não havia diff pendente de código/compose e a detecção permaneceu perfeita, esse número não invalida o estado aceito anterior (`2.85-2.90ms`, `5537.88-5545.37`). A rodada foi feita após vários k6 consecutivos e recriações de containers; portanto a interpretação correta é ruído/deriva térmica ou de scheduler da máquina local, não regressão funcional.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
