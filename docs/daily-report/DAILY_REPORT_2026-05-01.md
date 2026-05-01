@@ -3065,6 +3065,28 @@ Leitura: a hipótese é válida em tese, mas no nosso stack o overhead HTTP do p
 
 Decisão: rejeitado e revertido. O nginx voltou para `stream` com upstream UDS e `listen 9999 reuseport backlog=4096`.
 
+### Experimento rejeitado: split fino `api=0.355`, `nginx=0.29`
+
+Hipótese: depois do melhor estado aceito em `api=0.35 x2 / nginx=0.30`, havia uma dúvida se o ponto ótimo estaria ligeiramente deslocado para mais CPU nas APIs e menos no nginx. Foi testado o split `0.355 + 0.355 + 0.29 = 1.00 CPU`.
+
+Validação de limites efetivos:
+
+```text
+/perf-noon-tuning-api1-1 nano=355000000 mem=173015040
+/perf-noon-tuning-api2-1 nano=355000000 mem=173015040
+/perf-noon-tuning-nginx-1 nano=290000000 mem=20971520
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `api=0.355 x2`, `nginx=0.29` | 3.05ms | 0 | 0 | 0 | 5516.40 | rejeitar |
+
+Leitura: reduzir o nginx de `0.30` para `0.29` piorou a cauda mesmo devolvendo CPU às APIs. O limite aceito de `0.30` para nginx parece ser o menor patamar sustentável no stack atual.
+
+Decisão: rejeitado e revertido. O estado aceito permanece `api=0.35 x2`, `nginx=0.30`.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
