@@ -3930,3 +3930,111 @@ p99_score=2499.34
 Leitura: a flag não quebrou acurácia, mas piorou p99 em `0.19ms`. O compilador já consegue otimizar bem com AVX2/FMA e IPO; `-ffast-math` provavelmente muda heurísticas/ordenação sem ajudar o hot path real.
 
 Decisão: rejeitado e removido do `cpp/CMakeLists.txt`.
+
+### Experimento rejeitado: desativar `IVF_BBOX_REPAIR`
+
+Hipótese: com `IVF_FAST_NPROBE=1` e `IVF_FULL_NPROBE=1`, o reparo por bounding box adiciona uma etapa extra de candidatos antes do scan. Desativá-lo poderia reduzir p99 de forma direta, desde que a aproximação continuasse preservando `0 FP/FN`.
+
+Alteração testada:
+
+```text
+api1/api2 environment:
+  IVF_BBOX_REPAIR=false
+```
+
+Validação:
+
+```text
+GET /ready => 204
+docker inspect confirmou IVF_BBOX_REPAIR=false nas duas APIs
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | failure_rate | detection_score | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| `0.41/0.41/0.18` com `IVF_BBOX_REPAIR=true` | 2.98ms | 0 | 0 | 0 | 0% | 3000.00 | 5526.35 | referência |
+| `IVF_BBOX_REPAIR=false` | 2.68ms | 143 | 147 | 0 | 0.54% | 1136.31 | 3708.21 | rejeitado |
+
+Breakdown da variante:
+
+```text
+TP=23890
+TN=29879
+FP=143
+FN=147
+HTTP=0
+weighted_errors_E=584
+error_rate_epsilon=0.010803
+p99_score=2571.91
+detection_score=1136.31
+final_score=3708.21
+```
+
+Leitura: a hipótese confirmou ganho bruto de latência (`2.68ms`, melhor p99 local do dia), mas quebrou a característica mais valiosa da solução atual: `0 FP/FN`. A perda no `detection_score` anulou completamente o ganho de p99. Como FN tem peso 3 e a meta atual é competir no topo com 0% de falhas, esse caminho não é aceitável.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para `IVF_BBOX_REPAIR=true`; essa flag deve permanecer ligada enquanto não houver uma estratégia de reparo alternativa que preserve acurácia perfeita.
+
+### Resumo consolidado do dia
+
+Marco inicial comparável: depois de corrigir os assets locais para o upstream atual, o baseline restaurado ficou em `p99=3.12ms`, `0 FP`, `0 FN`, `0 HTTP`, `final_score=5505.57`. Esse é o ponto correto de comparação para os experimentos de hoje; os resultados anteriores com `123 FP / 117 FN` estavam contaminados por dataset/script desatualizados.
+
+Melhor estado aceito até agora nesta branch:
+
+```text
+docker-compose.yml:
+  api1/api2: 0.41 CPU e 165MB cada
+  nginx:     0.18 CPU e 20MB
+  total:     1.00 CPU e 350MB
+  IVF_BBOX_REPAIR=true
+
+Benchmark local atualizado:
+  p99=2.98ms
+  FP=0
+  FN=0
+  HTTP=0
+  final_score=5526.35
+```
+
+Ganho sustentável contra o baseline alinhado:
+
+```text
+p99:         3.12ms -> 2.98ms  (-0.14ms)
+final_score: 5505.57 -> 5526.35 (+20.78)
+acurácia:    0 FP/FN/HTTP preservado
+```
+
+Melhor run bruta observada no dia:
+
+```text
+0.42/0.42/0.16:
+  run 1: p99=2.93ms, final_score=5532.45, 0 FP/FN/HTTP
+  run 2: p99=3.09ms, final_score=5510.00, 0 FP/FN/HTTP
+```
+
+Leitura: foi rejeitada como estado final porque não reproduziu estabilidade. Serve como sinal de que ainda existe margem marginal na alocação CPU/LB, mas não como configuração de submissão.
+
+Experimentos aceitos:
+
+| Experimento | Resultado |
+|---|---|
+| Alinhamento dos assets locais com upstream atual | Corrigiu a base de comparação; baseline válido virou `3.12ms / 5505.57 / 0 falhas` |
+| CPU split `0.40/0.40/0.20` | Melhorou para `3.03ms` e `2.96ms`, mantendo `0 FP/FN/HTTP` |
+| CPU split `0.41/0.41/0.18` | Reproduziu `2.98ms` em duas runs, mantendo `0 FP/FN/HTTP`; escolhido como estado aceito por estabilidade |
+
+Experimentos rejeitados:
+
+| Experimento | Motivo |
+|---|---|
+| `proxy_buffer_size 1k` no nginx | Piorou para `2.97ms / 5526.58` no contexto anterior, sem ganho claro |
+| `known_merchants` com `std::string_view` | Rodada original contaminada; mantido rejeitado até comparador vetor-a-vetor |
+| parser `simdjson::ondemand` | Rodada original contaminada; mantido rejeitado até comparador vetor-a-vetor |
+| `Payload` com buffers fixos | Microbenchmark piorou parser/classificação; rejeitado sem k6 |
+| `known_merchants` inline com `std::string` após alinhamento | `3.15ms / 5501.25`, pior que baseline alinhado |
+| `body.reserve(768)` | `3.33ms / 5476.94`, piorou p99 real |
+| CPU split `0.42/0.42/0.16` | Melhor caso bom, mas repetição instável em `3.09ms`; rejeitado como configuração final |
+| `MALLOC_ARENA_MAX=1` | `2.99ms / 5523.65`, sem ganho |
+| `-ffast-math` | `3.17ms / 5499.34`, piorou p99 |
+| `IVF_BBOX_REPAIR=false` | `2.68ms`, mas gerou `143 FP` e `147 FN`; score caiu para `3708.21` |
+
+Conclusão técnica do dia: o maior ganho sustentável veio de infraestrutura de CPU, não de micro-otimização de parser ou flag de compilador. A solução atual está muito sensível a centésimos de ms; qualquer mudança que não preserve `0 FP/FN/HTTP` deve ser rejeitada imediatamente, porque o `detection_score` pesa mais que pequenos ganhos de p99. O próximo ciclo deve focar em melhorar o algoritmo IVF mantendo acurácia perfeita, ou em reduzir variância de nginx/API sem sacrificar CPU do classificador.
