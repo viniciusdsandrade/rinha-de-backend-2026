@@ -1790,3 +1790,39 @@ Resultado k6:
 | body na closure sem reserva, aceito | 3.12-3.28ms | 0 | 0 | 0 | 5483.58-5505.61 | manter |
 
 Decisão: revertido. O resultado é aceitável, mas não melhora a série sem reserva e deixa o código mais pesado. Provavelmente o corpo chega em chunk único na maioria das requisições, então a reserva antecipada só desloca a alocação.
+
+### Experimento rejeitado: remover o handler `onAborted`
+
+Hipótese: depois de mover o body para a closure de `onData`, o `onAborted([](){})` vazio poderia ser removido para reduzir mais um handler por requisição.
+
+Mudança temporária:
+
+```cpp
+// removido:
+res->onAborted([]() {});
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Failure rate | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| sem `onAborted` | 4.05ms | 0 | 0 | 54058 | 100% | -607.73 | rejeitado |
+| body na closure com `onAborted` vazio, aceito | 3.12-3.28ms | 0 | 0 | 0 | 0% | 5483.58-5505.61 | manter |
+
+Evidência do k6:
+
+```text
+Request Failed error="Post \"http://localhost:9999/fraud-score\": EOF"
+```
+
+Decisão: revertido. O handler vazio é necessário para o ciclo de vida do uWebSockets neste fluxo; removê-lo causa EOF em praticamente todas as requisições e aciona corte de detecção.
