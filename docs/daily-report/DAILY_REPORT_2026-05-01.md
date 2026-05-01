@@ -3860,3 +3860,32 @@ Resultado no benchmark oficial local atualizado:
 Leitura: o split intermediário não superou a melhor run isolada do `0.40/0.40/0.20`, mas reproduziu duas runs quase idênticas abaixo de `3.0ms`, com score médio melhor que as duas runs do split anterior e sem sinal de instabilidade do nginx. Para submissão, esse ponto é mais defensável que perseguir o melhor caso isolado.
 
 Decisão: aceito. `docker-compose.yml` passa a usar `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
+
+### Experimento rejeitado: `MALLOC_ARENA_MAX=1`
+
+Hipótese: como cada API C++ opera essencialmente com um loop single-threaded, limitar arenas do glibc poderia reduzir variância/overhead de alocação no hot path sem mudar lógica, especialmente depois de rejeitar micro-otimizações manuais no parser.
+
+Alteração testada:
+
+```text
+api1/api2 environment:
+  MALLOC_ARENA_MAX=1
+```
+
+Validação:
+
+```text
+GET /ready => 204
+docker inspect confirmou MALLOC_ARENA_MAX=1 nas duas APIs
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `0.41/0.41/0.18` sem `MALLOC_ARENA_MAX` | 2.98ms | 0 | 0 | 0 | 5526.35 | referência |
+| `0.41/0.41/0.18` com `MALLOC_ARENA_MAX=1` | 2.99ms | 0 | 0 | 0 | 5523.65 | rejeitado |
+
+Leitura: a variável não reduziu p99 e perdeu `2.70` pontos contra a referência imediata. O processo já não parece sofrer com múltiplas arenas; o overhead relevante continua fora desse ajuste.
+
+Decisão: rejeitado e removido do `docker-compose.yml`.
