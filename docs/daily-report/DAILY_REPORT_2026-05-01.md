@@ -1177,3 +1177,23 @@ Resultado k6:
 | Prévia oficial da submissão | 2.83ms | 0 | 0 | 0 | 5548.91 | melhor evidência oficial |
 
 Leitura: a máquina local está mais próxima do controle pós-HAProxy (`3.17ms / 5498.46`) do que da melhor run histórica (`3.03ms / 5518.47`). Mesmo assim, os experimentos recentes em `3.34-3.37ms` ficaram abaixo desse controle limpo, então permanecem rejeitados.
+
+### Experimento rejeitado: centróide com query quantizada
+
+Hipótese: a implementação C líder calcula o centróide mais próximo usando a query quantizada e reescalada (`q_i16 / 10000`), enquanto nossa busca usava o vetor float original nessa etapa. Como o scan e o bbox repair já operam no espaço quantizado, alinhar a seleção inicial ao mesmo grid poderia reduzir trabalho médio.
+
+Resultado offline pareado:
+
+| Configuração | ns/query | FP | FN | parse_errors |
+|---|---:|---:|---:|---:|
+| Baseline antes da mudança | 156.673 | 0 | 0 | 0 |
+| Query quantizada para centróide | 156.063 | 0 | 0 | 0 |
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Query quantizada para centróide | 3.39ms | 0 | 0 | 0 | 5470.08 | rejeitado |
+| Controle limpo pós-rejeições | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
+
+Decisão: revertido. A técnica do líder é coerente no C/io_uring dele, mas no nosso C++/uWebSockets o pequeno ganho offline virou pior cauda no k6.
