@@ -3789,3 +3789,38 @@ p99_score=2528.15
 Leitura: o ganho reproduziu em duas runs consecutivas e manteve acurácia perfeita. A melhor run local reduziu p99 em `0.16ms` contra o baseline alinhado e elevou o score em `22.58` pontos. Isso confirma que, no cenário atual, o nginx precisa de menos CPU que as APIs e que o gargalo marginal está mais próximo do classificador/worker C++.
 
 Decisão: aceito. `docker-compose.yml` fica com `api1/api2=0.40 CPU` e `nginx=0.20 CPU`.
+
+### Experimento rejeitado: split de CPU mais agressivo para APIs
+
+Hipótese: depois do ganho com `0.40/0.40/0.20`, transferir mais CPU do nginx para as APIs poderia continuar reduzindo p99, desde que o LB não virasse gargalo.
+
+Alteração testada:
+
+```text
+api1/api2: 0.40 CPU -> 0.42 CPU cada
+nginx:     0.20 CPU -> 0.16 CPU
+total:     1.00 CPU mantido
+memória:   inalterada
+```
+
+Validação:
+
+```text
+docker inspect:
+  api1 NanoCpus=420000000 Memory=173015040
+  api2 NanoCpus=420000000 Memory=173015040
+  nginx NanoCpus=160000000 Memory=20971520
+GET /ready => 204 após startup
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `0.40/0.40/0.20` aceito | melhor run | 2.96ms | 0 | 0 | 0 | 5528.15 | referência |
+| `0.42/0.42/0.16` | 1 | 2.93ms | 0 | 0 | 0 | 5532.45 | candidato |
+| `0.42/0.42/0.16` | 2 | 3.09ms | 0 | 0 | 0 | 5510.00 | rejeitado |
+
+Leitura: a primeira run foi ligeiramente melhor, mas a repetição voltou para `3.09ms`, pior que a melhor e a faixa média do split `0.40/0.40/0.20`. O resultado sugere que `0.16 CPU` deixa o nginx perto demais do limite ou aumenta variabilidade de scheduling. Como a meta é ganho sustentável, não basta capturar um melhor caso isolado.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para o split aceito `api1/api2=0.40 CPU` e `nginx=0.20 CPU`.
