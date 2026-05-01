@@ -3560,3 +3560,38 @@ Microbenchmark offline:
 Leitura: a hipótese reduziu uma possível fonte de heap allocation, mas aumentou custo do parser puro e piorou o caminho agregado com classificação. O ganho em `parse_vectorize` não compensa a piora de `parse_payload` e `parse_classify`; levar isso para k6 seria ruído caro.
 
 Decisão: rejeitado e revertido sem k6. `Payload` voltou a usar `std::string`; `cmake --build cpp/build --target test -j8` voltou a passar 100%.
+
+### Experimento rejeitado: `known_merchants` inline mantendo `std::string`
+
+Hipótese: remover apenas a alocação dinâmica do `std::vector` de `known_merchants`, mantendo ownership dos valores com `std::string`. Diferente da tentativa com `std::string_view`, essa variante não dependeria do lifetime interno do `simdjson` e deveria preservar semântica.
+
+Alteração testada:
+
+```text
+std::vector<std::string> known_merchants
+  -> KnownMerchantStrings { std::array<std::string, 8> inline_values; std::vector<std::string> overflow; }
+```
+
+Validação pré-k6:
+
+```text
+cmake --build cpp/build --target test benchmark-request-cpp -j8 => tests 100% passed
+```
+
+Microbenchmark offline:
+
+| Variante | parse_payload | parse_vectorize | parse_classify |
+|---|---:|---:|---:|
+| baseline histórico DOM | ~630ns | ~696ns | ~28.9us |
+| inline strings run 1 (`repeat=20`) | 624.93ns | 866.43ns | 28.94us |
+| inline strings run 2 (`repeat=20`) | 606.77ns | 662.28ns | 29.88us |
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `known_merchants` inline com `std::string` | 4.76ms | 123 | 117 | 0 | 2998.49 | rejeitado |
+
+Leitura: apesar de parecer semanticamente segura e de mostrar algum ganho no parser puro, a alteração repetiu o mesmo padrão de divergência de classificação das tentativas anteriores na região de `known_merchant`. Isso reforça que mudanças no parser/vetorização não devem mais avançar direto para k6 apenas com checksums agregados; é necessário primeiro um comparador por payload e por dimensão do vetor.
+
+Decisão: rejeitado e revertido. `cpp/src/request.cpp` voltou ao `std::vector<std::string>` original para `known_merchants`; `cmake --build cpp/build --target test -j8` voltou a passar 100%.
