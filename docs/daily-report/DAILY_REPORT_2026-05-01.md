@@ -815,3 +815,69 @@ Manter o patch de early-exit e reduzir `IVF_FAST_NPROBE`/`IVF_FULL_NPROBE` para 
 - melhora o score end-to-end de forma reproduzida.
 
 Próximo passo investigativo: procurar outra poda exata no hot path do IVF, preferencialmente evitando trabalho em `already_scanned` ou melhorando a representação das bounding boxes, mas sem aceitar modos aproximados com erro.
+
+### Experimento rejeitado: remover checagem de cluster vazio no repair
+
+Hipótese: remover o branch `offsets_[cluster] == offsets_[cluster + 1]` poderia reduzir uma checagem por cluster no repair. A semântica seria preservada porque `scan_blocks` com intervalo vazio não faz trabalho.
+
+Resultado offline:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Sem checagem explícita de cluster vazio | 70.854 | 0 | 0 | 0 | rejeitado |
+| Checkpoint aceito anterior | 69.691 | 0 | 0 | 0 | manter |
+
+Decisão: revertido. A checagem explícita é mais barata do que chamar o restante do caminho para clusters vazios ou piora o perfil de branch/cache nesta carga.
+
+### Experimento rejeitado: especializar `already_scanned` para `nprobe=1`
+
+Hipótese: como a configuração aceita usa `nprobe=1`, trocar o loop genérico por comparação direta contra `best_clusters[0]` poderia reduzir branches no repair.
+
+Resultado offline:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| `already_scanned` especializado para `nprobe=1` | 70.077 | 0 | 0 | 0 | rejeitado |
+| Checkpoint aceito anterior | 69.691 | 0 | 0 | 0 | manter |
+
+Decisão: revertido. A diferença ficou dentro de micro-ruído e não justifica deixar código mais ramificado.
+
+### Experimento rejeitado: ponteiros base em `bbox_lower_bound`
+
+Hipótese: trocar `bbox_min[base + dim]` e `bbox_max[base + dim]` por ponteiros base locais poderia reduzir aritmética de índice no loop de 14 dimensões.
+
+Resultado offline:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Ponteiros base locais para min/max | 70.230 | 0 | 0 | 0 | rejeitado |
+| Checkpoint aceito anterior | 69.691 | 0 | 0 | 0 | manter |
+
+Decisão: revertido. O compilador já gera código suficientemente bom para a forma indexada; a alteração não trouxe ganho mensurável.
+
+### Experimento rejeitado: ordem customizada das dimensões do bbox
+
+Hipótese: como `bbox_lower_bound` agora tem early-exit, somar primeiro dimensões de maior variância poderia estourar `top.worst_distance()` mais cedo. A ordem testada foi derivada da variância global dos `3.000.000` vetores de referência:
+
+```text
+6, 5, 10, 9, 11, 2, 4, 7, 0, 1, 8, 12, 3, 13
+```
+
+Screening offline:
+
+| Ordem | ns/query | FP | FN | parse_errors | Decisão offline |
+|---|---:|---:|---:|---:|---|
+| Ordem original `0..13` com early-exit | 69.691 | 0 | 0 | 0 | baseline aceito |
+| Variância global `6,10,9,5,...` | 67.838 | 0 | 0 | 0 | promissor |
+| Sentinelas primeiro `6,5,10,9,...` | 67.832 | 0 | 0 | 0 | melhor offline |
+| Binárias primeiro `10,9,6,5,...` | 71.012 | 0 | 0 | 0 | rejeitado |
+| Inversão `5,6,10,9,...` | 71.253 | 0 | 0 | 0 | rejeitado |
+
+Validação k6 da melhor ordem offline:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Ordem customizada `6,5,10,9,...` | 3.38ms | 0 | 0 | 0 | 5470.47 | rejeitado |
+| Checkpoint aceito anterior | 3.12ms | 0 | 0 | 0 | 5505.63 | manter |
+
+Decisão: revertido. A ordem customizada melhora o microbenchmark do classificador, mas piora a cauda end-to-end no k6. Nesta stack, k6 continua sendo gate soberano.
