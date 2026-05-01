@@ -2654,3 +2654,27 @@ Resultado k6:
 Leitura: pinning manual não reduziu jitter nesta máquina; pelo contrário, fixou cada processo em um core específico e piorou a cauda frente à faixa aceita sem pinning. O benefício visto nas soluções Rust não é portável para esta topologia C++/nginx atual.
 
 Decisão: revertido. O `docker-compose.yml` permanece sem `cpuset`.
+
+### Calibração externa: imagem pública do líder C no ambiente local
+
+Objetivo: validar se o ambiente local reproduz o patamar do ranking parcial antes de perseguir cegamente knobs dos líderes. A imagem pública do líder C (`thiagorigonatti/rinha-2026:0.0.29`, repo `https://github.com/thiagorigonatti/rinha-2026`) foi executada sem alteração de código, com o `docker-compose.yml` do próprio repositório: 2 APIs em C/io_uring, HAProxy, UDS, `seccomp=unconfined`, `K=256`, `IVF_NPROBE=1`, `CANDIDATES=0`.
+
+Observação operacional: rodar diretamente a partir de `/tmp` falhou porque o Docker Desktop não compartilhava o caminho do `haproxy.cfg`. A cópia de calibração foi feita em `~/Desktop/rinha-2026-topc-calibration`, apenas para permitir o bind mount.
+
+Validações:
+
+```text
+GET /ready => 200
+api1/api2 carregaram index IVF6: N=3000000 K=256 scale=10000.0
+engine: IVF/kmeans + int16 + top5 seco + AVX2
+```
+
+Resultado k6 local:
+
+| Stack | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `thiagorigonatti/rinha-2026:0.0.29` local | 5.61ms | 0 | 0 | 0 | 5251.14 |
+
+Leitura: a implementação líder não reproduziu localmente o ranking parcial informado (`1.25ms`, `5901.92`) nesta máquina/benchmark, ficando inclusive abaixo da nossa stack C++ atual nas melhores rodadas locais. Isso não invalida a estratégia do líder no ambiente oficial, mas reduz o valor de copiar knobs isolados a partir do compose dele. A conclusão prática para nossa investigação é continuar exigindo validação local por hipótese; ranking externo serve como fonte de ideias, não como prova de ganho transferível.
+
+Decisão: calibração encerrada, stack externa derrubada e nossa stack restaurada com `/ready` 204. Nenhuma mudança de produção.
