@@ -2971,6 +2971,27 @@ Leitura: o acesso do nosso scanner já está suficientemente sequencial para o p
 
 Decisão: rejeitado e revertido. O scan permanece sem prefetch manual.
 
+### Experimento rejeitado: remover `reuseport` do nginx
+
+Hipótese: com `worker_processes 1`, o `reuseport` no `listen` poderia ser neutro ou até adicionar ruído desnecessário. Foi testado `listen 9999 backlog=4096;` mantendo todo o restante do estado aceito (`api=0.35 x2`, `nginx=0.30`, 2 APIs, UDS).
+
+Validação operacional:
+
+```text
+GET /ready => 204
+nginx recriado apenas com listen sem reuseport
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| nginx sem `reuseport` | 2.99ms | 0 | 0 | 0 | 5524.53 | rejeitar |
+
+Leitura: mesmo com apenas um worker, `reuseport` não é prejudicial no nosso cenário. A remoção piorou a cauda em relação ao estado aceito (`p99 2.85-2.90ms`, `5537.88-5545.37`), sem qualquer ganho de detecção.
+
+Decisão: rejeitado e revertido. O nginx voltou para `listen 9999 reuseport backlog=4096;`.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
