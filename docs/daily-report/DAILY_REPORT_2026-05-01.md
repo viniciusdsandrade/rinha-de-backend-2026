@@ -2427,3 +2427,40 @@ Resultado k6:
 | Configuração aceita sem `security_opt` | 2.98-3.05ms | 0 | 0 | 0 | 5516.00-5526.49 | manter |
 
 Conclusão: `seccomp=unconfined` não melhora o stack atual de forma isolada. O valor dessa opção nos líderes provavelmente vem de destravar `io_uring`/runtime específico, não de reduzir overhead no caminho epoll/uWebSockets atual. A mudança foi revertida.
+
+### Experimento rejeitado: `LIBUS_USE_IO_URING` no uSockets/uWebSockets
+
+Hipótese: parte do gap para o top 3 vem do custo fixo do servidor HTTP/event loop. Como os líderes usam servidor C com `io_uring` ou Rust `monoio`, testei habilitar o backend `io_uring` do próprio uSockets para preservar a aplicação atual e trocar apenas o event loop.
+
+Mudança temporária:
+
+- `Dockerfile`: adicionados `liburing-dev` no builder e `liburing2` no runtime.
+- `cpp/CMakeLists.txt`: `usockets` compilado com `LIBUS_USE_IO_URING` e linkado com `uring`.
+- `docker-compose.yml`: `security_opt: [seccomp=unconfined]` nas APIs, necessário para reduzir risco de bloqueio do syscall.
+
+Fontes que motivaram a hipótese:
+
+- `uNetworking/uSockets`: o Makefile declara `WITH_IO_URING=1` como build com `-DLIBUS_USE_IO_URING` e link adicional com `liburing`.
+- `uNetworking/uSockets`: o README ainda descreve `io_uring` como work-in-progress.
+- `thiagorigonatti/rinha-2026`: C + `io_uring` manual no líder parcial.
+- `jairoblatt/rinha-2026-rust` e `joojf/rinha-2026`: Rust + `monoio`/`io_uring` no top 3 parcial.
+
+Validação:
+
+```text
+docker compose build api1
+docker compose up -d --force-recreate
+docker run --rm --security-opt seccomp=unconfined \
+  -e UNIX_SOCKET_PATH=/tmp/test.sock \
+  rinha-backend-2026-cpp-api:local
+```
+
+Resultado:
+
+| Etapa | Resultado | Decisão |
+|---|---|---|
+| Build Docker com `liburing` | compilou | prosseguir para runtime |
+| Startup API | falhou com exit 1 antes de abrir UDS | rejeitado |
+| Mensagem observada | `io_uring_init_failed... : Success` | sem k6 |
+
+Conclusão: o backend `io_uring` vendorizado no uSockets não é um caminho sustentável para esta submissão. Ele compila, mas não inicializa de forma confiável no ambiente Docker atual; além disso, o próprio upstream marca esse caminho como work-in-progress. A alteração foi revertida e a imagem aceita foi reconstruída com epoll/uWebSockets.
