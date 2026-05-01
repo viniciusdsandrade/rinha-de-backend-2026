@@ -2757,3 +2757,24 @@ Resultado k6 com corte em 7:
 Leitura: apesar do ganho claro no microbenchmark, o corte em 7 piorou a cauda end-to-end. A causa provável é interação de branch/cache/scheduling no container: reduzir alguns ciclos no scanner não garantiu melhor p99, e pode ter aumentado variabilidade na etapa crítica. Como o objetivo efetivo é score local, o resultado offline não é suficiente.
 
 Decisão: rejeitado. O código voltou para o corte em 8 dimensões, que teve melhor evidência k6 (`3.12ms/5506.17` e `2.96ms/5528.47`) nesta janela.
+
+### Experimento rejeitado: reordenar dimensões antes da poda parcial
+
+Hipótese: mantendo a distância final idêntica, processar primeiro dimensões com maior separação aparente poderia aumentar a poda parcial. Foi testada uma ordem priorizando `minutes_since_last_tx`, `km_from_last_tx`, `unknown_merchant`, flags booleanas, `amount`, `amount_vs_avg` e `km_from_home` antes das demais dimensões.
+
+Mudança temporária:
+
+```text
+ordem testada: [5, 6, 11, 9, 10, 0, 2, 7, 8, 12, 1, 3, 4, 13]
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Ordem natural com corte 8 | 71099.1 | 0 | 0 | 0 | referência |
+| Ordem reordenada por sentinelas/flags | 76777.6 | 0 | 0 | 0 | rejeitado |
+
+Leitura: a ordem reordenada preservou a acurácia, mas piorou o kernel. A explicação mais provável é que o layout SoA por dimensão e a distribuição real do dataset favorecem a ordem natural das dimensões iniciais; antecipar flags/sentinelas não compensou o custo de acesso e reduziu a eficiência da poda.
+
+Decisão: rejeitado e revertido. A poda parcial permanece com dimensões `0..7` antes do check.
