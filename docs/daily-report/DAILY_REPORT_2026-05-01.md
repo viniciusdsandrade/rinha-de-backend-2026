@@ -1612,3 +1612,33 @@ Resultado k6:
 | `nprobe=1` especializado, aceito | 3.10-3.37ms | 0 | 0 | 0 | 5472.90-5508.92 | manter |
 
 Decisão: revertido. `-fno-exceptions` não compila sem refatorar parsing de env, e `-fno-rtti` piorou a cauda frente ao melhor estado da branch. Não vale aumentar complexidade de build por ganho inexistente.
+
+### Experimento rejeitado: trocar `AppState` de `std::variant` para ponteiros explícitos
+
+Hipótese: a aplicação roda em modo IVF durante os benchmarks. Substituir `std::variant<Classifier, IvfIndex>` por ponteiros explícitos (`std::unique_ptr<Classifier>` e `std::unique_ptr<IvfIndex>`) poderia remover `std::get_if` / `std::get` do caminho de classificação e reduzir um pequeno custo de dispatch por requisição.
+
+Mudança temporária:
+
+```cpp
+std::unique_ptr<rinha::Classifier> exact_classifier;
+std::unique_ptr<rinha::IvfIndex> ivf_index;
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `AppState` com ponteiros explícitos | 3.46ms | 0 | 0 | 0 | 5460.84 | rejeitado |
+| `nprobe=1` especializado, aceito | 3.10-3.37ms | 0 | 0 | 0 | 5472.90-5508.92 | manter |
+
+Decisão: revertido. A troca remove um dispatch trivial, mas introduz indireção por ponteiro e alocação heap no estado da aplicação. Na prática, a cauda ficou pior que a otimização aceita de `nprobe=1`; o `std::variant` continua suficientemente barato e mais simples.
