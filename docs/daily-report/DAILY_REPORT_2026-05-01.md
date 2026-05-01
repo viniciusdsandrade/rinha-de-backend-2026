@@ -1330,3 +1330,34 @@ Resultado k6:
 | Controle limpo nginx `stream` | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
 
 Decisão: revertido. O ganho offline foi real, mas não transferiu para o compose oficial local. A hipótese provável é que o hot path ficou mais branchy e menos previsível, enquanto a cauda do k6 continua dominada por proxy/throttling/scheduler. Como o score piorou, o scan AVX2 full-pass permanece.
+
+### Experimento rejeitado: ordem de dimensões do scan inspirada no líder C
+
+Hipótese: a implementação C líder usa ordem de dimensões voltada para maior poda (`5,6,2,0,7,8,11,12,9,10,1,13,3,4`). Testei a mesma ordem no nosso scan scalar e AVX2, sem o branch de early-skip por bloco, para verificar se o ganho vinha só da ordem de acumulação.
+
+Validações:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-2048.bin 3 0 1 1 1
+docker compose up -d --build --remove-orphans
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado offline:
+
+| Run | ns/query | FP | FN | parse_errors |
+|---:|---:|---:|---:|---:|
+| 1 | 152827 | 0 | 0 | 0 |
+| 2 | 162064 | 0 | 0 | 0 |
+| 3 | 155516 | 0 | 0 | 0 |
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Ordem de scan do líder C | 3.46ms | 0 | 0 | 0 | 5460.54 | rejeitado |
+| Controle limpo nginx `stream` | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
+
+Decisão: revertido. A ordem do líder C faz sentido no layout SoA linear dele e no scalar com poda por dimensão. No nosso layout de blocos `dim * lanes`, a ordem natural preserva melhor localidade e vence no compose.
