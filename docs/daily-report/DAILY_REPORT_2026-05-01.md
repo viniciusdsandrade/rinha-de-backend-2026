@@ -1099,3 +1099,25 @@ Resultado offline:
 | Baseline da rodada | 133.130 | 0 | 0 | 0 | manter |
 
 Decisão: revertido sem k6. A correção foi preservada, mas o hot path ficou mais lento. A interpretação provável é que o custo dominante não é o stride dos 14 floats por centróide, ou que o layout transposto atual interage melhor com cache/prefetch no conjunto real de consultas.
+
+### Experimento rejeitado: remover `Content-Type` da resposta
+
+Hipótese: o contrato do teste valida `status` e faz `JSON.parse(res.body)`, mas não exige header de resposta. Remover `res->writeHeader("Content-Type", "application/json")` poderia reduzir uma chamada no uWebSockets e alguns bytes por resposta.
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Sem `Content-Type` | 3.35ms | 0 | 0 | 0 | 5475.29 | rejeitado |
+| Controle aceito anterior | 3.03ms | 0 | 0 | 0 | 5518.47 | manter |
+
+Decisão: revertido. A alteração é compatível com o contrato observado e mantém acurácia, mas piora a cauda do k6. O header explícito atual continua sendo a opção mais estável nesta stack.
