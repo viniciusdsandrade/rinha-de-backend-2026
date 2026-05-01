@@ -3316,3 +3316,83 @@ Resultados no benchmark oficial local atualizado:
 Leitura: o primeiro resultado foi o melhor single-run do dia por margem mínima, mas não reproduziu. A queda para `5502.10` na repetição torna o ponto instável demais para aceitar. Como a diferença positiva era menor que 1 ponto e a regressão foi grande, o resultado deve ser tratado como outlier.
 
 Decisão: rejeitado e revertido. O estado aceito volta para `api=0.35 x2` e `nginx=0.30`.
+
+### Rodada 18h-20h: investigação estrutural e parser seletivo
+
+Contexto: após a rodada anterior, o estado aceito permanecia melhor como `2 APIs + nginx stream + UDS`, com `api=0.35 CPU` por instância e `nginx=0.30 CPU`. A pontuação oficial já registrada no ranking para `viniciusdsandrade (andrade-cpp-ivf)` segue sendo o melhor referencial externo desta branch:
+
+```text
+p99=2.83ms
+failure_rate=0%
+final_score=5548.91
+ranking parcial em 2026-05-01 10:51:16
+```
+
+Investigação inicial:
+
+```text
+branch=perf/noon-tuning
+estado inicial=limpo
+liburing local via pkg-config=indisponível
+histórico reaproveitável de servidor epoll/io_uring em cpp/src=não encontrado na branch atual
+```
+
+Leitura: `io_uring` continua sendo a hipótese estrutural de maior teto, mas não é uma troca barata neste ponto. Exige introduzir dependência de build/runtime, servidor HTTP próprio, buffers fixos, respostas HTTP completas e validação cuidadosa de keep-alive. Por isso, antes de abrir esse bloco grande, foram testadas duas hipóteses menores e reversíveis no hot path atual.
+
+### Experimento rejeitado: parser seletivo manual em `request.cpp`
+
+Hipótese: substituir `simdjson::dom` por um parser seletivo do payload oficial poderia reduzir heap/cópias no hot path. A versão testada removia o vetor de merchants, extraía apenas os campos usados na vetorização e mantinha o mesmo contrato de `Payload`.
+
+Validação:
+
+```text
+cmake --build cpp/build --target test benchmark-request-cpp -j8
+ctest via target test => 100% passed
+```
+
+Resultados offline:
+
+| Variante | parse_payload | parse_vectorize | parse_classify | Decisão |
+|---|---:|---:|---:|---|
+| parser manual inicial | 1797.31 ns/query | 2172.46 ns/query | 31944.5 ns/query | corrigir alocação de chave |
+| parser manual sem string temporária de chave | 1611.51 ns/query | 1668.13 ns/query | 30506.8 ns/query | rejeitar |
+| baseline histórico `simdjson::dom` | ~629.99 ns/query | ~696.48 ns/query | ~28859.4 ns/query | manter |
+
+Leitura: o parser manual ingênuo perdeu para `simdjson::dom`. A troca só faz sentido se for um parser direto para `QueryVector`/representação quantizada, sem preencher `Payload`, sem `std::from_chars` genérico por campo e sem varreduras repetidas por chave. Como esta versão aumentou o custo offline antes mesmo do k6, ela foi rejeitada sem rodar benchmark HTTP.
+
+Decisão: rejeitado e revertido. `cpp/src/request.cpp` voltou ao parser `simdjson::dom`.
+
+### Experimento rejeitado: remover `Content-Type` e `cork` na resposta
+
+Hipótese: o k6 faz `JSON.parse(res.body)` e não depende de `Content-Type`; portanto remover `writeHeader("Content-Type", "application/json")` e `res->cork(...)` poderia reduzir trabalho por resposta no caminho HTTP.
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp test -j8
+ctest via target test => 100% passed
+docker compose build api1
+docker compose up -d --force-recreate
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| sem `Content-Type`/`cork` | 3.24ms | 0 | 0 | 0 | 5488.85 | rejeitado |
+
+Leitura: o `cork`/header não é o gargalo e provavelmente ajuda a agrupar header/body no uWebSockets. A alteração reduziu trabalho aparente no código, mas piorou a cauda de forma clara.
+
+Decisão: rejeitado e revertido. O stack voltou a responder com `Content-Type: application/json` dentro de `res->cork(...)`.
+
+Estado após a rodada:
+
+```text
+source diff funcional=nenhum
+imagem Docker reconstruída no estado aceito
+docker compose up -d --force-recreate
+GET /ready => 204
+```
+
+Próxima hipótese com maior chance real: implementar um servidor manual separado e opcional, começando por um alvo isolado (`rinha-backend-2026-cpp-manual`) em vez de alterar o binário aceito. O critério mínimo para continuar esse caminho é compilar localmente, passar contrato HTTP, manter 0 FP/FN e mostrar k6 acima do estado aceito em duas runs consecutivas. Sem isso, a troca de servidor vira complexidade sem ganho sustentável.
