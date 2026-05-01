@@ -1048,3 +1048,24 @@ Resultado offline:
 | Baseline da rodada | 133.130 | 0 | 0 | 0 | manter |
 
 Decisão: revertido sem k6. A alteração preserva classificação, mas piora o tempo. A hipótese provável é que `std::lround` já está bem otimizado no build atual e a expressão manual introduz branch/conversão menos favorável.
+
+### Experimento rejeitado: flags `haswell`
+
+Hipótese: como o ambiente oficial é um Mac Mini Late 2014 com CPU Intel Haswell e a melhor submissão C pública compila com `-march=haswell -mtune=haswell -flto -fomit-frame-pointer`, trocar o alvo genérico `x86-64-v3` por Haswell poderia melhorar o código gerado para a máquina oficial.
+
+Alteração testada:
+
+```text
+-mavx2 -mfma -march=x86-64-v3
+para
+-march=haswell -mtune=haswell -fomit-frame-pointer
+```
+
+Resultado offline:
+
+| Configuração | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Flags `haswell` | 159.991 | 0 | 0 | 0 | rejeitado |
+| Baseline da rodada | 133.130 | 0 | 0 | 0 | manter |
+
+Decisão: revertido sem k6. Apesar de ser coerente com a CPU oficial, a troca piorou muito no microbenchmark local da nossa base C++/simdjson/uWebSockets. Sem sinal local positivo, não vale arriscar o binário da submissão.
