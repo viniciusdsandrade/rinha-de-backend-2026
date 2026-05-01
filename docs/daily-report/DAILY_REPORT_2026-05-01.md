@@ -2987,3 +2987,31 @@ Resultado no benchmark oficial local atualizado:
 Leitura: mesmo com mais CPU para o LB, HAProxy ficou abaixo do nginx no estado atual (`nginx 0.35/0.30`: `5545.37` melhor run, `5537.88` confirmação). O ganho dos líderes que usam HAProxy não vem do HAProxy isolado; ele depende do restante do stack (`io_uring`/parser manual/index/kernel).
 
 Decisão: rejeitado e revertido. O stack volta para `nginx:1.27-alpine` com `worker_processes 1`.
+
+### Experimento rejeitado: `cpuset` no arranjo de 2 APIs
+
+Hipótese: `cpuset` havia sido ruim no arranjo anterior de 3 APIs, mas poderia funcionar melhor com apenas 2 APIs e um nginx mais forte, reduzindo migração de processos e ruído de scheduler. Foi testado pinning simples e isolado:
+
+```text
+api1  -> CPU 0
+api2  -> CPU 1
+nginx -> CPU 2
+```
+
+Validação de limites efetivos:
+
+```text
+/perf-noon-tuning-api1-1 cpuset=0 nano=350000000 mem=173015040
+/perf-noon-tuning-api2-1 cpuset=1 nano=350000000 mem=173015040
+/perf-noon-tuning-nginx-1 cpuset=2 nano=300000000 mem=20971520
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `cpuset` em 2 APIs + nginx | 2.96ms | 0 | 0 | 0 | 5528.23 | rejeitado |
+
+Leitura: o pinning manual voltou a piorar a cauda. A limitação por `NanoCpus` parece interagir melhor com o scheduler do Docker quando os processos podem migrar, em vez de ficarem fixos em três CPUs específicas.
+
+Decisão: rejeitado e revertido. O `docker-compose.yml` permanece sem `cpuset`.
