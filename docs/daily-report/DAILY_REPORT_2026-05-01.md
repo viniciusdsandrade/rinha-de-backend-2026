@@ -1750,3 +1750,43 @@ Resultado k6:
 | `nprobe=1` especializado, aceito anterior | 2 | 3.10ms | 0 | 0 | 0 | 5508.92 | referência |
 
 Decisão: aceito na branch experimental. A melhor run ainda não supera a submissão oficial já processada (`2.83ms / 5548.91`), mas a sequência de três rodadas ficou estável e melhora a média local sobre o estado aceito anterior, preservando detecção perfeita.
+
+### Experimento rejeitado: `body.reserve(512)` na closure `onData`
+
+Hipótese: os payloads oficiais locais têm tamanho entre 358 e 469 bytes (`p99=468`). Reservar 512 bytes no `std::string` da closure poderia evitar crescimento incremental se o corpo chegasse fragmentado.
+
+Medição prévia:
+
+```text
+jq '.entries | map(.request | tostring | length) | ...' /tmp/rinha-2026-official-run/test-data.json
+min=358 max=469 avg=434.54 p50=442 p90=464 p99=468
+```
+
+Mudança temporária:
+
+```cpp
+res->onData([res, state, body = [] {
+    std::string value;
+    value.reserve(512);
+    return value;
+}()](...) mutable { ... });
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `body.reserve(512)` | 3.24ms | 0 | 0 | 0 | 5489.21 | rejeitado |
+| body na closure sem reserva, aceito | 3.12-3.28ms | 0 | 0 | 0 | 5483.58-5505.61 | manter |
+
+Decisão: revertido. O resultado é aceitável, mas não melhora a série sem reserva e deixa o código mais pesado. Provavelmente o corpo chega em chunk único na maioria das requisições, então a reserva antecipada só desloca a alocação.
