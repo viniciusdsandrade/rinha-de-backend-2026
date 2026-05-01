@@ -47,6 +47,7 @@ add_executable(rinha-backend-2026-cpp
     src/request.cpp
     src/vectorize.cpp
     src/refs.cpp
+    src/ivf.cpp
     src/classifier.cpp
 )
 target_include_directories(rinha-backend-2026-cpp
@@ -122,6 +123,33 @@ endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
     target_compile_options(prepare-refs-cpp PRIVATE -march=x86-64-v3)
+endif()
+
+add_executable(prepare-ivf-cpp EXCLUDE_FROM_ALL
+    tools/prepare_ivf.cpp
+    src/ivf.cpp
+)
+target_include_directories(prepare-ivf-cpp
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+target_link_libraries(prepare-ivf-cpp
+    PRIVATE
+        ZLIB::ZLIB
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(prepare-ivf-cpp PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+    )
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    target_compile_options(prepare-ivf-cpp PRIVATE -mavx2 -march=x86-64-v3)
 endif()
 
 add_executable(rinha-backend-2026-cpp-tests
@@ -233,6 +261,41 @@ endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
     target_compile_options(benchmark-request-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
+endif()
+
+add_executable(benchmark-ivf-cpp EXCLUDE_FROM_ALL
+    tools/benchmark_ivf.cpp
+    src/request.cpp
+    src/vectorize.cpp
+    src/ivf.cpp
+)
+target_include_directories(benchmark-ivf-cpp
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader"
+)
+target_compile_definitions(benchmark-ivf-cpp
+    PRIVATE
+        SIMDJSON_EXCEPTIONS=0
+)
+target_link_libraries(benchmark-ivf-cpp
+    PRIVATE
+        simdjson_singleheader
+        ZLIB::ZLIB
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(benchmark-ivf-cpp PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+    )
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    target_compile_options(benchmark-ivf-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
 endif()
 
 add_executable(benchmark-kernel-cpp EXCLUDE_FROM_ALL

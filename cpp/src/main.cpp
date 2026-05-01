@@ -7,14 +7,17 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include <sys/stat.h>
 
 #include "App.h"
 
 #include "rinha/classifier.hpp"
+#include "rinha/ivf.hpp"
 #include "rinha/request.hpp"
 #include "rinha/types.hpp"
+#include "rinha/vectorize.hpp"
 
 namespace fs = std::filesystem;
 
@@ -34,8 +37,27 @@ struct RequestContext {
 
 struct AppState {
     explicit AppState(rinha::Classifier classifier_in) : classifier(std::move(classifier_in)) {}
+    AppState(rinha::IvfIndex ivf_in, rinha::IvfSearchConfig ivf_config_in)
+        : classifier(std::move(ivf_in)), ivf_config(ivf_config_in) {}
 
-    rinha::Classifier classifier;
+    bool classify(const rinha::Payload& payload, rinha::Classification& classification, std::string& error) const {
+        if (const auto* ivf = std::get_if<rinha::IvfIndex>(&classifier)) {
+            rinha::QueryVector query{};
+            if (!rinha::vectorize(payload, query, error)) {
+                return false;
+            }
+
+            const std::uint8_t fraud_count = ivf->fraud_count(query, ivf_config);
+            classification.fraud_score = static_cast<float>(fraud_count) * 0.2f;
+            classification.approved = fraud_count < 3U;
+            return true;
+        }
+
+        return std::get<rinha::Classifier>(classifier).classify(payload, classification, error);
+    }
+
+    std::variant<rinha::Classifier, rinha::IvfIndex> classifier;
+    rinha::IvfSearchConfig ivf_config{1, 1, false, true};
 };
 
 std::string env_or_default(const char* key, std::string default_value) {
@@ -50,6 +72,26 @@ std::optional<std::string> optional_env(const char* key) {
         return std::string(value);
     }
     return std::nullopt;
+}
+
+std::uint32_t uint_env_or_default(const char* key, std::uint32_t default_value) {
+    const std::optional<std::string> value = optional_env(key);
+    if (!value) {
+        return default_value;
+    }
+    try {
+        return static_cast<std::uint32_t>(std::stoul(*value));
+    } catch (...) {
+        return default_value;
+    }
+}
+
+bool bool_env_or_default(const char* key, bool default_value) {
+    const std::optional<std::string> value = optional_env(key);
+    if (!value) {
+        return default_value;
+    }
+    return *value == "1" || *value == "true" || *value == "TRUE";
 }
 
 bool parse_bind_addr(const std::string& bind_addr, ListenerConfig& config, std::string& error) {
@@ -90,6 +132,31 @@ bool load_references_from_env(rinha::ReferenceSet& refs, std::string& error) {
     }
 
     return rinha::ReferenceSet::load_gzip_json(references_path, refs, error);
+}
+
+bool load_ivf_from_env(rinha::IvfIndex& index, std::string& error) {
+    const std::optional<std::string> index_path = optional_env("IVF_INDEX_PATH");
+    if (!index_path) {
+        error = "IVF_INDEX_PATH não informado";
+        return false;
+    }
+
+    return index.load_binary(*index_path, error);
+}
+
+rinha::IvfSearchConfig ivf_config_from_env() {
+    rinha::IvfSearchConfig config{};
+    config.fast_nprobe = uint_env_or_default("IVF_FAST_NPROBE", 1);
+    config.full_nprobe = uint_env_or_default("IVF_FULL_NPROBE", config.fast_nprobe);
+    config.boundary_full = bool_env_or_default("IVF_BOUNDARY_FULL", config.full_nprobe > config.fast_nprobe);
+    config.bbox_repair = bool_env_or_default("IVF_BBOX_REPAIR", true);
+    config.repair_min_frauds = static_cast<std::uint8_t>(
+        std::min<std::uint32_t>(uint_env_or_default("IVF_REPAIR_MIN_FRAUDS", 2), 5)
+    );
+    config.repair_max_frauds = static_cast<std::uint8_t>(
+        std::min<std::uint32_t>(uint_env_or_default("IVF_REPAIR_MAX_FRAUDS", 3), 5)
+    );
+    return config;
 }
 
 bool listener_config_from_env(ListenerConfig& config, std::string& error) {
@@ -188,7 +255,7 @@ int run_server(const ListenerConfig& config, const std::shared_ptr<AppState>& st
             }
 
             rinha::Classification classification{};
-            if (!state->classifier.classify(payload, classification, error)) {
+            if (!state->classify(payload, classification, error)) {
                 classification = {};
             }
 
@@ -243,12 +310,22 @@ int main() {
         return 1;
     }
 
-    rinha::ReferenceSet refs;
-    if (!load_references_from_env(refs, error)) {
-        std::cerr << error << '\n';
-        return 1;
+    std::shared_ptr<AppState> state;
+    if (optional_env("IVF_INDEX_PATH")) {
+        rinha::IvfIndex index;
+        if (!load_ivf_from_env(index, error)) {
+            std::cerr << error << '\n';
+            return 1;
+        }
+        state = std::make_shared<AppState>(std::move(index), ivf_config_from_env());
+    } else {
+        rinha::ReferenceSet refs;
+        if (!load_references_from_env(refs, error)) {
+            std::cerr << error << '\n';
+            return 1;
+        }
+        state = std::make_shared<AppState>(rinha::Classifier(std::move(refs)));
     }
 
-    auto state = std::make_shared<AppState>(rinha::Classifier(std::move(refs)));
     return run_server(listener_config, state);
 }

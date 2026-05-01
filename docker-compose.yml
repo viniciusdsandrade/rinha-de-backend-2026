@@ -6,6 +6,11 @@ services:
     image: rinha-backend-2026-cpp-api:local
     environment:
       UNIX_SOCKET_PATH: /sockets/api1.sock
+      IVF_FULL_NPROBE: "2"
+      IVF_BOUNDARY_FULL: "true"
+      IVF_BBOX_REPAIR: "true"
+      IVF_REPAIR_MIN_FRAUDS: "0"
+      IVF_REPAIR_MAX_FRAUDS: "5"
     networks:
       - backend
     volumes:
@@ -13,19 +18,35 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.44"
-          memory: "165MB"
+          cpus: "0.27"
+          memory: "110MB"
 
   api2:
     <<: *api
     environment:
       UNIX_SOCKET_PATH: /sockets/api2.sock
+      IVF_FULL_NPROBE: "2"
+      IVF_BOUNDARY_FULL: "true"
+      IVF_BBOX_REPAIR: "true"
+      IVF_REPAIR_MIN_FRAUDS: "0"
+      IVF_REPAIR_MAX_FRAUDS: "5"
+
+  api3:
+    <<: *api
+    environment:
+      UNIX_SOCKET_PATH: /sockets/api3.sock
+      IVF_FULL_NPROBE: "2"
+      IVF_BOUNDARY_FULL: "true"
+      IVF_BBOX_REPAIR: "true"
+      IVF_REPAIR_MIN_FRAUDS: "0"
+      IVF_REPAIR_MAX_FRAUDS: "5"
 
   nginx:
     image: nginx:1.27-alpine
     depends_on:
       - api1
       - api2
+      - api3
     ports:
       - "9999:9999"
     networks:
@@ -36,7 +57,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.12"
+          cpus: "0.19"
           memory: "20MB"
 
 networks:

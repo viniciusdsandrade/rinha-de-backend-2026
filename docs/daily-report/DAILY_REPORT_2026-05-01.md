@@ -427,3 +427,150 @@ denied: permission_denied: The token provided does not match expected scopes.
 ```
 
 Diagnóstico: o token autenticado no `gh` possui `read:packages`, mas não `write:packages`. A tentativa de `gh auth refresh -s write:packages` entrou em fluxo interativo de browser e expirou. Portanto, a branch `submission` está preparada, mas a submissão ainda não deve ser enviada à engine oficial até a imagem pública ser publicada ou o compose apontar para outro registry público válido.
+
+## Rodada IVF oficial para 3M referências
+
+Objetivo: substituir o classificador exato em memória float, inviável para `3.000.000` referências, por um índice IVF quantizado em `int16` com busca AVX2 e repair exato por bounding boxes. A implementação ficou em branch isolada `perf/ivf-index` para evitar contaminar a branch `submission` até o ganho ser medido.
+
+### Implementação adicionada
+
+- `cpp/include/rinha/ivf.hpp` e `cpp/src/ivf.cpp`: índice IVF binário com vetores quantizados `int16`, blocos de 8 lanes, labels, ids originais para desempate, centróides, offsets e bounding boxes por cluster.
+- `cpp/tools/prepare_ivf.cpp`: gera `index.bin` a partir de `references.json.gz`.
+- `cpp/tools/benchmark_ivf.cpp`: benchmark offline contra `test-data.json` oficial novo, medindo divergências, checksum e ns/query.
+- `cpp/src/main.cpp`: `IVF_INDEX_PATH` ativa o classificador IVF; sem essa variável, mantém fallback para o classificador antigo.
+- `Dockerfile`: gera `index.bin` no build a partir do dataset oficial fixado no commit upstream `d501ddc1e941b24014c3ce5a6b41ccc3054ec1a0`.
+
+Validações iniciais:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-ivf-cpp prepare-ivf-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+git diff --check
+```
+
+Resultado:
+
+- Build C++: OK.
+- `ctest`: `1/1` passou.
+- `git diff --check`: OK.
+
+### Triagem offline de índices
+
+Dataset oficial atual:
+
+```text
+references.json.gz: 48MB gzipado
+test-data.json: 54.100 entradas
+```
+
+Builds testados:
+
+| Índice | Build | Memória do índice | Observação |
+|---|---:|---:|---|
+| IVF256 | 5.53s | 94.47MB | exato com repair, mas mais lento |
+| IVF512 | 8.55s | 94.53MB | exato com repair, melhor que 256 |
+| IVF1024 | 14.17s | 94.64MB | exato com repair, melhor que 512 |
+| IVF2048 | 26.32s | 94.87MB | melhor ponto exato offline |
+| IVF4096 | 49.96s | 95.32MB | piorou; mais centróides não compensaram |
+
+Benchmark offline completo (`54.100` entradas):
+
+| Configuração | FP | FN | failure_rate | ns/query | Decisão |
+|---|---:|---:|---:|---:|---|
+| IVF256 sem repair | 92 | 89 | 0.335% | 37.997 | rejeitado por erros |
+| IVF256 com repair | 0 | 0 | 0% | 161.488 | correto, mais lento |
+| IVF512 com repair | 0 | 0 | 0% | 132.478 | correto |
+| IVF1024 com repair | 0 | 0 | 0% | 108.778 | correto |
+| IVF2048 com repair | 0 | 0 | 0% | 101.873 | melhor exato offline |
+| IVF4096 com repair | 0 | 0 | 0% | 146.776 | rejeitado |
+
+Também foi testado modo híbrido: busca aproximada sem repair e repair apenas para votos próximos da fronteira. Melhor híbrido offline:
+
+| Configuração | FP | FN | failure_rate | ns/query |
+|---|---:|---:|---:|---:|
+| IVF2048, repair para votos `1..4` | 3 | 4 | 0.0129% | 17.856 |
+
+Leitura: o híbrido é muito mais rápido, mas carrega penalidade de detecção. Como a fórmula dá +3000 para detecção perfeita, era necessário validar no k6 se a queda de p99 compensaria os 7 erros.
+
+### Benchmarks oficiais locais em container
+
+O benchmark foi executado com o `test.js` atual do upstream (`120s`, alvo `900 RPS`, `preAllocatedVUs=100`, `maxVUs=250`, timeout `2001ms`) em diretório temporário:
+
+```text
+/tmp/rinha-2026-official-run/test.js
+/tmp/rinha-2026-official-data/test-data.json
+```
+
+Resultados principais:
+
+| Stack/config | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 2 APIs, nginx `0.12`, IVF2048 exato | 32.06ms | 0 | 0 | 0 | 4494.04 | correto, LB subdimensionado |
+| 2 APIs, nginx `0.12`, híbrido `1..4` | 13.45ms | 3 | 4 | 0 | 4510.05 | melhora marginal, ainda ruim |
+| 2 APIs, nginx `0.12`, sem repair | 12.23ms | 143 | 147 | 0 | 3048.84 | rejeitado por detecção |
+| HAProxy HTTP, sem repair | 676.90ms | 141 | 142 | 0 | 1314.89 | rejeitado |
+| HAProxy TCP, sem repair | 216.54ms | 143 | 147 | 0 | 1800.62 | rejeitado |
+| 2 APIs, nginx `0.20`, sem repair | 2.72ms | 143 | 147 | 0 | 3701.53 | provou gargalo de LB |
+| 2 APIs, nginx `0.20`, híbrido `1..4` | 2.70ms | 3 | 4 | 0 | 5206.77 | bom, mas perde para exato |
+| 2 APIs, nginx `0.20`, exato | 3.29ms | 0 | 0 | 0 | 5482.76 | melhor 2 APIs nesse split |
+| 2 APIs, nginx `0.18`, exato | 3.25ms | 0 | 0 | 0 | 5487.92 | melhor 2 APIs |
+| 2 APIs, nginx `0.16`, exato | 3.44ms | 0 | 0 | 0 | 5463.58 | rejeitado |
+| 3 APIs, nginx `0.19`, exato | 3.24ms | 0 | 0 | 0 | 5488.99 | melhor run local |
+| 3 APIs, nginx `0.22`, exato | 3.27ms | 0 | 0 | 0 | 5484.79 | rejeitado |
+| 3 APIs, nginx `0.19`, exato, repetição | 3.33ms | 0 | 0 | 0 | 5477.45 | confirma faixa, mas mostra ruído |
+
+Melhor run obtida na rodada:
+
+```json
+{
+  "p99": "3.24ms",
+  "scoring": {
+    "breakdown": {
+      "false_positive_detections": 0,
+      "false_negative_detections": 0,
+      "true_positive_detections": 24037,
+      "true_negative_detections": 30022,
+      "http_errors": 0
+    },
+    "failure_rate": "0%",
+    "weighted_errors_E": 0,
+    "p99_score": { "value": 2488.99, "cut_triggered": false },
+    "detection_score": {
+      "value": 3000,
+      "rate_component": 3000,
+      "absolute_penalty": 0,
+      "cut_triggered": false
+    },
+    "final_score": 5488.99
+  }
+}
+```
+
+Comparação com o ranking parcial informado:
+
+- Melhor run local nova (`5488.99`, `p99=3.24ms`, `0%`) ficaria entre o 4º colocado (`5546.41`) e o 5º (`5404.29`).
+- Para alcançar o 4º colocado mantendo `0%` falhas, o p99 precisa cair de `~3.24ms` para perto de `2.84ms`.
+- O salto contra a submissão minimalista anterior é material: de `2034.28` para `5488.99` na melhor run local, ganho de `+3454.71` pontos.
+
+### Decisão técnica
+
+Candidato final desta rodada:
+
+```text
+3 APIs + nginx stream
+api1/api2/api3: 0.27 CPU / 110MB cada
+nginx: 0.19 CPU / 20MB
+IVF2048 exato com bbox repair em todos os votos (`repair_min=0`, `repair_max=5`)
+```
+
+Justificativa:
+
+- Mantém `0 FP`, `0 FN`, `0 HTTP` no dataset oficial local.
+- Cabe no limite declarado: `1.00 CPU` e `350MB`.
+- Memória observada em idle: ~`96MB` por API dentro do limite de `110MB`.
+- Melhor score local observado: `5488.99`.
+
+Risco residual:
+
+- A repetição do melhor candidato caiu para `5477.45`; a diferença parece ruído local de p99, não regressão funcional.
+- A configuração 3 APIs é mais apertada em memória que 2 APIs. Se o ambiente oficial contabilizar memória de forma mais severa, o plano B seguro é 2 APIs com `api=0.41`, `nginx=0.18`, score local observado `5487.92`.
