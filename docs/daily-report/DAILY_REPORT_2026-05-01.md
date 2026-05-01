@@ -3497,3 +3497,35 @@ Resultado no benchmark oficial local:
 Leitura: o microbenchmark indicou ganho de parser, mas o k6 revelou alteração semântica severa. A causa mais provável é que as `std::string_view` obtidas do `simdjson::dom::element::get(std::string_view&)` não são uma substituição segura para as strings materializadas neste fluxo, porque a área interna usada para strings pode ser reusada/invalidadada conforme outros campos são acessados. Isso afeta diretamente `known_merchant`, altera a dimensão 11 e gera FP/FN.
 
 Decisão: rejeitado e revertido. `cpp/src/request.cpp` voltou a materializar `known_merchants` e `merchant_id` como `std::string`; `cmake --build cpp/build --target test -j8` voltou a passar 100%.
+
+### Experimento rejeitado: parser `simdjson::ondemand`
+
+Hipótese: manter `simdjson`, mas trocar apenas a API DOM por On Demand para evitar materialização da árvore intermediária. A implementação experimental preservou as cópias para `std::string` nos campos usados após o parse e usou `find_field` na ordem natural do payload oficial.
+
+Fonte local consultada: `cpp/third_party/simdjson/README.md` e comentários de API em `cpp/third_party/simdjson/singleheader/simdjson.h`, especialmente as notas sobre `ondemand::parser::iterate`, lifetime do buffer e consumo de campos em ordem.
+
+Validação pré-k6:
+
+```text
+cmake --build cpp/build --target test benchmark-request-cpp -j8 => tests 100% passed
+GET /ready => 204
+```
+
+Microbenchmark offline:
+
+| Variante | parse_payload | parse_vectorize | parse_classify |
+|---|---:|---:|---:|
+| baseline histórico DOM | ~630ns | ~696ns | ~28.9us |
+| On Demand run 1 | 469.77ns | 540.17ns | 30.46us |
+| On Demand run 2 | 1100.68ns | 623.31ns | 29.09us |
+| On Demand run 3 (`repeat=20`) | 479.12ns | 536.46ns | 28.89us |
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `simdjson::ondemand` | 4.47ms | 123 | 117 | 0 | 3027.12 | rejeitado |
+
+Leitura: o On Demand parecia promissor no microbenchmark, mas falhou no critério que importa: preservação semântica no stack completo. A repetição do mesmo padrão de `123 FP / 117 FN` visto no experimento anterior indica que a troca de API do parser alterou alguma dimensão sensível, provavelmente por consumo/ordem/lifetime em objetos aninhados ou por diferença na extração de strings. O teste unitário atual e o checksum agregado do microbenchmark não são suficientes para capturar essa classe de divergência.
+
+Decisão: rejeitado e revertido. O parser DOM atual permanece, porque é mais robusto semanticamente no dataset oficial local. Antes de qualquer nova tentativa nessa linha, o próximo pré-requisito é criar um comparador payload-a-payload de vetor DOM vs parser candidato, falhando na primeira dimensão divergente.
