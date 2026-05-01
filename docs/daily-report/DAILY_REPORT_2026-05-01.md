@@ -1469,3 +1469,50 @@ Resultado k6:
 | Controle recente | 1 | 3.19ms | 0 | 0 | 0 | 5496.81 | manter |
 
 Decisão: revertido. A primeira execução parecia ligeiramente melhor, mas a repetição perdeu desempenho. Como a mudança aumenta a superfície operacional e o ganho não reproduziu, ela não é sustentável para submissão.
+
+### Controle da janela até 15h
+
+Antes de iniciar novos experimentos da janela, rodei um controle fresco no estado aceito da branch para não comparar contra medições de outra condição do host.
+
+Validação:
+
+```text
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado:
+
+| Configuração | p99 | FP | FN | HTTP | Score |
+|---|---:|---:|---:|---:|---:|
+| Estado aceito, controle 12:44 | 3.66ms | 0 | 0 | 0 | 5436.83 |
+
+Leitura: a janela atual começou mais ruidosa que a melhor execução local e que a submissão oficial anterior (`2.83ms / 5548.91`). Portanto, qualquer aceitação nesta janela precisa de repetição; ganho isolado pequeno será tratado como ruído.
+
+### Experimento rejeitado: reduzir `LIBUS_RECV_BUFFER_LENGTH` para 16KB
+
+Hipótese: o uSockets usa um buffer de receive compartilhado de 512KB por loop. Como os payloads e headers do teste são pequenos, reduzir esse buffer para 16KB poderia melhorar cache/memória e diminuir cauda sem alterar contrato, classificação ou compose.
+
+Mudança temporária:
+
+```cmake
+target_compile_definitions(usockets PUBLIC LIBUS_NO_SSL LIBUS_RECV_BUFFER_LENGTH=16384)
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose up -d --build --remove-orphans
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `LIBUS_RECV_BUFFER_LENGTH=16384` | 5.02ms | 0 | 0 | 0 | 5299.56 | rejeitado |
+| Controle fresco da janela | 3.66ms | 0 | 0 | 0 | 5436.83 | manter |
+
+Decisão: revertido. A redução de buffer degradou fortemente a cauda. O buffer padrão de 512KB do uSockets permanece melhor para esse perfil, provavelmente por evitar ciclos de leitura/fragmentação interna mesmo com payloads pequenos.
