@@ -3699,3 +3699,45 @@ p99_score=2501.25
 Leitura: com os assets corretos, a hipótese não altera semântica nem gera divergência de classificação. Porém o ganho esperado no parser não se converteu em melhora de p99; houve regressão pequena de `0.03ms` no p99 e perda de `4.32` pontos. Como a competição está sensível a poucos centésimos de milissegundo, a mudança não é sustentável.
 
 Decisão: rejeitado e revertido. O código voltou ao `std::vector<std::string>` original em `cpp/src/request.cpp`. O aprendizado útil é que essa família de micro-otimização de `known_merchants` não deve ser retomada sem evidência micro maior que o ruído do k6.
+
+### Experimento rejeitado: pré-alocação fixa do body HTTP
+
+Hipótese: o microbenchmark alinhado indicou que montar o corpo da request com `std::string::reserve(768)` era mais barato do que deixar o crescimento padrão (`27.28ns` vs. `34.74ns` por query no teste isolado de append). A expectativa era reduzir pequenas alocações ou realocações no hot path de `POST /fraud-score`.
+
+Alteração testada:
+
+```text
+body = std::string{}
+  -> body inicializado com reserve(768) no lambda de onData
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target test -j8 => tests 100% passed
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| baseline alinhado restaurado | 3.12ms | 0 | 0 | 0 | 5505.57 | referência |
+| `body.reserve(768)` | 3.33ms | 0 | 0 | 0 | 5476.94 | rejeitado |
+
+Breakdown da variante:
+
+```text
+TP=24037
+TN=30021
+FP=0
+FN=0
+HTTP=0
+weighted_errors_E=0
+detection_score=3000
+p99_score=2476.94
+```
+
+Leitura: o ganho isolado de append não apareceu no endpoint real. O custo extra de reservar 768 bytes por request e a pressão adicional de heap/cache pioraram o p99 em `0.21ms`, uma perda grande demais para considerar ruído aceitável.
+
+Decisão: rejeitado e revertido. O hot path voltou a usar `body = std::string{}` sem reserva explícita.
