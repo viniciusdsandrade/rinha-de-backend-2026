@@ -2992,6 +2992,40 @@ Leitura: mesmo com apenas um worker, `reuseport` não é prejudicial no nosso ce
 
 Decisão: rejeitado e revertido. O nginx voltou para `listen 9999 reuseport backlog=4096;`.
 
+### Experimento rejeitado: `ulimits nofile` + `somaxconn`
+
+Hipótese: os repositórios líderes usam `nofile=65535` e, em alguns casos, `net.core.somaxconn=4096` no LB. Como o teste oficial local usa carga incremental até `900 RPS`, a fila de accept/FD poderia reduzir cauda sob pico.
+
+Configuração temporária:
+
+```text
+api1/api2:
+  ulimits nofile soft/hard 65535
+
+nginx:
+  ulimits nofile soft/hard 65535
+  sysctls net.core.somaxconn=4096
+```
+
+Validação operacional:
+
+```text
+GET /ready => 204
+/perf-noon-tuning-api1-1 nano=350000000 mem=173015040 ulimits=[nofile 65535]
+/perf-noon-tuning-api2-1 nano=350000000 mem=173015040 ulimits=[nofile 65535]
+/perf-noon-tuning-nginx-1 nano=300000000 mem=20971520 ulimits=[nofile 65535] sysctls={"net.core.somaxconn":"4096"}
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `nofile=65535` + `somaxconn=4096` | 3.11ms | 0 | 0 | 0 | 5507.49 | rejeitar |
+
+Leitura: o teste não está limitado por FD/backlog no nosso stack atual. A mudança piorou a cauda em vez de reduzir, provavelmente porque o gargalo real continua sendo custo de processamento/proxy sob limite de CPU e não fila de conexões.
+
+Decisão: rejeitado e revertido. O compose voltou sem `ulimits` e sem `sysctls`.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
