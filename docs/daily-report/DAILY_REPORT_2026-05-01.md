@@ -3595,3 +3595,57 @@ Resultado no benchmark oficial local:
 Leitura: apesar de parecer semanticamente segura e de mostrar algum ganho no parser puro, a alteração repetiu o mesmo padrão de divergência de classificação das tentativas anteriores na região de `known_merchant`. Isso reforça que mudanças no parser/vetorização não devem mais avançar direto para k6 apenas com checksums agregados; é necessário primeiro um comparador por payload e por dimensão do vetor.
 
 Decisão: rejeitado e revertido. `cpp/src/request.cpp` voltou ao `std::vector<std::string>` original para `known_merchants`; `cmake --build cpp/build --target test -j8` voltou a passar 100%.
+
+### Correção crítica: benchmark local estava desalinhado com o upstream atual
+
+Investigação: após três variantes do parser produzirem o mesmo padrão de `123 FP / 117 FN`, foi rodada uma baseline de controle no estado restaurado. A baseline restaurada também produziu `123 FP / 117 FN`, portanto a causa não era o parser. A divergência estava nos artefatos locais de benchmark.
+
+Estado antigo desta branch:
+
+```text
+test/test-data.json: 14500 entradas, sha256=c635c408e0b541b14cf15451e4a00152c439b841b725a8d0dd57d03b871eed49
+resources/references.json.gz: 1.6MB, sha256=bf07d83bacae10b784933d5dc998a3355f1da4f2f1016dfe9dbac2bb6ac8b9b7
+test/test.js: formato antigo, lendo entry.info.expected_response
+Dockerfile: já baixava references.json.gz do commit d501ddc...
+```
+
+Estado oficial/upstream atual usado para alinhar a branch:
+
+```text
+upstream/main: e701e7c
+test/test-data.json: 54100 entradas, sha256=d0f76589e36549f4c9268642787a79be455e85665a7ec080506627012485bb37
+resources/references.json.gz: 48MB, sha256=43d10de80609e77ce25740f375607afce7561ec44da50c27c142493db8fcab67
+test/test.js: formato atual, lendo entry.expected_approved
+cenário k6: 120s com alvo 900 rps
+```
+
+Ação aplicada:
+
+```text
+test/test-data.json atualizado a partir de upstream/main
+resources/references.json.gz atualizado a partir de upstream/main
+test/test.js atualizado a partir de upstream/main
+```
+
+Resultado de controle no benchmark oficial local atualizado:
+
+| Estado | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| estado restaurado + benchmark upstream atual | 3.12ms | 0 | 0 | 0 | 5505.57 |
+
+Breakdown:
+
+```text
+TP=24037
+TN=30021
+FP=0
+FN=0
+HTTP=0
+weighted_errors_E=0
+detection_score=3000
+p99_score=2505.57
+```
+
+Leitura: as runs anteriores com `123 FP / 117 FN` foram contaminadas por dataset/script local desatualizados e não devem ser usadas como prova semântica contra os parsers testados. As alterações de parser continuam revertidas, mas a rejeição delas agora deve ser lida como "não aceitas nesta rodada"; qualquer retomada precisa usar o benchmark alinhado e, antes do k6, um comparador vetor-a-vetor por payload.
+
+Comparação com ranking/submissão: o controle local atualizado (`3.12ms`, `5505.57`) fica abaixo da submissão parcial informada pelo ranking (`2.83ms`, `5548.91`). A diferença é compatível com ruído de máquina/local e com o cenário oficial atualizado mais pesado; a métrica relevante preservada é `0 FP`, `0 FN`, `0 HTTP`.
