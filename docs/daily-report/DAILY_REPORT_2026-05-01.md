@@ -3127,6 +3127,50 @@ Leitura: a hipótese é tecnicamente interessante e melhorou o microbenchmark em
 
 Decisão: rejeitado e revertido. O código voltou a selecionar centróides com o `QueryVector` float original. A imagem local foi rebuildada e o stack respondeu `GET /ready => 204` no estado restaurado.
 
+### Achado de pesquisa: micro-otimizações sustentáveis estão praticamente esgotadas no stack atual
+
+Fontes consultadas nesta rodada:
+
+```text
+https://github.com/thiagorigonatti/rinha-2026
+https://github.com/jairoblatt/rinha-2026-rust
+https://github.com/joojf/rinha-2026
+https://github.com/zanfranceschi/rinha-de-backend-2026/tree/main/docs/br
+https://rinhadebackend.com.br/
+```
+
+Síntese técnica dos líderes com pontuação acima da nossa:
+
+| Referência | Stack | Elementos decisivos observados |
+|---|---|---|
+| `thiagorigonatti/rinha-2026` | C + `io_uring` + HAProxy HTTP + UDS | servidor HTTP manual, respostas HTTP pré-montadas, parser mínimo, IVF int16, AVX2, bbox repair |
+| `jairoblatt/rinha-2026-rust` | Rust + `monoio`/io_uring + HAProxy TCP + UDS | runtime io_uring, parser manual, índice embutido/binário, AVX2, 2 APIs |
+| `joojf/rinha-2026` | Rust + `monoio`/io_uring + nginx HTTP + UDS | parser manual direto para `i16`, respostas pré-montadas, nginx com keepalive upstream, AVX2 |
+
+Leitura depois dos experimentos negativos de hoje:
+
+```text
+Não reproduziram ganho:
+- HAProxy TCP isolado
+- nginx HTTP upstream isolado
+- remover reuseport
+- ulimits/somaxconn
+- worker_processes=2
+- cpuset
+- splits finos de CPU fora de api=0.35/nginx=0.30
+- prefetch manual no IVF
+- acumulador AVX2 i32 sem prune parcial
+- q_grid quantizado apesar de ganho offline
+```
+
+Conclusão: o stack C++/uWebSockets já está no limite do que parece extraível por ajuste local. A diferença para o topo (`~1.25-1.50ms`) não deve vir de mais um knob de nginx ou de uma microtroca no kernel, mas de reduzir o overhead estrutural do caminho HTTP: servidor manual/io_uring ou runtime `monoio`, parser manual que vetoriza direto, e respostas HTTP completas pré-montadas.
+
+Próximos experimentos assertivos para nova rodada:
+
+1. Implementar um servidor HTTP manual mínimo em C/C++ usando UDS + `io_uring`, reaproveitando o IVF atual e medindo apenas troca de servidor.
+2. Se o item 1 for caro demais, portar primeiro o handler para um parser manual que gere `QueryVector`/`i16` sem `simdjson::dom` e sem `std::string` no hot path, mas só aceitar se o k6 reproduzir.
+3. Rodar nova bateria somente após cooldown da máquina, porque a validação final do estado aceito caiu de `2.85-2.90ms` para `3.02ms` sem diff, sinal forte de drift local após cargas consecutivas.
+
 ### Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: com `nginx=0.30 CPU`, dois workers poderiam distribuir melhor aceitações/conexões e reduzir cauda do proxy, principalmente com `listen ... reuseport`. A mudança foi isolada em `nginx.conf`, mantendo 2 APIs, sockets Unix e o mesmo orçamento de recursos.
