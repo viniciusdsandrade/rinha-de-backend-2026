@@ -19,8 +19,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.24"
-          memory: "110MB"
+          cpus: "0.36"
+          memory: "165MB"
 
   api2:
     <<: *api
@@ -33,23 +33,11 @@ services:
       IVF_REPAIR_MIN_FRAUDS: "0"
       IVF_REPAIR_MAX_FRAUDS: "5"
 
-  api3:
-    <<: *api
-    environment:
-      UNIX_SOCKET_PATH: /sockets/api3.sock
-      IVF_FAST_NPROBE: "1"
-      IVF_FULL_NPROBE: "1"
-      IVF_BOUNDARY_FULL: "false"
-      IVF_BBOX_REPAIR: "true"
-      IVF_REPAIR_MIN_FRAUDS: "0"
-      IVF_REPAIR_MAX_FRAUDS: "5"
-
   nginx:
     image: nginx:1.27-alpine
     depends_on:
       - api1
       - api2
-      - api3
     ports:
       - "9999:9999"
     networks:

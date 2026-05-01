@@ -2848,3 +2848,35 @@ Nota de método: uma execução acidental de `./run.sh` foi descartada para deci
 Leitura: o ganho é pequeno, mas a alteração é sustentável: preserva `0 FP`, `0 FN`, `0 HTTP`, mantém a soma exata de `1.00 CPU / 350MB`, e melhora o melhor resultado observado da stack atual (`5528.47 -> 5541.51`) sem introduzir complexidade. A segunda execução ficou praticamente empatada com o melhor aceito anterior, então a decisão é aceitar como ajuste de recurso de baixo risco, não como salto estrutural.
 
 Decisão: aceito no branch experimental. O `docker-compose.yml` passa a usar `0.24 CPU` por API e `0.28 CPU` para o nginx.
+
+### Experimento aceito: reduzir de 3 APIs para 2 APIs mais fortes
+
+Hipótese: a exigência oficial é `>= 2` APIs, não exatamente 3. Com o classificador ficando menos pesado depois da poda parcial e com o nginx pedindo mais fatia de CPU, poderia ser melhor reduzir uma instância de API, diminuir a contenção no volume de sockets e dar mais CPU/memória a cada backend. Essa linha também conversa com os líderes C/Rust consultados, que tendem a usar poucas instâncias fortes em vez de pulverizar o orçamento.
+
+Mudança temporária:
+
+```text
+api1/api2: 0.36 CPU, 165MB cada
+nginx:     0.28 CPU, 20MB
+total:     1.00 CPU, 350MB
+upstream:  2 sockets Unix em round-robin
+```
+
+Validação de limites efetivos via Docker:
+
+```text
+/perf-noon-tuning-api1-1 nano=360000000 mem=173015040
+/perf-noon-tuning-api2-1 nano=360000000 mem=173015040
+/perf-noon-tuning-nginx-1 nano=280000000 mem=20971520
+```
+
+Resultados no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `2 APIs x 0.36` + `nginx 0.28` run #1 | 2.92ms | 0 | 0 | 0 | 5534.12 | repetir |
+| `2 APIs x 0.36` + `nginx 0.28` run #2 | 2.92ms | 0 | 0 | 0 | 5534.57 | aceitar |
+
+Leitura: a variante com 2 APIs não superou o melhor single-run de 3 APIs (`5541.51`), mas foi mais estável do que a repetição de 3 APIs (`5526.32`) e ficou acima do melhor aceito anterior à redistribuição (`5528.47`). Como a topologia continua 100% conforme o regulamento (`LB + 2 APIs`, sem lógica no LB, bridge, 1 CPU/350MB) e reduz a quantidade de processos disputando scheduler, ela é um candidato melhor para o estado experimental atual.
+
+Decisão: aceito no branch experimental. O melhor single-run do dia permanece `5541.51` com 3 APIs, mas o estado atual passa a ser 2 APIs por estabilidade local.
