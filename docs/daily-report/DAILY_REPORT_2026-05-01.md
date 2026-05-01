@@ -2953,3 +2953,37 @@ Resultado no benchmark oficial local atualizado:
 Leitura: o resultado é bom, mas não supera claramente o estado aceito com 1 worker (`5545.37` no melhor, `5537.88` na confirmação). Como dois workers adicionam mais disputa de scheduler dentro de apenas `0.30 CPU` de nginx e não trouxeram ganho inquestionável, a mudança não merece entrar no estado atual.
 
 Decisão: rejeitado e revertido. O nginx volta para `worker_processes 1`.
+
+### Experimento rejeitado: HAProxy no novo ponto `2 APIs + LB 0.30`
+
+Hipótese: HAProxy havia sido rejeitado em `3 APIs + LB 0.22`, mas os líderes C/Rust consultados usam HAProxy ou runtimes L4 enxutos, e a rodada de CPU mostrou que o LB precisava de mais orçamento. Por isso o teste foi repetido em condição mais justa: 2 APIs, LB com `0.30 CPU`, sockets Unix e `1.00 CPU / 350MB`.
+
+Configuração temporária:
+
+```text
+haproxy:3.0-alpine
+mode tcp
+balance roundrobin
+nbthread 1
+tune.bufsize 16384
+upstreams: unix@/sockets/api1.sock, unix@/sockets/api2.sock
+```
+
+Validação operacional:
+
+```text
+GET /ready => 204
+nginx service image => haproxy:3.0-alpine
+api1/api2 => 0.35 CPU, 165MB
+LB => 0.30 CPU, 20MB
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| HAProxy `2 APIs + 0.30 CPU` | 2.97ms | 0 | 0 | 0 | 5527.24 | rejeitado |
+
+Leitura: mesmo com mais CPU para o LB, HAProxy ficou abaixo do nginx no estado atual (`nginx 0.35/0.30`: `5545.37` melhor run, `5537.88` confirmação). O ganho dos líderes que usam HAProxy não vem do HAProxy isolado; ele depende do restante do stack (`io_uring`/parser manual/index/kernel).
+
+Decisão: rejeitado e revertido. O stack volta para `nginx:1.27-alpine` com `worker_processes 1`.
