@@ -2730,3 +2730,30 @@ Validação k6 oficial local:
 Leitura: o microbenchmark mostrou ganho material de aproximadamente `15.6%` no kernel exato (`84241.6 -> 71099.1 ns/query`) com acurácia perfeita. No k6, o ganho apareceu de forma menos estável porque o p99 também inclui parser, nginx, scheduling e ruído do Docker, mas a segunda rodada atingiu `5528.47`, ligeiramente acima da melhor faixa local anterior (`~5516-5526`) e mantendo `0%` de falhas. A primeira rodada (`5506.17`) ainda ficou dentro da variabilidade ruim da janela, então o ganho deve ser tratado como positivo, porém pequeno.
 
 Decisão: aceito no branch experimental. Próximo passo recomendado: repetir em janela mais limpa antes de promover para `submission`, e investigar uma versão mais agressiva com ordem de dimensões por poder de poda ou parser direto para `i16[14]`.
+
+### Experimento rejeitado: calibrar ponto da poda parcial AVX2
+
+Hipótese: depois que a poda parcial conservadora funcionou com corte em 8 dimensões, o ponto do corte poderia ser ajustado para reduzir ainda mais CPU do scanner. Foram testados pontos de corte no microbenchmark offline mantendo a mesma lógica, índice, métrica e reparo exato.
+
+Resultados offline:
+
+| Corte após N dimensões | ns/query | FP | FN | parse_errors |
+|---:|---:|---:|---:|---:|
+| 4 | 74596.8 | 0 | 0 | 0 |
+| 5 | 69425.6 | 0 | 0 | 0 |
+| 6 | 70195.4 | 0 | 0 | 0 |
+| 7 | 66337.7-67482.3 | 0 | 0 | 0 |
+| 8 | 71099.1 | 0 | 0 | 0 |
+| 9 | 67107.0 | 0 | 0 | 0 |
+
+O melhor ponto offline foi `7`, então ele foi levado para k6.
+
+Resultado k6 com corte em 7:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Poda parcial corte 7 | 3.29ms | 0 | 0 | 0 | 5482.29 |
+
+Leitura: apesar do ganho claro no microbenchmark, o corte em 7 piorou a cauda end-to-end. A causa provável é interação de branch/cache/scheduling no container: reduzir alguns ciclos no scanner não garantiu melhor p99, e pode ter aumentado variabilidade na etapa crítica. Como o objetivo efetivo é score local, o resultado offline não é suficiente.
+
+Decisão: rejeitado. O código voltou para o corte em 8 dimensões, que teve melhor evidência k6 (`3.12ms/5506.17` e `2.96ms/5528.47`) nesta janela.
