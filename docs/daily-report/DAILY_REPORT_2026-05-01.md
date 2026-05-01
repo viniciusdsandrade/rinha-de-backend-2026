@@ -1957,3 +1957,34 @@ Resultado k6:
 | `api=0.26`, `nginx=0.22`, aceito | 1-3 | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
 
 Decisão: revertido. O split igualado não melhora a média e aumenta dispersão. A hipótese mais provável é que `0.22 CPU` já dá folga suficiente ao nginx, enquanto `0.25 CPU` começa a roubar CPU útil das APIs.
+
+### Experimento rejeitado: split intermediário com CPU decimal (`api=0.255`, `nginx=0.235`)
+
+Hipótese: testar um ponto intermediário entre o split aceito (`api=0.26/nginx=0.22`) e o split igualado rejeitado (`api=0.25/nginx=0.25`) poderia capturar um ponto ótimo de LB sem retirar CPU demais das APIs.
+
+Mudança temporária:
+
+```yaml
+api1/api2/api3:
+  cpus: "0.255"
+nginx:
+  cpus: "0.235"
+```
+
+Validações:
+
+```text
+docker compose config --quiet
+docker compose up -d --build --remove-orphans
+curl http://localhost:9999/ready
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado k6:
+
+| Configuração | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `api=0.255`, `nginx=0.235` | 3.06ms | 0 | 0 | 0 | 5514.90 | rejeitado |
+| `api=0.26`, `nginx=0.22`, aceito | 2.98-3.02ms | 0 | 0 | 0 | 5519.71-5526.49 | manter |
+
+Decisão: revertido. Além de piorar p99, o uso de limites decimais mais finos não se justifica sem ganho claro; `api=0.26/nginx=0.22` permanece o ponto mais defensável desta família.
