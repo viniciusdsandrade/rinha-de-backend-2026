@@ -741,6 +741,9 @@ std::uint8_t IvfIndex::fraud_count_once(
     std::uint32_t nprobe,
     bool repair
 ) const noexcept {
+    if (nprobe == 1U) {
+        return fraud_count_once_fixed<1>(query_i16, query_float, nprobe, repair);
+    }
     if (nprobe <= 8U) {
         return fraud_count_once_fixed<8>(query_i16, query_float, nprobe, repair);
     }

@@ -1516,3 +1516,45 @@ Resultado:
 | Controle fresco da janela | 3.66ms | 0 | 0 | 0 | 5436.83 | manter |
 
 Decisão: revertido. A redução de buffer degradou fortemente a cauda. O buffer padrão de 512KB do uSockets permanece melhor para esse perfil, provavelmente por evitar ciclos de leitura/fragmentação interna mesmo com payloads pequenos.
+
+### Experimento aceito: especializar o template IVF para `nprobe=1`
+
+Hipótese: a configuração de produção usa `IVF_FAST_NPROBE=1` e `IVF_FULL_NPROBE=1`. Mesmo assim, o caminho `fraud_count_once` instanciava `fraud_count_once_fixed<8>` para qualquer `nprobe <= 8`, criando arrays e loops dimensionados para oito probes no caminho real. Instanciar `fraud_count_once_fixed<1>` quando `nprobe == 1` preserva exatamente a mesma busca, mas reduz overhead de stack/fill/comparações.
+
+Mudança aplicada:
+
+```cpp
+if (nprobe == 1U) {
+    return fraud_count_once_fixed<1>(query_i16, query_float, nprobe, repair);
+}
+```
+
+Validações:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+benchmark-ivf-cpp /tmp/rinha-2026-official-run/test-data.json /tmp/rinha-ivf-official-2048.bin 3 0 1 1 1
+cmake --build cpp/build --target rinha-backend-2026-cpp -j2
+docker compose up -d --build --remove-orphans
+k6 run /tmp/rinha-2026-official-run/test.js
+k6 run /tmp/rinha-2026-official-run/test.js
+```
+
+Resultado offline:
+
+| Run | ns/query | FP | FN | parse_errors |
+|---:|---:|---:|---:|---:|
+| 1 | 65118.6 | 0 | 0 | 0 |
+| 2 | 66817.3 | 0 | 0 | 0 |
+| Referência histórica aceita | 69691-70096 | 0 | 0 | 0 |
+
+Resultado k6:
+
+| Configuração | Run | p99 | FP | FN | HTTP | Score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `nprobe=1` especializado | 1 | 3.37ms | 0 | 0 | 0 | 5472.90 | melhor que controle da janela |
+| `nprobe=1` especializado | 2 | 3.10ms | 0 | 0 | 0 | 5508.92 | aceito |
+| Controle fresco da janela | 1 | 3.66ms | 0 | 0 | 0 | 5436.83 | superado |
+
+Decisão: aceito na branch experimental. O ganho não supera a submissão oficial já processada (`2.83ms / 5548.91`), mas é um ganho técnico sustentável sobre o estado aceito da janela: mantém detecção perfeita, reduz custo offline do IVF e melhora o p99 local em duas execuções consecutivas contra o controle fresco.
