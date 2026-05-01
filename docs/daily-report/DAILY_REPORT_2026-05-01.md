@@ -3649,3 +3649,53 @@ p99_score=2505.57
 Leitura: as runs anteriores com `123 FP / 117 FN` foram contaminadas por dataset/script local desatualizados e não devem ser usadas como prova semântica contra os parsers testados. As alterações de parser continuam revertidas, mas a rejeição delas agora deve ser lida como "não aceitas nesta rodada"; qualquer retomada precisa usar o benchmark alinhado e, antes do k6, um comparador vetor-a-vetor por payload.
 
 Comparação com ranking/submissão: o controle local atualizado (`3.12ms`, `5505.57`) fica abaixo da submissão parcial informada pelo ranking (`2.83ms`, `5548.91`). A diferença é compatível com ruído de máquina/local e com o cenário oficial atualizado mais pesado; a métrica relevante preservada é `0 FP`, `0 FN`, `0 HTTP`.
+
+### Reteste válido rejeitado: `known_merchants` inline após alinhamento do benchmark
+
+Contexto: a hipótese `known_merchants` inline havia sido rejeitada em uma rodada contaminada por assets locais antigos. Depois da correção de `test/test-data.json`, `resources/references.json.gz` e `test/test.js`, ela foi reexecutada contra o benchmark oficial local atualizado para separar efeito real de ruído de dataset.
+
+Alteração reavaliada:
+
+```text
+std::vector<std::string> known_merchants
+  -> KnownMerchantStrings { std::array<std::string, 8> inline_values; std::vector<std::string> overflow; }
+```
+
+Validação pré-k6:
+
+```text
+cmake --build cpp/build --target test benchmark-request-cpp -j8 => tests 100% passed
+GET /ready => 204
+```
+
+Microbenchmark offline já com dataset atualizado:
+
+| Métrica | Resultado |
+|---|---:|
+| `parse_payload` | 620.55ns |
+| `parse_vectorize` | 678.62ns |
+| `parse_classify` | 399.15us |
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| baseline alinhado restaurado | 3.12ms | 0 | 0 | 0 | 5505.57 | referência |
+| `known_merchants` inline com `std::string` | 3.15ms | 0 | 0 | 0 | 5501.25 | rejeitado |
+
+Breakdown da variante:
+
+```text
+TP=24037
+TN=30021
+FP=0
+FN=0
+HTTP=0
+weighted_errors_E=0
+detection_score=3000
+p99_score=2501.25
+```
+
+Leitura: com os assets corretos, a hipótese não altera semântica nem gera divergência de classificação. Porém o ganho esperado no parser não se converteu em melhora de p99; houve regressão pequena de `0.03ms` no p99 e perda de `4.32` pontos. Como a competição está sensível a poucos centésimos de milissegundo, a mudança não é sustentável.
+
+Decisão: rejeitado e revertido. O código voltou ao `std::vector<std::string>` original em `cpp/src/request.cpp`. O aprendizado útil é que essa família de micro-otimização de `known_merchants` não deve ser retomada sem evidência micro maior que o ruído do k6.
