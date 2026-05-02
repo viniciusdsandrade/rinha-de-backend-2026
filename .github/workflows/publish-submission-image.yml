@@ -36,3 +36,4 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:submission
             ghcr.io/${{ github.repository }}:submission-a9e49db
+            ghcr.io/${{ github.repository }}:submission-1273343
