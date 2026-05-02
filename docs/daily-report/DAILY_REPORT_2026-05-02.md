@@ -984,6 +984,29 @@ Leitura: apesar de parecer uma otimização óbvia, o binário sem writemark pio
 
 Decisão: rejeitado. `cpp/CMakeLists.txt` voltou sem `UWS_HTTPRESPONSE_NO_WRITEMARK`.
 
+## Ciclo 15h: experimento rejeitado com `UWS_HTTP_MAX_HEADERS_SIZE=1024`
+
+Investigação: `uWebSockets/src/HttpParser.h` lê `UWS_HTTP_MAX_HEADERS_SIZE` do ambiente e usa `4096` como default. Como o k6 envia headers pequenos, a hipótese era que reduzir o limite para `1024` poderia cortar algum buffer/caminho de fallback do parser HTTP.
+
+Alteração testada:
+
+```yaml
+environment:
+  UWS_HTTP_MAX_HEADERS_SIZE: "1024"
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Referência `no-cork` | 1.16ms-1.19ms | 0 | 0 | 0 | 5925.03-5935.65 | melhor atual |
+| Header max 1024 run 1 | 1.21ms | 0 | 0 | 0 | 5917.42 | rejeitado |
+| Header max 1024 run 2 | 1.41ms | 0 | 0 | 0 | 5851.09 | rejeitado |
+
+Leitura: reduzir o limite não trouxe benefício e introduziu cauda pior. O default de `4096` deve permanecer.
+
+Decisão: rejeitado. `docker-compose.yml` voltou sem `UWS_HTTP_MAX_HEADERS_SIZE`.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
