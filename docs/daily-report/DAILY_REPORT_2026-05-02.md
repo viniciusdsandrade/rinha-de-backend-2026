@@ -1007,6 +1007,41 @@ Leitura: reduzir o limite não trouxe benefício e introduziu cauda pior. O defa
 
 Decisão: rejeitado. `docker-compose.yml` voltou sem `UWS_HTTP_MAX_HEADERS_SIZE`.
 
+## Fechamento do ciclo até 16h
+
+Benchmark final de sanidade após reverter os experimentos rejeitados:
+
+| Estado | p99 | FP | FN | HTTP errors | final_score | Leitura |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline aceito após restauração | 1.29ms | 0 | 0 | 0 | 5888.22 | sanidade funcional, mas máquina local ruidosa no fim do ciclo |
+
+Melhor resultado oficial do dia:
+
+| Issue | Imagem | p99 | Failure rate | final_score |
+|---|---|---:|---:|---:|
+| [#770](https://github.com/zanfranceschi/rinha-de-backend-2026/issues/770) | `submission-e63ae1a` | 1.44ms | 0% | 5842.99 |
+
+Comparação contra o melhor oficial anterior:
+
+| Referência | p99 | final_score | Diferença |
+|---|---:|---:|---:|
+| `#764` / `submission-a9e49db` | 1.44ms | 5842.78 | base |
+| `#770` / `submission-e63ae1a` | 1.44ms | 5842.99 | +0.21 |
+
+Resumo técnico do ciclo:
+
+| Hipótese | Resultado |
+|---|---|
+| Remover `res->cork` no hot path | aceito localmente e oficialmente; melhor oficial atual |
+| Fast path para chunk único | rejeitado; ganho local não sustentável |
+| Mais CPU para nginx | rejeitado; cauda permaneceu no ruído |
+| `ulimits.nofile=65535` | rejeitado; piorou p99 |
+| nginx `http` + upstream keepalive | rejeitado; p99 subiu para 9.02ms |
+| `UWS_HTTPRESPONSE_NO_WRITEMARK` | rejeitado; p99 subiu para 1.33ms-1.37ms |
+| `UWS_HTTP_MAX_HEADERS_SIZE=1024` | rejeitado; p99 instável e pior |
+
+Decisão final do ciclo: manter `submission` apontando para `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-e63ae1a`. O único ganho oficial real do ciclo foi pequeno, mas positivo e sem falhas. Os experimentos rejeitados ajudam a delimitar melhor o gargalo: não parece estar em CPU do nginx, limite de descritores, modo HTTP do LB, headers automáticos do uWS ou tamanho máximo de headers. O próximo avanço material provavelmente exige sair do envelope do uWebSockets/nginx atual em direção a um servidor HTTP manual/io_uring ou reduzir substancialmente o custo de parse/vetorização.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
