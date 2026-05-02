@@ -1122,3 +1122,25 @@ Comparação:
 Ganho oficial incremental contra `#720`: `+5.42` pontos.
 
 Decisão: aceito como melhor resultado oficial atual. Não houve mudança de código; o ganho veio de rerun oficial da mesma submissão imutável.
+
+## Ciclo 13h: reteste de CPU split no daemon Linux local
+
+Hipótese: com o p99 local já próximo de `1ms`, mover um pouco mais de CPU para o nginx poderia reduzir a cauda no LB e melhorar score. Esse experimento foi refeito no `DOCKER_CONTEXT=default` porque o Docker Desktop estava contaminado por swap.
+
+Referência local imediata:
+
+| Split | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| APIs `0.41/0.41`, nginx `0.18` | 1.23ms | 0 | 0 | 0 | 5909.72 |
+| APIs `0.41/0.41`, nginx `0.18` | 1.24ms | 0 | 0 | 0 | 5908.32 |
+
+Variações testadas:
+
+| Split | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| APIs `0.40/0.40`, nginx `0.20` | 1.39ms | 0 | 0 | 0 | 5858.34 | rejeitado |
+| APIs `0.405/0.405`, nginx `0.19` | 1.38ms | 0 | 0 | 0 | 5861.68 | rejeitado |
+
+Leitura: o nginx não está carente de CPU nesse cenário; tirar CPU das APIs piora p99. A configuração aceita `0.41/0.41/0.18` segue sendo o melhor split observado tanto nos experimentos antigos quanto no daemon Linux local.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para APIs `0.41` e nginx `0.18`.
