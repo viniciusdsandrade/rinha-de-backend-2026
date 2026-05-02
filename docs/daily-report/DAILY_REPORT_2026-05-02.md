@@ -1021,6 +1021,29 @@ Leitura: ativar `io_uring` no uSockets não é equivalente ao servidor manual da
 
 Decisão: rejeitado. `Dockerfile`, `CMakeLists.txt`, `docker-compose.yml` e `nginx.conf` voltaram ao backend epoll + UDS atual. Se formos perseguir `io_uring`, o caminho tecnicamente correto é um servidor HTTP manual dedicado, não o backend experimental do uSockets.
 
+## Ciclo 14h: experimento rejeitado com `seccomp=unconfined` em epoll
+
+Hipótese: algumas submissões rápidas declaram `security_opt: seccomp=unconfined` nas APIs. Mesmo sem `io_uring`, remover o filtro seccomp do Docker poderia reduzir overhead de syscall em `epoll`, `recv`, `send` e Unix sockets.
+
+Alteração testada:
+
+```yaml
+api1/api2:
+  security_opt:
+    - seccomp=unconfined
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| baseline aceita | 1.23ms-1.24ms | 0 | 0 | 0 | 5908.32-5910.62 |
+| epoll+UDS com `seccomp=unconfined` | 1.24ms | 0 | 0 | 0 | 5907.00 |
+
+Leitura: não houve ganho. A opção é útil/necessária em stacks com `io_uring`, mas não reduziu p99 na nossa pilha epoll+UDS.
+
+Decisão: rejeitado. `docker-compose.yml` voltou sem `security_opt`.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
