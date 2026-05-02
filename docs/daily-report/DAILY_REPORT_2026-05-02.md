@@ -1175,3 +1175,36 @@ Resultado no `DOCKER_CONTEXT=default`:
 Leitura: aumentar o limite não removeu gargalo e ficou ligeiramente pior que a referência. O valor atual `4096` já é suficiente para o perfil de conexões do teste.
 
 Decisão: rejeitado. `nginx.conf` voltou para `worker_connections 4096`.
+
+## Ciclo 13h: experimento rejeitado com `tcp_nodelay on`
+
+Hipótese: como as respostas são pequenas, habilitar `tcp_nodelay` no `stream` do nginx poderia reduzir latência de cauda se houvesse algum efeito de Nagle no caminho do LB.
+
+Alteração testada:
+
+```nginx
+server {
+    listen 9999 reuseport backlog=4096;
+    tcp_nodelay on;
+    proxy_pass api;
+}
+```
+
+Validação:
+
+```text
+nginx -T:
+syntax is ok
+configuration file /etc/nginx/nginx.conf test is successful
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Sem `tcp_nodelay` explícito | 1.23ms-1.24ms | 0 | 0 | 0 | 5908.32-5909.72 | referência |
+| `tcp_nodelay on` | 1.25ms | 0 | 0 | 0 | 5904.03 | rejeitado |
+
+Leitura: a diretiva é válida, mas não melhorou o caminho. O default atual já está suficientemente bom ou o gargalo não está em coalescência de pacotes.
+
+Decisão: rejeitado. `nginx.conf` voltou a não declarar `tcp_nodelay`.
