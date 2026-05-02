@@ -816,6 +816,34 @@ Leitura: a ideia é atraente em microbenchmark, mas já falhou no k6 e tem hist�
 
 Decisão: abortado antes de k6 e revertido. `cpp/src/request.cpp` voltou ao parser original com `std::vector<std::string>` e `std::string merchant_id`.
 
+## Ciclo 16h: experimento rejeitado com `proxy_timeout 5s`
+
+Hipótese: reduzir `proxy_timeout` do nginx stream de `30s` para `5s` poderia cortar conexões penduradas mais cedo sem afetar o caminho normal, já que as respostas válidas do desafio são muito rápidas.
+
+Alteração testada:
+
+```nginx
+proxy_timeout 5s;
+```
+
+Validação:
+
+```text
+nginx -T confirmou proxy_timeout 5s
+curl -fsS http://localhost:9999/ready
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline limpa pós-rebuild, `proxy_timeout 30s` | 1.25ms | 0 | 0 | 0 | 5904.83 | referência imediata |
+| `proxy_timeout 5s` | 1.25ms | 0 | 0 | 0 | 5902.14 | rejeitado |
+
+Leitura: a redução de timeout não atacou o gargalo de cauda e ainda ficou ligeiramente pior na amostra pareada. Como adiciona risco operacional sem ganho mensurável, não deve entrar na submissão.
+
+Decisão: rejeitado. `nginx.conf` voltou para `proxy_timeout 30s` e o nginx foi recriado.
+
 ## Ciclo 14h: candidato local removendo `res->cork` no hot path
 
 Hipótese: depois da remoção do header `Content-Type`, o caminho de resposta passou a fazer apenas um `end()` com uma das seis strings estáticas de classificação. Nesse caso, o `res->cork(...)` pode ser overhead desnecessário no hot path do uWebSockets, porque não há múltiplas escritas a agrupar.
