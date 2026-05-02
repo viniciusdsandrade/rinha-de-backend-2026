@@ -1042,6 +1042,28 @@ Resumo técnico do ciclo:
 
 Decisão final do ciclo: manter `submission` apontando para `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-e63ae1a`. O único ganho oficial real do ciclo foi pequeno, mas positivo e sem falhas. Os experimentos rejeitados ajudam a delimitar melhor o gargalo: não parece estar em CPU do nginx, limite de descritores, modo HTTP do LB, headers automáticos do uWS ou tamanho máximo de headers. O próximo avanço material provavelmente exige sair do envelope do uWebSockets/nginx atual em direção a um servidor HTTP manual/io_uring ou reduzir substancialmente o custo de parse/vetorização.
 
+## Investigação final leve: diferença estrutural para o topo C
+
+Consulta rápida ao repositório `thiagorigonatti/rinha-2026`, que estava no topo parcial com `p99=1.25ms` e `final_score=5901.92`, mostrou uma diferença estrutural maior que os microajustes testados hoje:
+
+```text
+src/iouring_server.c
+src/http_responses.c
+src/vectorizer.c
+haproxy.cfg
+```
+
+Pontos relevantes:
+
+| Área | Topo C | Nossa stack atual | Implicação |
+|---|---|---|---|
+| Servidor HTTP | C manual com `io_uring`, buffers fixos por conexão e parse mínimo de método/header/body | uWebSockets + callbacks + `std::string` + simdjson DOM | o gap restante provavelmente está no runtime HTTP/parser, não no IVF |
+| Resposta HTTP | resposta completa pré-montada, incluindo status, headers e body em buffer fixo | body JSON pré-computado, mas status/headers montados pelo uWS | `no-cork` ajudou pouco; eliminar o framework inteiro pode ajudar mais |
+| Parser JSON | busca manual de chaves e `strtof` direto no body | simdjson DOM com `padded_string` e strings intermediárias | caminho de parse/vetorização manual é o próximo candidato material |
+| LB | HAProxy HTTP com `http-reuse always` para UDS | nginx `stream` L4 para UDS | HAProxy isolado foi pior aqui; o diferencial parece ser mais API manual que LB |
+
+Leitura: os resultados negativos com HAProxy, nginx HTTP, ulimits e headers indicam que copiar peças soltas do topo não basta. O ganho de verdade parece vir do pacote completo: servidor HTTP manual + parser manual + resposta completa pré-formatada. Para o próximo ciclo, o experimento com melhor assimetria é construir um caminho alternativo C/C++ mínimo que mantenha o IVF atual, mas substitua uWebSockets/simdjson no hot path por HTTP parser manual e vetorização direta sobre o body.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
