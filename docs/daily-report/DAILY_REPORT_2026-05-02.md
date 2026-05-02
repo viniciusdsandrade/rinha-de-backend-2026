@@ -803,6 +803,43 @@ Leitura oficial: a melhora é praticamente no ruído da engine, mas superou a me
 
 Decisão: aceito oficialmente. A branch `submission` permanece apontando para `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-e63ae1a`.
 
+## Ciclo 15h: experimento rejeitado com fast path para request em chunk único
+
+Hipótese: o k6 tende a enviar o payload inteiro em um único chunk. A implementação atual sempre copia o chunk para uma `std::string` acumuladora antes de chamar `parse_payload`, e depois o `parse_payload` ainda cria uma `simdjson::padded_string`. Um fast path para `is_last && body.empty()` evitaria a primeira cópia/allocação no caso comum, preservando o caminho acumulado para request multi-chunk.
+
+Alteração testada:
+
+```cpp
+const bool single_chunk = is_last && body.empty();
+if (!single_chunk) {
+    body.append(chunk.data(), chunk.size());
+}
+...
+const std::string_view request_body = single_chunk ? chunk : std::string_view(body);
+parse_payload(request_body, payload, error);
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+DOCKER_CONTEXT=default docker compose build api1
+DOCKER_CONTEXT=default docker compose up -d --force-recreate --remove-orphans
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.19ms | 0 | 0 | 0 | 5923.14 |
+| 2 | 1.17ms | 0 | 0 | 0 | 5933.43 |
+| 3 | 1.17ms | 0 | 0 | 0 | 5931.01 |
+
+Leitura: o patch é correto e tecnicamente defensável, mas não melhorou de forma inquestionável o estado aceito oficialmente. Ele ficou dentro do mesmo ruído do experimento `no-cork` (`1.16ms-1.19ms`, `5925.03-5935.65`) e adiciona uma ramificação extra no hot path.
+
+Decisão: rejeitado por falta de ganho sustentável claro. `cpp/src/main.cpp` voltou ao caminho simples: acumular o corpo e responder sem `cork`.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
