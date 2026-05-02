@@ -840,6 +840,41 @@ Leitura: o patch é correto e tecnicamente defensável, mas não melhorou de for
 
 Decisão: rejeitado por falta de ganho sustentável claro. `cpp/src/main.cpp` voltou ao caminho simples: acumular o corpo e responder sem `cork`.
 
+## Ciclo 15h: experimento rejeitado com mais CPU para o nginx
+
+Investigação externa curta:
+
+```text
+thiagorigonatti/rinha-2026: C + HAProxy 3.3 + io_uring, api=0.40+0.40, lb=0.20.
+joojf/rinha-2026: Rust + monoio/io_uring + nginx UDS, api=0.25+0.25, lb=0.50.
+```
+
+Hipótese: se a cauda local estivesse limitada pelo `nginx stream`, mover CPU das APIs para o LB poderia reduzir p99 sem alterar algoritmo, JSON ou acurácia.
+
+Alterações testadas:
+
+```yaml
+# ponto A
+api1/api2: cpus: "0.35"
+nginx:     cpus: "0.30"
+
+# ponto B
+api1/api2: cpus: "0.30"
+nginx:     cpus: "0.40"
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Split CPU | Runs | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `api=0.41+0.41`, `nginx=0.18` | referência | 1.16ms-1.19ms | 0 | 0 | 0 | 5925.03-5935.65 | melhor oficial atual |
+| `api=0.35+0.35`, `nginx=0.30` | 3 | 1.17ms-1.18ms | 0 | 0 | 0 | 5926.66-5930.37 | rejeitado |
+| `api=0.30+0.30`, `nginx=0.40` | 2 | 1.17ms-1.19ms | 0 | 0 | 0 | 5924.03-5932.52 | rejeitado |
+
+Leitura: aumentar CPU do LB não trouxe melhora clara. O melhor score da família ficou abaixo do melhor `no-cork` local e a faixa de p99 permaneceu no mesmo ruído. Isso indica que, com a implementação atual, a cauda local não está claramente limitada por CPU do nginx.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para `api=0.41+0.41`, `nginx=0.18`.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
