@@ -844,6 +844,44 @@ Leitura: a redução de timeout não atacou o gargalo de cauda e ainda ficou lig
 
 Decisão: rejeitado. `nginx.conf` voltou para `proxy_timeout 30s` e o nginx foi recriado.
 
+## Ciclo 16h: experimento rejeitado removendo `Date` do uWebSockets
+
+Investigação externa: as implementações líderes em C/Rust usam respostas HTTP pré-montadas e não enviam `Date`. Exemplos consultados:
+
+| Repositório | Evidência |
+|---|---|
+| `thiagorigonatti/rinha-2026` | `http_responses.c` monta respostas completas com `Content-Type`, `Content-Length` e `Connection`, sem `Date` |
+| `joojf/rinha-2026` | `server.rs` usa constantes `FRAUD_RESPONSES` completas, também sem `Date` |
+
+Hipótese: o `uWebSockets` escreve `Date` automaticamente em `HttpResponse::writeMark()`. Remover só esse header poderia reduzir bytes e chamadas de escrita, diferente do experimento anterior com `UWS_HTTPRESPONSE_NO_WRITEMARK`, que removeu outro header e piorou.
+
+Alteração testada:
+
+```cpp
+#ifndef RINHA_UWS_NO_DATE
+writeHeader("Date", ...);
+#endif
+```
+
+Smoke:
+
+```text
+GET /ready => HTTP/1.1 204 No Content, uWebSockets: 20, sem Date
+POST /fraud-score => HTTP/1.1 200 OK, uWebSockets: 20, Content-Length, sem Date
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline limpa pós-rebuild | 1.25ms | 0 | 0 | 0 | 5904.83 | referência imediata |
+| Sem `Date` run 1 | 1.29ms | 0 | 0 | 0 | 5889.82 | rejeitado |
+| Sem `Date` run 2 | 1.26ms | 0 | 0 | 0 | 5898.57 | rejeitado |
+
+Leitura: o header menor não reduziu p99; pelo contrário, piorou a cauda. Provável causa: alteração de caminho/código do uWS e ruído de writes internos superam qualquer economia de bytes. Copiar esse detalhe dos líderes isoladamente não transfere ganho sem o servidor HTTP manual inteiro.
+
+Decisão: rejeitado. `HttpResponse.h` e `CMakeLists.txt` voltaram ao estado original; a imagem local foi rebuildada e `/ready` voltou a responder no estado limpo.
+
 ## Ciclo 14h: candidato local removendo `res->cork` no hot path
 
 Hipótese: depois da remoção do header `Content-Type`, o caminho de resposta passou a fazer apenas um `end()` com uma das seis strings estáticas de classificação. Nesse caso, o `res->cork(...)` pode ser overhead desnecessário no hot path do uWebSockets, porque não há múltiplas escritas a agrupar.
