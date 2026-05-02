@@ -954,3 +954,72 @@ Resultado no benchmark oficial local:
 Leitura: a mudança preservou correção, mas destruiu cauda de latência. É provável que aumentar a fila interna permita acúmulo maior antes de backpressure, piorando p99 em vez de estabilizar accept. Em desafio com score logarítmico e p99 crítico, backlog menor no socket da API é mais saudável.
 
 Decisão: rejeitado. `bsd.c` voltou para `listen(..., 512)` e não há alteração de código pendente desse experimento.
+
+## Ciclo 13h: baseline contaminada por pressão de memória
+
+Depois de reiniciar o Docker Desktop para restaurar o daemon, a baseline aceita foi reconstruída e retestada antes de continuar. O resultado saiu muito fora da faixa histórica:
+
+```text
+Estado aceito reconstruído
+GET /ready => 204
+p99: 19.55ms
+FP: 0
+FN: 0
+HTTP errors: 0
+final_score: 4708.89
+```
+
+Investigação de máquina:
+
+```text
+Memória host: 7.4Gi total, 7.0Gi usada, 478Mi disponível antes do compose down
+Swap: 4.0Gi total, 4.0Gi usada
+Maiores consumidores: IntelliJ IDEA ~2.1Gi RSS, Docker Desktop VM ~1.3Gi RSS, Chrome ~780Mi RSS
+Docker Desktop: 29.4.1, 16 CPUs, ~1.9GB alocados
+```
+
+Leitura: o k6 local ficou inválido para comparar microganhos enquanto a máquina estiver nesse estado. A decisão técnica foi não aceitar nem rejeitar novas otimizações com base nessa baseline contaminada. Para não parar o ciclo, o compose foi derrubado temporariamente e os próximos experimentos foram feitos com microbenchmarks offline.
+
+## Ciclo 13h: screening offline de reparo IVF e `nprobe`
+
+Baseline offline gerada com índice local equivalente ao Dockerfile aceito:
+
+```text
+./cpp/build/prepare-ivf-cpp resources/references.json.gz cpp/build/perf-data/index-1280.bin 1280 65536 6
+ivf_index=cpp/build/perf-data/index-1280.bin refs=3000000 padded=3004384 clusters=1280 memory_mb=94.6933
+
+./cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 1 0 1 1 1 1 4
+ns_per_query=17641.2 checksum=30808154 fp=0 fn=0 parse_errors=0
+```
+
+Grade de `bbox_repair` e intervalo de reparo:
+
+| Configuração | Melhor sinal observado | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| `bbox=0` com qualquer intervalo | 12926.8-21055.8 ns/query | 127 | 131 | rejeitado por erro |
+| `bbox=1 min=0 max=3` | 39180.5 ns/query | 22 | 0 | rejeitado por erro |
+| `bbox=1 min=0 max=4` | 35771.5 ns/query | 0 | 0 | rejeitado por custo |
+| `bbox=1 min=0 max=5` | 69952.9 ns/query | 0 | 0 | rejeitado por custo |
+| `bbox=1 min=1 max=3` | 16987.9 ns/query | 22 | 0 | rejeitado por erro |
+| `bbox=1 min=1 max=4` | 20082.1 ns/query | 0 | 0 | referência aceita |
+| `bbox=1 min=1 max=5` | 49397.4 ns/query | 0 | 0 | rejeitado por custo |
+| `bbox=1 min=2 max=3` | 16537.5 ns/query | 22 | 28 | rejeitado por erro |
+| `bbox=1 min=2 max=4` | 16679.3 ns/query | 0 | 28 | rejeitado por erro |
+| `bbox=1 min=2 max=5` | 50223.5 ns/query | 0 | 28 | rejeitado por erro |
+
+Leitura: `bbox_repair` é obrigatório para precisão. Os intervalos que tentam reduzir reparos saem baratos, mas introduzem FP/FN; os intervalos que preservam erro zero ficam mais caros que o ponto aceito.
+
+Screening de `nprobe`:
+
+| Configuração | Resultado | Decisão |
+|---|---|---|
+| `fast=1 full=1` | `0 FP/FN`; repetição alternada `17875.7-18383.5 ns/query` | referência |
+| `fast=1 full=2` | `0 FP/FN`; screening isolado `19504.3 ns/query` | rejeitado |
+| `fast=1 full=3` | `0 FP/FN`; repetição alternada `18613.0-20117.7 ns/query` | rejeitado |
+| `fast=2 full=2` | `0 FP/FN`; `22741.7 ns/query` | rejeitado |
+| `fast=2 full=3` | `0 FP/FN`; `23845.0 ns/query` | rejeitado |
+| `fast=3 full=3` | `0 FP/FN`; `28068.7 ns/query` | rejeitado |
+
+Leitura: a aparente vitória inicial de `full_nprobe=3` era ruído de microbenchmark. Ao alternar contra a baseline com `repeat=2`, `fast=1/full=1` venceu de forma consistente. Nenhuma alteração de `nprobe` merece k6 enquanto a máquina estiver sob swap.
+
+Decisão: manter `IVF_FAST_NPROBE=1`, `IVF_FULL_NPROBE=1`, `IVF_BBOX_REPAIR=true`, `IVF_REPAIR_MIN_FRAUDS=1`, `IVF_REPAIR_MAX_FRAUDS=4`.
