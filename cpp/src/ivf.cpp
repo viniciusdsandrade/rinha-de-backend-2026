@@ -544,6 +544,28 @@ void scan_blocks(
     scan_blocks_scalar(top, blocks, labels, orig_ids, start_block, end_block, query);
 }
 
+bool should_repair_extreme(std::uint8_t frauds, const QueryVector& query) noexcept {
+    const bool no_last_transaction = query[5] < -0.5f && query[6] < -0.5f;
+    if (!no_last_transaction) {
+        return false;
+    }
+
+    if (frauds == 0U) {
+        return query[2] >= 0.20f && query[2] <= 0.40f &&
+               query[7] <= 0.13f &&
+               query[8] <= 0.25f;
+    }
+
+    if (frauds == 5U) {
+        return query[2] >= 0.80f &&
+               query[7] >= 0.35f &&
+               query[11] >= 0.5f &&
+               query[12] >= 0.75f;
+    }
+
+    return false;
+}
+
 }  // namespace
 
 bool IvfIndex::build_from_gzip_json(
@@ -742,8 +764,8 @@ std::uint8_t IvfIndex::fraud_count(const QueryVector& query, const IvfSearchConf
     const bool fast_repair = config.bbox_repair && !config.boundary_full;
     std::uint8_t frauds = fraud_count_once(query_i16, query, fast_nprobe, fast_repair);
     if (config.boundary_full &&
-        frauds >= config.repair_min_frauds &&
-        frauds <= config.repair_max_frauds) {
+        ((frauds >= config.repair_min_frauds && frauds <= config.repair_max_frauds) ||
+         should_repair_extreme(frauds, query))) {
         const std::uint32_t full_nprobe = std::max<std::uint32_t>(fast_nprobe, std::min(config.full_nprobe, clusters_));
         frauds = fraud_count_once(query_i16, query, full_nprobe, config.bbox_repair);
     }

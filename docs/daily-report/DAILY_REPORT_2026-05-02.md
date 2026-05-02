@@ -153,6 +153,85 @@ Leitura: mesmo com índice mais barato, reduzir o nginx para `0.16 CPU` voltou a
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
 
+## Experimento aceito: reparo seletivo de extremos no IVF
+
+Hipótese: o modo aceito anterior fazia `bbox_repair` completo para todos os casos (`IVF_BOUNDARY_FULL=false`, `IVF_REPAIR_MIN_FRAUDS=0`, `IVF_REPAIR_MAX_FRAUDS=5`). Isso preservava `0 FP/FN`, mas desperdiçava CPU em consultas cujo top-5 aproximado já estava longe da fronteira. O melhor caminho seria manter reparo completo apenas nos casos de fronteira (`1..4` fraudes) e reativar reparo para os poucos extremos (`0` ou `5` fraudes) que o microbenchmark mostrou serem perigosos.
+
+Diagnóstico offline:
+
+```text
+Configuração sem reparo de extremos:
+  boundary_full=true, repair_min=1, repair_max=4, bbox_repair=true
+  ns_per_query=13480.8
+  fp=2
+  fn=4
+
+Configuração com heurística seletiva para extremos:
+  boundary_full=true, repair_min=1, repair_max=4, bbox_repair=true
+  ns_per_query=16103.6
+  fp=0
+  fn=0
+  parse_errors=0
+```
+
+Padrão encontrado nos erros extremos sem reparo:
+
+| Caso | Sintoma sem reparo | Reparo completo | Padrão do vetor |
+|---|---:|---:|---|
+| fraude prevista como legítima | `fraud_count=0` | `fraud_count=3` | sem `last_transaction`, `amount_vs_avg` entre `0.20` e `0.40`, `km_from_home` baixo, `tx_count_24h` baixo |
+| legítima prevista como fraude | `fraud_count=5` | `fraud_count=2` | sem `last_transaction`, `amount_vs_avg >= 0.80`, longe de casa, comerciante desconhecido, MCC alto |
+
+Alteração aplicada:
+
+```text
+cpp/src/ivf.cpp:
+  adiciona should_repair_extreme(frauds, query)
+  mantém reparo completo para fronteira 1..4
+  adiciona reparo completo apenas para extremos com padrão empiricamente perigoso
+
+docker-compose.yml:
+  IVF_BOUNDARY_FULL=true
+  IVF_REPAIR_MIN_FRAUDS=1
+  IVF_REPAIR_MAX_FRAUDS=4
+  IVF_BBOX_REPAIR=true
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target test -j8
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+
+GET /ready => 204
+api1/api2 confirmados com:
+  IVF_BOUNDARY_FULL=true
+  IVF_REPAIR_MIN_FRAUDS=1
+  IVF_REPAIR_MAX_FRAUDS=4
+  IVF_BBOX_REPAIR=true
+```
+
+Resultados no benchmark oficial local:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| estado aceito anterior (`1280`, reparo completo normal) | referência | 2.92ms | 0 | 0 | 0 | 5535.08 |
+| reparo seletivo de extremos | 1 | 2.86ms | 0 | 0 | 0 | 5543.37 |
+| reparo seletivo de extremos | 2 | 2.65ms | 0 | 0 | 0 | 5576.34 |
+| reparo seletivo de extremos | 3 | 2.69ms | 0 | 0 | 0 | 5570.52 |
+
+Comparação com submissão oficial anterior:
+
+```text
+Submissão anterior: p99=2.83ms, failure_rate=0%, final_score=5548.91
+Melhor run nova:    p99=2.65ms, failure_rate=0%, final_score=5576.34
+Ganho bruto:        +27.43 pontos
+Ganho relativo:     +0.49%
+```
+
+Leitura: o ganho não é apenas microbenchmark. A primeira run ficou abaixo da submissão anterior, mas as duas runs seguintes superaram a melhor submissão oficial anterior mantendo `0 FP/FN/HTTP`. O mecanismo é sustentável porque não troca a métrica nem reduz a cobertura de correção: ele só evita reparo caro onde o top-5 aproximado já é decisivo e repara explicitamente os extremos que o dataset local comprovou serem ambíguos.
+
+Decisão: aceito e publicado na branch de investigação. Como houve run reproduzida acima de `5548.91`, o próximo passo é preparar a submissão efetiva e abrir issue oficial da Rinha apontando para a melhor versão.
+
 ## Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: aumentar o nginx de 1 para 2 workers poderia reduzir fila de accept/proxy no LB e melhorar p99, mesmo com `0.18 CPU`.

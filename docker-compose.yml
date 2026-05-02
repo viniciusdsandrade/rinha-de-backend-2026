@@ -8,10 +8,10 @@ services:
       UNIX_SOCKET_PATH: /sockets/api1.sock
       IVF_FAST_NPROBE: "1"
       IVF_FULL_NPROBE: "1"
-      IVF_BOUNDARY_FULL: "false"
+      IVF_BOUNDARY_FULL: "true"
       IVF_BBOX_REPAIR: "true"
-      IVF_REPAIR_MIN_FRAUDS: "0"
-      IVF_REPAIR_MAX_FRAUDS: "5"
+      IVF_REPAIR_MIN_FRAUDS: "1"
+      IVF_REPAIR_MAX_FRAUDS: "4"
     networks:
       - backend
     volumes:
@@ -28,10 +28,10 @@ services:
       UNIX_SOCKET_PATH: /sockets/api2.sock
       IVF_FAST_NPROBE: "1"
       IVF_FULL_NPROBE: "1"
-      IVF_BOUNDARY_FULL: "false"
+      IVF_BOUNDARY_FULL: "true"
       IVF_BBOX_REPAIR: "true"
-      IVF_REPAIR_MIN_FRAUDS: "0"
-      IVF_REPAIR_MAX_FRAUDS: "5"
+      IVF_REPAIR_MIN_FRAUDS: "1"
+      IVF_REPAIR_MAX_FRAUDS: "4"
 
   nginx:
     image: nginx:1.27-alpine
