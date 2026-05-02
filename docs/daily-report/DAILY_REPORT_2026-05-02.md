@@ -259,6 +259,43 @@ Gap para #1 parcial:  -64.56 pontos
 
 Conclusão: a correção por tag imutável resolveu a divergência oficial. O ajuste de reparo seletivo é oficialmente válido e competitivo. O próximo objetivo técnico deixa de ser "recuperar a submissão" e passa a ser encontrar ganhos pequenos e sustentáveis de p99 para ultrapassar a faixa de `5838.50` e, depois, buscar um salto maior rumo a `5901.92`.
 
+## Experimento rejeitado: três APIs com reparo seletivo
+
+Hipótese: depois de reduzir o custo médio do classificador com reparo seletivo, a topologia de três APIs poderia reduzir fila por instância e melhorar o p99 oficial. Essa topologia já existia na submissão anterior, mas ainda não havia sido testada com o novo código e com tag imutável.
+
+Alteração testada:
+
+```text
+api1/api2: 0.41 CPU / 165MB cada
+nginx:     0.18 CPU / 20MB
+
+para:
+
+api1/api2/api3: 0.27 CPU / 110MB cada
+nginx:          0.19 CPU / 20MB
+```
+
+Validação:
+
+```text
+GET /ready => 204
+api1 NanoCpus=270000000 Memory=115343360
+api2 NanoCpus=270000000 Memory=115343360
+api3 NanoCpus=270000000 Memory=115343360
+nginx NanoCpus=190000000 Memory=20971520
+```
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| reparo seletivo + 2 APIs (`0.41/0.41/0.18`) | 2.65ms | 0 | 0 | 0 | 5576.34 | referência |
+| reparo seletivo + 3 APIs (`0.27x3/0.19`) | 2.73ms | 0 | 0 | 0 | 5564.50 | rejeitado |
+
+Leitura: a terceira API não compensa a redução de CPU por instância. O gargalo residual parece mais sensível à fatia de CPU de cada API do que ao número de filas/instâncias atrás do nginx.
+
+Decisão: rejeitado. `docker-compose.yml` e `nginx.conf` voltaram para a topologia oficial atual com duas APIs.
+
 ## Experimento rejeitado: CPU split `0.42/0.42/0.16` após reparo seletivo
 
 Hipótese: se o gargalo residual ainda estivesse nas APIs, aumentar a fatia de CPU de cada API poderia reduzir o p99 mesmo com menos CPU no nginx.
