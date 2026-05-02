@@ -210,6 +210,45 @@ Leitura: o ganho offline não se converteu em cauda no stack completo. A altera�
 
 Decisão: rejeitado. `cpp/src/ivf.cpp` voltou para a heurística ampla já validada oficialmente na issue `#720`.
 
+## Experimento rejeitado: parser com `string_view` para merchant matching
+
+Hipótese: `parse_payload` copiava `merchant.id` e todos os itens de `customer.known_merchants` para `std::string` apenas para comparar dentro da mesma função. Trocar para `std::string_view` deveria remover alocações/cópias no hot path sem alterar o payload final, pois os views viveriam somente enquanto o `simdjson::padded_string` local ainda existisse.
+
+Alteração testada:
+
+```text
+std::vector<std::string> known_merchants -> std::vector<std::string_view>
+std::string merchant_id                  -> std::string_view
+merchant.id                              -> leitura direta como string_view
+known_merchants[]                        -> emplace de string_view sem cópia
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp benchmark-ivf-cpp test -j8
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+
+benchmark-ivf:
+ns_per_query=16673.9
+fp=0
+fn=0
+
+docker compose build api1
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| parser original com cópia de strings | 2.65ms | 0 | 0 | 0 | 5576.34 | referência |
+| parser com `string_view` | 3.06ms | 0 | 0 | 0 | 5514.43 | rejeitado |
+
+Leitura: a redução de cópias não melhorou o stack completo e piorou a cauda. A hipótese provável é que a alteração muda layout/otimização do parse ou interage pior com `simdjson::dom`, enquanto o custo das cópias pequenas não era o gargalo dominante.
+
+Decisão: rejeitado. `cpp/src/request.cpp` voltou ao parser original.
+
 ## Incidente de submissão: tag mutável no GHCR causou resultado oficial inconsistente
 
 Resultado da issue oficial `#719`:
