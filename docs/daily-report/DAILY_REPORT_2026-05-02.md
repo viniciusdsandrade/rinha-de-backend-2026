@@ -222,6 +222,43 @@ body: rinha/test andrade-cpp-ivf
 
 Decisão: não considerar `#719` como validação técnica do experimento. A hipótese de cache/stale image é forte e foi mitigada com tag imutável. A validação oficial relevante passa a ser `#720`.
 
+### Resultado oficial confirmado com tag imutável
+
+Resultado da issue oficial `#720`:
+
+```text
+Issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/720
+commit testado pela engine: 8293b49
+imagem testada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a9e49db
+p99: 1.45ms
+FP: 0
+FN: 0
+HTTP errors: 0
+failure_rate: 0%
+weighted_errors_E: 0
+p99_score: 2837.36
+detection_score: 3000
+final_score: 5837.36
+```
+
+Comparação:
+
+```text
+Submissão anterior conhecida: 5548.91
+Nova submissão oficial:       5837.36
+Ganho absoluto:               +288.45 pontos
+Ganho relativo:               +5.20%
+
+Ranking parcial informado pelo usuário:
+1. thiagorigonatti-c: 5901.92
+2. jairoblatt-rust:  5838.50
+Nova submissão:       5837.36
+Gap para #2 parcial:  -1.14 ponto
+Gap para #1 parcial:  -64.56 pontos
+```
+
+Conclusão: a correção por tag imutável resolveu a divergência oficial. O ajuste de reparo seletivo é oficialmente válido e competitivo. O próximo objetivo técnico deixa de ser "recuperar a submissão" e passa a ser encontrar ganhos pequenos e sustentáveis de p99 para ultrapassar a faixa de `5838.50` e, depois, buscar um salto maior rumo a `5901.92`.
+
 ## Experimento rejeitado: CPU split `0.42/0.42/0.16` após reparo seletivo
 
 Hipótese: se o gargalo residual ainda estivesse nas APIs, aumentar a fatia de CPU de cada API poderia reduzir o p99 mesmo com menos CPU no nginx.
