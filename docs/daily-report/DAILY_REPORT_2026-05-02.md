@@ -153,6 +153,39 @@ Leitura: mesmo com índice mais barato, reduzir o nginx para `0.16 CPU` voltou a
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
 
+## Experimento rejeitado: CPU split `0.42/0.42/0.16` após reparo seletivo
+
+Hipótese: se o gargalo residual ainda estivesse nas APIs, aumentar a fatia de CPU de cada API poderia reduzir o p99 mesmo com menos CPU no nginx.
+
+Alteração testada:
+
+```text
+api1/api2: 0.41 CPU -> 0.42 CPU cada
+nginx:     0.18 CPU -> 0.16 CPU
+índice:    1280 clusters mantido
+reparo:    seletivo 1..4 + extremos perigosos
+```
+
+Validação:
+
+```text
+GET /ready => 204
+api1 NanoCpus=420000000 Memory=173015040
+api2 NanoCpus=420000000 Memory=173015040
+nginx NanoCpus=160000000 Memory=20971520
+```
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| reparo seletivo + `0.41/0.41/0.18` | 2.65ms | 0 | 0 | 0 | 5576.34 | referência |
+| reparo seletivo + `0.42/0.42/0.16` | 2.79ms | 0 | 0 | 0 | 5554.41 | rejeitado |
+
+Leitura: reduzir CPU do nginx piorou a cauda mais do que o ganho marginal nas APIs. O ponto `0.41/0.41/0.18` segue sendo o melhor split observado para duas APIs.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
+
 ## Experimento aceito: reparo seletivo de extremos no IVF
 
 Hipótese: o modo aceito anterior fazia `bbox_repair` completo para todos os casos (`IVF_BOUNDARY_FULL=false`, `IVF_REPAIR_MIN_FRAUDS=0`, `IVF_REPAIR_MAX_FRAUDS=5`). Isso preservava `0 FP/FN`, mas desperdiçava CPU em consultas cujo top-5 aproximado já estava longe da fronteira. O melhor caminho seria manter reparo completo apenas nos casos de fronteira (`1..4` fraudes) e reativar reparo para os poucos extremos (`0` ou `5` fraudes) que o microbenchmark mostrou serem perigosos.
