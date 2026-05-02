@@ -55,3 +55,68 @@ final_score=5523.75
 ```
 
 Leitura: o estado aceito continua correto e sem falhas de detecção. A baseline fresca ficou muito próxima das runs aceitas de 2026-05-01 (`2.98ms / 5526.35`), portanto é uma base válida para os próximos experimentos.
+
+## Experimento aceito: índice IVF com 1280 clusters
+
+Hipótese: o índice atual com `2048` clusters pode estar pagando custo excessivo de varredura de centroides e reparo por bounding box. Reduzir o número de clusters pode diminuir overhead por consulta sem perder acurácia, desde que o reparo continue ativo.
+
+Screening offline com `benchmark-ivf-cpp`:
+
+| Clusters | `ns_per_query` | FP | FN | Decisão |
+|---:|---:|---:|---:|---|
+| 2048 | 59024.7 | 0 | 0 | baseline offline inicial |
+| 4096 | 69480.0 | 0 | 0 | rejeitado, piorou |
+| 1024 | 59187.7 | 0 | 0 | rejeitado, sem ganho |
+| 1536 | 57112.9 | 0 | 0 | candidato |
+| 2560 | 58228.1 | 0 | 0 | rejeitado, pior que 1536 |
+| 1280 | 54490.6 | 0 | 0 | melhor candidato |
+| 1152 | 57512.6 | 0 | 0 | rejeitado |
+| 1408 | 55507.2 | 0 | 0 | rejeitado |
+
+Repetição offline:
+
+| Clusters | Repeat | `ns_per_query` | FP | FN |
+|---:|---:|---:|---:|---:|
+| 2048 | 3 | 57665.1 | 0 | 0 |
+| 1280 | 3 | 56789.3 | 0 | 0 |
+
+Alteração aplicada:
+
+```text
+Dockerfile:
+  prepare-ivf-cpp ... 2048 65536 6
+  prepare-ivf-cpp ... 1280 65536 6
+```
+
+Validação de imagem:
+
+```text
+prepare-ivf-cpp: refs=3000000 padded=3004384 clusters=1280 memory_mb=94.6933
+GET /ready => 204
+```
+
+Benchmark oficial local atualizado:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline fresca 2048 clusters | 1 | 2.99ms | 0 | 0 | 0 | 5523.75 |
+| 1280 clusters | 1 | 2.92ms | 0 | 0 | 0 | 5535.08 |
+| 1280 clusters | 2 | 2.94ms | 0 | 0 | 0 | 5532.22 |
+
+Breakdown da melhor run:
+
+```text
+TP=24037
+TN=30021
+FP=0
+FN=0
+HTTP=0
+weighted_errors_E=0
+detection_score=3000
+p99_score=2535.08
+final_score=5535.08
+```
+
+Leitura: `1280` clusters preserva acurácia perfeita e reduz p99 de forma reproduzida. O ganho local sustentável contra a baseline fresca é de `0.05ms-0.07ms` e `+8.47` a `+11.33` pontos. Ainda não supera a submissão anterior informada (`5548.91`), portanto não justifica abrir issue oficial.
+
+Decisão: aceito. O `Dockerfile` passa a gerar índice IVF com `1280` clusters.

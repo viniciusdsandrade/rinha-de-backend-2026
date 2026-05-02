@@ -26,7 +26,7 @@ RUN mkdir -p /app/out \
     && /app/cpp/build/prepare-ivf-cpp \
         /app/resources/references.json.gz \
         /app/out/index.bin \
-        2048 \
+        1280 \
         65536 \
         6
 
