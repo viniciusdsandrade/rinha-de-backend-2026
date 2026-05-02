@@ -1144,3 +1144,34 @@ Variações testadas:
 Leitura: o nginx não está carente de CPU nesse cenário; tirar CPU das APIs piora p99. A configuração aceita `0.41/0.41/0.18` segue sendo o melhor split observado tanto nos experimentos antigos quanto no daemon Linux local.
 
 Decisão: rejeitado. `docker-compose.yml` voltou para APIs `0.41` e nginx `0.18`.
+
+## Ciclo 13h: experimento rejeitado em `worker_connections=8192`
+
+Hipótese: aumentar `worker_connections` do nginx de `4096` para `8192` poderia reduzir pressão interna de conexões/eventos e baixar p99 no pico do k6. É uma mudança pura de LB, sem lógica de aplicação e sem rebuild da API.
+
+Alteração testada:
+
+```nginx
+events {
+    worker_connections 8192;
+    multi_accept on;
+    use epoll;
+}
+```
+
+Validação:
+
+```text
+nginx -T confirmou worker_connections 8192
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `worker_connections=4096` | 1.23ms-1.24ms | 0 | 0 | 0 | 5908.32-5909.72 | referência |
+| `worker_connections=8192` | 1.24ms | 0 | 0 | 0 | 5907.33 | rejeitado |
+
+Leitura: aumentar o limite não removeu gargalo e ficou ligeiramente pior que a referência. O valor atual `4096` já é suficiente para o perfil de conexões do teste.
+
+Decisão: rejeitado. `nginx.conf` voltou para `worker_connections 4096`.
