@@ -4,11 +4,12 @@ services:
     platform: linux/amd64
     environment:
       UNIX_SOCKET_PATH: /sockets/api1.sock
-      IVF_FULL_NPROBE: "2"
+      IVF_FAST_NPROBE: "1"
+      IVF_FULL_NPROBE: "1"
       IVF_BOUNDARY_FULL: "true"
       IVF_BBOX_REPAIR: "true"
-      IVF_REPAIR_MIN_FRAUDS: "0"
-      IVF_REPAIR_MAX_FRAUDS: "5"
+      IVF_REPAIR_MIN_FRAUDS: "1"
+      IVF_REPAIR_MAX_FRAUDS: "4"
     networks:
       - backend
     volumes:
@@ -16,28 +17,19 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.27"
-          memory: "110MB"
+          cpus: "0.41"
+          memory: "165MB"
 
   api2:
     <<: *api
     environment:
       UNIX_SOCKET_PATH: /sockets/api2.sock
-      IVF_FULL_NPROBE: "2"
+      IVF_FAST_NPROBE: "1"
+      IVF_FULL_NPROBE: "1"
       IVF_BOUNDARY_FULL: "true"
       IVF_BBOX_REPAIR: "true"
-      IVF_REPAIR_MIN_FRAUDS: "0"
-      IVF_REPAIR_MAX_FRAUDS: "5"
-
-  api3:
-    <<: *api
-    environment:
-      UNIX_SOCKET_PATH: /sockets/api3.sock
-      IVF_FULL_NPROBE: "2"
-      IVF_BOUNDARY_FULL: "true"
-      IVF_BBOX_REPAIR: "true"
-      IVF_REPAIR_MIN_FRAUDS: "0"
-      IVF_REPAIR_MAX_FRAUDS: "5"
+      IVF_REPAIR_MIN_FRAUDS: "1"
+      IVF_REPAIR_MAX_FRAUDS: "4"
 
   nginx:
     image: nginx:1.27-alpine
@@ -45,7 +37,6 @@ services:
     depends_on:
       - api1
       - api2
-      - api3
     ports:
       - "9999:9999"
     networks:
@@ -56,7 +47,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.19"
+          cpus: "0.18"
           memory: "20MB"
 
 networks:
