@@ -1064,6 +1064,29 @@ Pontos relevantes:
 
 Leitura: os resultados negativos com HAProxy, nginx HTTP, ulimits e headers indicam que copiar peças soltas do topo não basta. O ganho de verdade parece vir do pacote completo: servidor HTTP manual + parser manual + resposta completa pré-formatada. Para o próximo ciclo, o experimento com melhor assimetria é construir um caminho alternativo C/C++ mínimo que mantenha o IVF atual, mas substitua uWebSockets/simdjson no hot path por HTTP parser manual e vetorização direta sobre o body.
 
+## Ciclo 16h: experimento rejeitado com `vectorize_json` direto ingênuo
+
+Hipótese: evitar `parse_payload` + `Payload` + `simdjson::padded_string` no caminho IVF poderia reduzir o custo fixo por request. O teste implementou uma função experimental `vectorize_json(body, query, error)` que extraía os campos diretamente do JSON por busca de chaves e vetorizava sem materializar `Payload`.
+
+Validação funcional antes de plugar no servidor:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests benchmark-request-cpp benchmark-ivf-cpp -j4
+ctest --test-dir cpp/build --output-on-failure
+benchmark-request-cpp: direct_vectorize_mismatches=0 no dataset completo
+```
+
+Microbenchmark no dataset local completo:
+
+| Caminho | ns/query | Checksum | Divergências |
+|---|---:|---:|---:|
+| `parse_payload + vectorize` | 669.72 | 113333448525138 | 0 |
+| `vectorize_json` direto ingênuo | 1496.15 | 113333448525138 | 0 |
+
+Leitura: o caminho direto ficou correto, mas 2.23x mais lento. O motivo é técnico: a implementação usava múltiplas buscas `find`/`find_key` por campo e por objeto, criando várias passagens sobre o mesmo body. Isso confirma que parser manual só vale se for single-pass real, com offsets fixos/ordem conhecida ou scanner estado-a-estado; copiar a ideia parcialmente piora.
+
+Decisão: rejeitado antes do k6. Todo o código experimental foi removido; ficou apenas este registro no report.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
