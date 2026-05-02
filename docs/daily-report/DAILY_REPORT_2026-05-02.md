@@ -832,6 +832,24 @@ Leitura: o ganho é pequeno, mas reproduzido em duas runs e sem mexer em precis�
 
 Decisão: aceito. Próximo passo: publicar imagem imutável nova, atualizar branch `submission` e abrir issue oficial se o build remoto validar.
 
+Publicação oficial:
+
+| Item | Valor |
+|---|---|
+| commit da implementação | `1273343` |
+| commit da branch `submission` | `a56fd54` |
+| imagem GHCR | `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-1273343` |
+| workflow de build | <https://github.com/viniciusdsandrade/rinha-de-backend-2026/actions/runs/25256927736> |
+| issue oficial | <https://github.com/zanfranceschi/rinha-de-backend-2026/issues/767> |
+
+Resultado oficial da issue `#767`:
+
+| p99 | FP | FN | HTTP errors | failure_rate | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1.44ms | 0 | 0 | 0 | 0% | 5842.24 |
+
+Leitura oficial: a submissão nova foi aceita pela engine e validou a imagem `submission-1273343`, mas não superou a melhor rerun oficial do dia (`#764`, `final_score=5842.78`). A diferença é de `-0.54` ponto, dentro do ruído esperado para p99 arredondado em `1.44ms`. Portanto, o patch fica aceito tecnicamente por clareza e leve ganho local, mas não deve ser tratado como novo topo oficial.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
