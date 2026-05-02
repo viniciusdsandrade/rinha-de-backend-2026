@@ -296,6 +296,38 @@ Leitura: a terceira API não compensa a redução de CPU por instância. O garga
 
 Decisão: rejeitado. `docker-compose.yml` e `nginx.conf` voltaram para a topologia oficial atual com duas APIs.
 
+## Experimento rejeitado: CPU split fino `0.415/0.415/0.17`
+
+Hipótese: como o resultado oficial ficou apenas `1.14` ponto abaixo do segundo lugar parcial informado, um ajuste fino de CPU poderia melhorar o p99 sem alterar código nem risco de detecção. Os extremos `0.40/0.40/0.20` e `0.42/0.42/0.16` pioraram, mas o ponto intermediário ainda era plausível.
+
+Alteração testada:
+
+```text
+api1/api2: 0.41 CPU -> 0.415 CPU cada
+nginx:     0.18 CPU -> 0.17 CPU
+```
+
+Validação:
+
+```text
+GET /ready => 204
+api1 NanoCpus=415000000 Memory=173015040
+api2 NanoCpus=415000000 Memory=173015040
+nginx NanoCpus=170000000 Memory=20971520
+```
+
+Resultado no benchmark oficial local:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| reparo seletivo + `0.41/0.41/0.18` | referência melhor | 2.65ms | 0 | 0 | 0 | 5576.34 | referência |
+| reparo seletivo + `0.415/0.415/0.17` | 1 | 2.67ms | 0 | 0 | 0 | 5573.83 | inconclusivo |
+| reparo seletivo + `0.415/0.415/0.17` | 2 | 2.69ms | 0 | 0 | 0 | 5570.35 | rejeitado |
+
+Leitura: a variação ficou dentro do ruído local e não superou a melhor referência. Como o ganho necessário é muito pequeno, submeter uma troca sem sinal local claro seria especulação.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
+
 ## Experimento rejeitado: CPU split `0.42/0.42/0.16` após reparo seletivo
 
 Hipótese: se o gargalo residual ainda estivesse nas APIs, aumentar a fatia de CPU de cada API poderia reduzir o p99 mesmo com menos CPU no nginx.
