@@ -249,6 +249,47 @@ Leitura: a redução de cópias não melhorou o stack completo e piorou a cauda.
 
 Decisão: rejeitado. `cpp/src/request.cpp` voltou ao parser original.
 
+## Experimento rejeitado: `-march=haswell`
+
+Hipótese: o ambiente oficial usa Mac Mini Late 2014 com CPU Haswell/AVX2. Trocar o alvo genérico `x86-64-v3` por `haswell` poderia melhorar tuning do GCC sem alterar algoritmo, API ou topologia.
+
+Alteração testada:
+
+```text
+cpp/CMakeLists.txt:
+  -march=x86-64-v3 -> -march=haswell
+
+Targets alterados:
+  rinha-backend-2026-cpp
+  prepare-refs-cpp
+  prepare-ivf-cpp
+  rinha-backend-2026-cpp-tests
+  benchmark-classifier-cpp
+  benchmark-request-cpp
+  benchmark-ivf-cpp
+  benchmark-kernel-cpp
+```
+
+Validação:
+
+```text
+cmake -S cpp -B cpp/build-haswell -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build-haswell --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-ivf-cpp -j8
+ctest --test-dir cpp/build-haswell --output-on-failure
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+```
+
+Resultado offline:
+
+| Variante | `ns_per_query` | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| `x86-64-v3` referência | 16389.5 a 17268.9 | 0 | 0 | referência |
+| `haswell` | 17236.3 | 0 | 0 | rejeitado antes do k6 |
+
+Leitura: `haswell` não trouxe sinal positivo nem no microbenchmark e ainda aumentou warnings/caminhos específicos de simdjson. Como a meta agora exige microganho real de p99, não vale submeter uma mudança sem ganho mensurável prévio.
+
+Decisão: rejeitado. `cpp/CMakeLists.txt` voltou para `-march=x86-64-v3`.
+
 ## Incidente de submissão: tag mutável no GHCR causou resultado oficial inconsistente
 
 Resultado da issue oficial `#719`:
