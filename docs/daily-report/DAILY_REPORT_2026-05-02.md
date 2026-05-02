@@ -153,6 +153,63 @@ Leitura: mesmo com índice mais barato, reduzir o nginx para `0.16 CPU` voltou a
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
 
+## Experimento rejeitado: estreitar heurística de reparo extremo
+
+Hipótese: a heurística `should_repair_extreme(...)` era deliberadamente ampla para preservar `0 FP/FN`. Como os casos extremos perigosos são poucos, estreitar os limiares poderia reduzir reparos completos, baixar o custo por consulta e melhorar p99 sem mudar `approved`.
+
+Validação prévia:
+
+```text
+Índice local e índice GHCR submission-a9e49db:
+sha256 ambos: 773decf0278aa986fa396b5be1b4d805f9dcf7fa8cba53088c42bde24cfbdc3b
+
+Heurística ampla atual:
+repeat=5
+ns_per_query=16389.5 a 17268.9
+fp=0
+fn=0
+
+Heurística estreita:
+repeat=5
+ns_per_query=14162.2 a 15257.0
+fp=0
+fn=0
+```
+
+Alteração testada:
+
+```text
+frauds == 0:
+  amount_vs_avg 0.20..0.40 -> 0.23..0.37
+  km_from_home <= 0.13     -> <= 0.115
+  tx_count_24h <= 0.25     -> <= 0.21
+
+frauds == 5:
+  amount_vs_avg >= 0.80 -> 0.84..0.89
+  km_from_home >= 0.35  -> 0.38..0.42
+  mcc_risk >= 0.75      -> 0.79..0.81
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp benchmark-ivf-cpp test -j8
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+docker compose build api1
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| heurística ampla oficial | 2.65ms | 0 | 0 | 0 | 5576.34 | referência |
+| heurística estreita | 2.80ms | 0 | 0 | 0 | 5553.19 | rejeitado |
+
+Leitura: o ganho offline não se converteu em cauda no stack completo. A alteração muda alguns `fraud_score` sem mudar `approved`, e provavelmente piora distribuição de branch/cache ou reduz reparos em casos que estabilizavam a latência em concorrência real.
+
+Decisão: rejeitado. `cpp/src/ivf.cpp` voltou para a heurística ampla já validada oficialmente na issue `#720`.
+
 ## Incidente de submissão: tag mutável no GHCR causou resultado oficial inconsistente
 
 Resultado da issue oficial `#719`:
