@@ -913,6 +913,54 @@ Leitura: HAProxy funcionou corretamente e preservou `0%` falhas, mas piorou p99 
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `nginx:1.27-alpine`, `0.18 CPU / 20MB` no LB e `0.41 CPU / 165MB` nas APIs.
 
+## Ciclo 14h: experimento rejeitado com parser sem cópia extra
+
+Hipótese: o hot path copiava o corpo da requisição duas vezes: primeiro do chunk do uWebSockets para `std::string`, depois de `std::string_view` para `simdjson::padded_string`. Se `parse_payload` aceitasse `std::string&` e usasse `simdjson::pad_with_reserve`, seria possível parsear o buffer já recebido pela API com padding de capacidade, removendo uma cópia por requisição.
+
+Alteração testada:
+
+```cpp
+bool parse_payload(std::string& body, Payload& payload, std::string& error) {
+    thread_local simdjson::dom::parser parser;
+
+    const simdjson::padded_string_view json = simdjson::pad_with_reserve(body);
+    simdjson::dom::element root;
+    ...
+}
+
+res->onData([res, state, body = std::string{}](std::string_view chunk, bool is_last) mutable {
+    if (body.empty()) {
+        body.reserve(chunk.size() + 64U);
+    }
+    body.append(chunk.data(), chunk.size());
+    ...
+    rinha::parse_payload(body, payload, error);
+});
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+
+cmake --build cpp/build --target rinha-backend-2026-cpp benchmark-request-cpp -j4
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline aceita | referência | 1.23ms-1.24ms | 0 | 0 | 0 | 5908.32-5910.62 |
+| parser sem cópia extra | 1 | 1.23ms | 0 | 0 | 0 | 5911.06 |
+| parser sem cópia extra | 2 | 1.24ms | 0 | 0 | 0 | 5906.21 |
+| parser sem cópia extra | 3 | 1.24ms | 0 | 0 | 0 | 5907.72 |
+
+Leitura: a primeira run pareceu ganho, mas as duas seguintes ficaram abaixo da faixa da baseline. A média não sustenta a hipótese. Provável explicação: a cópia removida não domina o p99, e o `reserve/pad_with_reserve` adiciona custo/variância suficiente para anular o benefício.
+
+Decisão: rejeitado. Código voltou ao `parse_payload(std::string_view)` com `simdjson::padded_string`. Não aceitar micro-otimização com ganho só em melhor caso isolado.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
