@@ -950,6 +950,40 @@ Leitura: o custo de HTTP proxy no nginx dominou completamente qualquer benefíci
 
 Decisão: rejeitado. `nginx.conf` voltou para `stream` L4 com UDS.
 
+## Ciclo 15h: experimento rejeitado com `UWS_HTTPRESPONSE_NO_WRITEMARK`
+
+Investigação: `uWebSockets/src/HttpResponse.h` escreve automaticamente o header `uWebSockets: 20` quando `UWS_HTTPRESPONSE_NO_WRITEMARK` não está definido. A hipótese era que remover esse header reduziria bytes e trabalho fixo em toda resposta.
+
+Alteração testada:
+
+```cmake
+target_compile_definitions(rinha-backend-2026-cpp
+    PRIVATE
+        UWS_HTTPRESPONSE_NO_WRITEMARK
+)
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+DOCKER_CONTEXT=default docker compose build api1
+GET /ready sem header `uWebSockets: 20`
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Referência `no-cork` | 1.16ms-1.19ms | 0 | 0 | 0 | 5925.03-5935.65 | melhor atual |
+| Sem writemark run 1 | 1.33ms | 0 | 0 | 0 | 5877.12 | rejeitado |
+| Sem writemark run 2 | 1.37ms | 0 | 0 | 0 | 5862.94 | rejeitado |
+
+Leitura: apesar de parecer uma otimização óbvia, o binário sem writemark piorou fortemente a cauda. O efeito provável não é o header em si, mas mudança de layout/branching no código gerado do uWebSockets ou ruído de build que afetou o hot path. Como o resultado foi consistentemente pior, a terceira run foi interrompida.
+
+Decisão: rejeitado. `cpp/CMakeLists.txt` voltou sem `UWS_HTTPRESPONSE_NO_WRITEMARK`.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
