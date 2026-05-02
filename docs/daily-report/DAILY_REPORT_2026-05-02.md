@@ -792,7 +792,16 @@ Leitura: o ganho local é pequeno, mas reproduziu em três runs e não introduzi
 
 Ressalva: a tentativa oficial anterior só com remoção de `Content-Type` não reproduziu o ganho local (`issue #769`, `p99=1.48ms`, `final_score=5830.15`). Portanto, esse candidato deve ser validado oficialmente antes de ser considerado melhor que a submissão oficial atual (`issue #764`, `p99=1.44ms`, `final_score=5842.78`).
 
-Decisão: aceito localmente como candidato. Próximo passo: publicar imagem imutável e abrir uma tentativa oficial; se o resultado oficial não superar `#764`, restaurar a branch `submission` para `submission-a9e49db`.
+Validação oficial:
+
+| Issue | Imagem | Commit `submission` | p99 | Failure rate | final_score | Decisão |
+|---|---|---|---:|---:|---:|---|
+| [#770](https://github.com/zanfranceschi/rinha-de-backend-2026/issues/770) | `submission-e63ae1a` | `e3fdd2b` | 1.44ms | 0% | 5842.99 | melhor oficial atual |
+| [#764](https://github.com/zanfranceschi/rinha-de-backend-2026/issues/764) | `submission-a9e49db` | referência anterior | 1.44ms | 0% | 5842.78 | superado por +0.21 |
+
+Leitura oficial: a melhora é praticamente no ruído da engine, mas superou a melhor submissão anterior sem introduzir falhas. Como a imagem `submission-e63ae1a` mantém `p99=1.44ms` e `0%` de falhas, ela passa a ser a melhor submissão oficial conhecida.
+
+Decisão: aceito oficialmente. A branch `submission` permanece apontando para `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-e63ae1a`.
 
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
