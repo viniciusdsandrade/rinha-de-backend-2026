@@ -152,3 +152,35 @@ Resultado no benchmark oficial local atualizado:
 Leitura: mesmo com índice mais barato, reduzir o nginx para `0.16 CPU` voltou a aumentar p99. Isso reforça que o gargalo marginal não é apenas CPU das APIs; o LB precisa de pelo menos `0.18 CPU` neste cenário para manter baixa variância.
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
+
+## Experimento rejeitado: reteste de CPU split `0.40/0.40/0.20` com índice 1280
+
+Hipótese: depois de reduzir o custo do índice IVF, devolver CPU ao nginx poderia reduzir contenção no LB e compensar a perda pequena de CPU nas APIs.
+
+Alteração testada:
+
+```text
+api1/api2: 0.41 CPU -> 0.40 CPU cada
+nginx:     0.18 CPU -> 0.20 CPU
+índice:    1280 clusters mantido
+```
+
+Validação:
+
+```text
+GET /ready => 204
+api1 NanoCpus=400000000 Memory=173015040
+api2 NanoCpus=400000000 Memory=173015040
+nginx NanoCpus=200000000 Memory=20971520
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 1280 clusters + `0.41/0.41/0.18` | 2.92ms | 0 | 0 | 0 | 5535.08 | referência |
+| 1280 clusters + `0.40/0.40/0.20` | 2.99ms | 0 | 0 | 0 | 5524.44 | rejeitado |
+
+Leitura: aumentar a folga do nginx não ajudou; a perda de CPU nas APIs dominou. Com índice `1280`, o ponto `0.41/0.41/0.18` segue sendo o melhor equilíbrio observado.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
