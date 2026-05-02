@@ -753,6 +753,47 @@ Leitura: mesmo com um worker, manter `reuseport` foi melhor no benchmark local. 
 
 Decisão: rejeitado. `nginx.conf` voltou para `listen 9999 reuseport backlog=4096`.
 
+## Ciclo 14h: candidato local removendo `res->cork` no hot path
+
+Hipótese: depois da remoção do header `Content-Type`, o caminho de resposta passou a fazer apenas um `end()` com uma das seis strings estáticas de classificação. Nesse caso, o `res->cork(...)` pode ser overhead desnecessário no hot path do uWebSockets, porque não há múltiplas escritas a agrupar.
+
+Alteração testada:
+
+```cpp
+const std::string_view body = classification_json(classification);
+res->end(body);
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+DOCKER_CONTEXT=default docker compose build api1
+DOCKER_CONTEXT=default docker compose up -d --force-recreate --remove-orphans
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.16ms | 0 | 0 | 0 | 5935.65 |
+| 2 | 1.19ms | 0 | 0 | 0 | 5925.03 |
+| 3 | 1.19ms | 0 | 0 | 0 | 5925.47 |
+
+Comparação local imediata:
+
+| Variante | p99 | final_score | Leitura |
+|---|---:|---:|---|
+| Sem `Content-Type`, com `cork` | 1.18ms-1.21ms | 5916.07-5926.92 | referência local anterior |
+| Sem `Content-Type`, sem `cork` | 1.16ms-1.19ms | 5925.03-5935.65 | melhor localmente |
+
+Leitura: o ganho local é pequeno, mas reproduziu em três runs e não introduziu FP/FN/HTTP errors. O risco técnico é baixo porque a resposta continua sendo exatamente uma das strings JSON pré-computadas e o contrato HTTP continua válido para o k6 oficial.
+
+Ressalva: a tentativa oficial anterior só com remoção de `Content-Type` não reproduziu o ganho local (`issue #769`, `p99=1.48ms`, `final_score=5830.15`). Portanto, esse candidato deve ser validado oficialmente antes de ser considerado melhor que a submissão oficial atual (`issue #764`, `p99=1.44ms`, `final_score=5842.78`).
+
+Decisão: aceito localmente como candidato. Próximo passo: publicar imagem imutável e abrir uma tentativa oficial; se o resultado oficial não superar `#764`, restaurar a branch `submission` para `submission-a9e49db`.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
