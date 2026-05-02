@@ -287,6 +287,39 @@ body: rinha/test andrade-cpp-ivf
 
 Decisão: submissão efetiva disparada porque a nova melhor run local (`5576.34`) superou a submissão oficial anterior (`5548.91`) mantendo `0%` de falhas.
 
+## Experimento rejeitado: CPU split `0.40/0.40/0.20` após reparo seletivo
+
+Hipótese: como o reparo seletivo reduziu o custo médio das APIs, devolver mais CPU ao nginx poderia reduzir cauda no balanceador sem prejudicar o processamento.
+
+Alteração testada:
+
+```text
+api1/api2: 0.41 CPU -> 0.40 CPU cada
+nginx:     0.18 CPU -> 0.20 CPU
+índice:    1280 clusters mantido
+reparo:    seletivo 1..4 + extremos perigosos
+```
+
+Validação:
+
+```text
+GET /ready => 204
+api1 NanoCpus=400000000 Memory=173015040
+api2 NanoCpus=400000000 Memory=173015040
+nginx NanoCpus=200000000 Memory=20971520
+```
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| reparo seletivo + `0.41/0.41/0.18` | 2.65ms | 0 | 0 | 0 | 5576.34 | referência |
+| reparo seletivo + `0.40/0.40/0.20` | 2.73ms | 0 | 0 | 0 | 5563.09 | rejeitado |
+
+Leitura: o nginx não é o gargalo dominante nesse ponto. Mesmo após reduzir o custo do classificador, retirar CPU das APIs piorou a melhor cauda observada.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
+
 ## Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: aumentar o nginx de 1 para 2 workers poderia reduzir fila de accept/proxy no LB e melhorar p99, mesmo com `0.18 CPU`.
