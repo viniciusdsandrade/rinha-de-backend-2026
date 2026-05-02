@@ -211,6 +211,36 @@ Leitura: suavizar accept não ajudou; o p99 piorou. A configuração atual com `
 
 Decisão: rejeitado. `nginx.conf` voltou para `multi_accept on`.
 
+## Experimento rejeitado: remover `reuseport` do nginx
+
+Hipótese: com apenas 1 worker no nginx, `reuseport` poderia ser redundante e talvez adicionar variação/overhead. Removê-lo manteria a topologia e o round-robin upstream inalterados.
+
+Alteração testada:
+
+```text
+nginx.conf:
+  listen 9999 reuseport backlog=4096;
+  listen 9999 backlog=4096;
+```
+
+Validação:
+
+```text
+GET /ready => 204
+nginx -T confirmou listen 9999 backlog=4096
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 1280 clusters + `reuseport` | 2.92ms | 0 | 0 | 0 | 5535.08 | referência |
+| 1280 clusters sem `reuseport` | 2.98ms | 0 | 0 | 0 | 5525.75 | rejeitado |
+
+Leitura: mesmo com um worker, manter `reuseport` foi melhor no benchmark local. A remoção aumentou p99 sem qualquer benefício operacional.
+
+Decisão: rejeitado. `nginx.conf` voltou para `listen 9999 reuseport backlog=4096`.
+
 ## Experimento rejeitado: reteste de CPU split `0.40/0.40/0.20` com índice 1280
 
 Hipótese: depois de reduzir o custo do índice IVF, devolver CPU ao nginx poderia reduzir contenção no LB e compensar a perda pequena de CPU nas APIs.
