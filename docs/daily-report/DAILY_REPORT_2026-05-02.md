@@ -120,3 +120,35 @@ final_score=5535.08
 Leitura: `1280` clusters preserva acurácia perfeita e reduz p99 de forma reproduzida. O ganho local sustentável contra a baseline fresca é de `0.05ms-0.07ms` e `+8.47` a `+11.33` pontos. Ainda não supera a submissão anterior informada (`5548.91`), portanto não justifica abrir issue oficial.
 
 Decisão: aceito. O `Dockerfile` passa a gerar índice IVF com `1280` clusters.
+
+## Experimento rejeitado: reteste de CPU split `0.42/0.42/0.16` com índice 1280
+
+Hipótese: o split `0.42/0.42/0.16` foi instável no índice de `2048` clusters, mas poderia ficar competitivo com o índice `1280`, já que o custo de classificação ficou menor e talvez o nginx precisasse de menos folga.
+
+Alteração testada:
+
+```text
+api1/api2: 0.41 CPU -> 0.42 CPU cada
+nginx:     0.18 CPU -> 0.16 CPU
+índice:    1280 clusters mantido
+```
+
+Validação:
+
+```text
+GET /ready => 204
+api1 NanoCpus=420000000 Memory=173015040
+api2 NanoCpus=420000000 Memory=173015040
+nginx NanoCpus=160000000 Memory=20971520
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 1280 clusters + `0.41/0.41/0.18` | 2.92ms | 0 | 0 | 0 | 5535.08 | referência |
+| 1280 clusters + `0.42/0.42/0.16` | 3.06ms | 0 | 0 | 0 | 5514.77 | rejeitado |
+
+Leitura: mesmo com índice mais barato, reduzir o nginx para `0.16 CPU` voltou a aumentar p99. Isso reforça que o gargalo marginal não é apenas CPU das APIs; o LB precisa de pelo menos `0.18 CPU` neste cenário para manter baixa variância.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
