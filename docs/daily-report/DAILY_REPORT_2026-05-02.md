@@ -241,6 +241,46 @@ Leitura: mesmo com um worker, manter `reuseport` foi melhor no benchmark local. 
 
 Decisão: rejeitado. `nginx.conf` voltou para `listen 9999 reuseport backlog=4096`.
 
+## Experimento rejeitado: índice 1280 com treino maior e mais iterações
+
+Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
+
+Screening offline:
+
+| Configuração | `ns_per_query` | FP | FN | Decisão offline |
+|---|---:|---:|---:|---|
+| 1280 / sample 65536 / iter 6 | 56309.5 | 0 | 0 | referência |
+| 1280 / sample 32768 / iter 6 | 62409.4 | 0 | 0 | rejeitado |
+| 1280 / sample 65536 / iter 4 | 57694.1 | 0 | 0 | rejeitado |
+| 1280 / sample 131072 / iter 6 | 53161.3 | 0 | 0 | candidato |
+| 1280 / sample 65536 / iter 8 | 55825.3 | 0 | 0 | rejeitado |
+| 1280 / sample 131072 / iter 8 | 52966.0 | 0 | 0 | melhor offline |
+
+Alteração testada no Dockerfile:
+
+```text
+prepare-ivf-cpp ... 1280 65536 6
+prepare-ivf-cpp ... 1280 131072 8
+```
+
+Validação de imagem:
+
+```text
+prepare-ivf-cpp: refs=3000000 padded=3004296 clusters=1280 memory_mb=94.6906
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 1280 / sample 65536 / iter 6 | 2.92ms | 0 | 0 | 0 | 5535.08 | referência |
+| 1280 / sample 131072 / iter 8 | 3.02ms | 0 | 0 | 0 | 5520.10 | rejeitado |
+
+Leitura: o ganho offline não se traduziu no p99 do stack completo. A hipótese provavelmente melhora custo médio em loop local, mas piora cauda sob concorrência por distribuição de tamanhos de clusters/reparo ou cache locality.
+
+Decisão: rejeitado. O `Dockerfile` voltou para `1280 65536 6`.
+
 ## Experimento rejeitado: reteste de CPU split `0.40/0.40/0.20` com índice 1280
 
 Hipótese: depois de reduzir o custo do índice IVF, devolver CPU ao nginx poderia reduzir contenção no LB e compensar a perda pequena de CPU nas APIs.
