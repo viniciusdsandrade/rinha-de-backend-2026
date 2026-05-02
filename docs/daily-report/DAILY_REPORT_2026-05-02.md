@@ -824,3 +824,99 @@ Resultado no benchmark oficial local atualizado:
 Leitura: aumentar a folga do nginx não ajudou; a perda de CPU nas APIs dominou. Com índice `1280`, o ponto `0.41/0.41/0.18` segue sendo o melhor equilíbrio observado.
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
+
+## Experimento rejeitado: remover `Content-Type` da resposta
+
+Hipótese: o `test/test.js` valida a resposta a partir de `JSON.parse(res.body)`, então o header `Content-Type: application/json` não deveria ser necessário para corretude. Remover o header reduziria alguns bytes e uma chamada no hot path do `POST /fraud-score`.
+
+Alteração testada:
+
+```cpp
+res->cork([res, body]() {
+    res->end(body);
+});
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp test -j8
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+
+GET /ready => 204
+Smoke final após rollback => 200 OK com Content-Type: application/json
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Estado aceito com `Content-Type` | 2.65ms-2.86ms | 0 | 0 | 0 | 5543.37-5576.34 | referência |
+| Sem `Content-Type` | 2.93ms | 0 | 0 | 0 | 5533.60 | rejeitado |
+
+Leitura: a remoção não quebrou o contrato observado pelo k6, mas piorou p99 de forma clara contra a janela aceita. A economia de header não compensou e possivelmente altera buffering/caminho interno do uWebSockets/nginx de maneira desfavorável.
+
+Decisão: rejeitado. `cpp/src/main.cpp` voltou a enviar `Content-Type: application/json` no `POST /fraud-score`.
+
+## Resumo consolidado do dia
+
+Melhor resultado oficial obtido hoje:
+
+```text
+Issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/720
+Branch oficial: submission
+Commit oficial testado: 8293b49
+Imagem: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a9e49db
+p99: 1.45ms
+FP: 0
+FN: 0
+HTTP errors: 0
+failure_rate: 0%
+p99_score: 2837.36
+detection_score: 3000.00
+final_score: 5837.36
+```
+
+Ganho contra a submissão anterior conhecida:
+
+```text
+Submissão anterior: p99=2.83ms, final_score=5548.91
+Melhor submissão de hoje: p99=1.45ms, final_score=5837.36
+Ganho absoluto: +288.45 pontos
+Redução de p99: -1.38ms
+```
+
+Mudanças que efetivamente avançaram a solução:
+
+| Frente | Decisão | Evidência |
+|---|---|---|
+| Índice IVF `2048 -> 1280` clusters | aceito | preservou `0 FP/FN` e reduziu p99 local de forma reproduzida |
+| Reparo seletivo de extremos no IVF | aceito | melhor run local `2.65ms / 5576.34`, `0 FP/FN/HTTP` |
+| Tag imutável GHCR para submissão | aceito | corrigiu discrepância oficial de tag mutável e validou `5837.36` no issue `#720` |
+
+Experimentos rejeitados hoje:
+
+| Experimento | Resultado | Decisão |
+|---|---:|---|
+| CPU split `0.42/0.42/0.16` | `2.79ms / 5554.41` antes do reparo; pior após reparo | rejeitado |
+| CPU split `0.40/0.40/0.20` | `2.73ms / 5563.09`; reteste final `2.99ms / 5524.44` | rejeitado |
+| CPU split fino `0.415/0.415/0.17` | `2.67ms-2.69ms / 5570.35-5573.83` | rejeitado por não superar melhor local |
+| Três APIs | `2.73ms / 5564.50` | rejeitado |
+| `worker_processes 2` no nginx | piorou p99 local | rejeitado |
+| `multi_accept off` no nginx | `2.97ms / 5526.71` | rejeitado |
+| Remover `reuseport` | `2.98ms / 5525.75` | rejeitado |
+| Treino IVF `1280 / 131072 / 8` | `3.02ms / 5520.10` | rejeitado apesar de melhor microbenchmark |
+| Heurística extrema mais estreita | `2.80ms / 5553.19` | rejeitado |
+| Parser com `string_view` | `3.06ms / 5514.43` | rejeitado |
+| `-march=haswell` | microbenchmark `17236.3ns/query`, sem ganho | rejeitado antes do k6 |
+| Remover `Content-Type` | `2.93ms / 5533.60` | rejeitado |
+
+Leitura final: a performance oficial relevante já saiu do patamar `2.83ms / 5548.91` para `1.45ms / 5837.36`, com `0%` de falhas. A maior lição operacional foi evitar tag Docker mutável na submissão: o mesmo código que localmente estava correto caiu para `5424.02` no issue `#719`, enquanto a tag imutável validou `5837.36` no issue `#720`.
+
+Estado recomendado para seguir:
+
+```text
+submission: manter commit 8293b49 e imagem immutable submission-a9e49db
+perf/noon-tuning: manter como branch de investigação com o histórico de experimentos
+próximo foco técnico: somente mudanças com sinal local claro abaixo de ~2.65ms e sem qualquer erro de detecção
+```
