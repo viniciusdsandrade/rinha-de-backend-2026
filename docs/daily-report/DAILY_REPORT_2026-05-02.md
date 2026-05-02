@@ -1062,3 +1062,63 @@ Resultado offline:
 Leitura: a mudança é correta, mas o ganho não apareceu de forma robusta. O melhor round foi só ruído favorável; mediana e cauda ficaram iguais ou piores que a implementação simples com comparação de `std::string`. Como o objetivo é performance sustentável e inquestionável, isso não entra.
 
 Decisão: rejeitado. `vectorize.cpp` voltou ao lookup simples por comparação de string.
+
+## Ciclo 13h: rerun oficial da melhor submissão
+
+Depois que a baseline local no Docker Desktop ficou contaminada por swap, foi feita uma checagem comparativa no daemon Linux local (`DOCKER_CONTEXT=default`) sem mudar o contexto global. O objetivo não era trocar a implementação, mas verificar se o mesmo stack aceito ainda tinha potencial de p99 melhor em ambiente menos pressionado.
+
+Estado da máquina antes do teste no daemon Linux:
+
+```text
+Docker Desktop parado para liberar a VM
+Memória host após parar Desktop: 7.4Gi total, 3.7Gi usada, 3.7Gi disponível
+Swap: 4.0Gi total, 3.1Gi usada
+DOCKER_CONTEXT=default docker info:
+  Server=29.4.1
+  OS=Ubuntu 24.04.4 LTS
+  CPUs=16
+  Mem=7993286656
+```
+
+Baseline local no daemon Linux, mesmo código/imagem local equivalente:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.23ms | 0 | 0 | 0 | 5909.72 |
+| 2 | 1.24ms | 0 | 0 | 0 | 5908.32 |
+
+Leitura: o número local não é diretamente comparável com o histórico feito no Docker Desktop, mas o sinal foi forte e reproduzido. Como a branch oficial `submission` já apontava para a imagem imutável `submission-a9e49db`, foi aberto um novo issue oficial para reprocessar a mesma submissão.
+
+Submissão oficial:
+
+```text
+Issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/764
+Body: rinha/test andrade-cpp-ivf
+Commit testado: 8293b49
+Imagem: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a9e49db
+```
+
+Resultado oficial do issue `#764`:
+
+```text
+p99: 1.44ms
+FP: 0
+FN: 0
+HTTP errors: 0
+failure_rate: 0%
+p99_score: 2842.78
+detection_score: 3000.00
+final_score: 5842.78
+```
+
+Comparação:
+
+| Referência | p99 | final_score |
+|---|---:|---:|
+| Submissão anterior conhecida antes do dia | 2.83ms | 5548.91 |
+| Issue oficial `#720` | 1.45ms | 5837.36 |
+| Issue oficial `#764` | 1.44ms | 5842.78 |
+
+Ganho oficial incremental contra `#720`: `+5.42` pontos.
+
+Decisão: aceito como melhor resultado oficial atual. Não houve mudança de código; o ganho veio de rerun oficial da mesma submissão imutável.
