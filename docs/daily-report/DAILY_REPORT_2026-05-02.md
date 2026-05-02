@@ -153,6 +153,35 @@ Leitura: mesmo com índice mais barato, reduzir o nginx para `0.16 CPU` voltou a
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
 
+## Experimento rejeitado: `worker_processes 2` no nginx
+
+Hipótese: aumentar o nginx de 1 para 2 workers poderia reduzir fila de accept/proxy no LB e melhorar p99, mesmo com `0.18 CPU`.
+
+Alteração testada:
+
+```text
+nginx.conf:
+  worker_processes 1 -> 2
+```
+
+Validação:
+
+```text
+GET /ready => 204
+nginx -T confirmou worker_processes 2
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 1280 clusters + nginx 1 worker | 2.92ms | 0 | 0 | 0 | 5535.08 | referência |
+| 1280 clusters + nginx 2 workers | 2.97ms | 0 | 0 | 0 | 5527.10 | rejeitado |
+
+Leitura: o worker extra não reduziu p99 e provavelmente aumentou disputa por uma fração pequena de CPU no LB. Com `0.18 CPU`, um único worker segue mais eficiente.
+
+Decisão: rejeitado. `nginx.conf` voltou para `worker_processes 1`.
+
 ## Experimento rejeitado: reteste de CPU split `0.40/0.40/0.20` com índice 1280
 
 Hipótese: depois de reduzir o custo do índice IVF, devolver CPU ao nginx poderia reduzir contenção no LB e compensar a perda pequena de CPU nas APIs.
