@@ -153,6 +153,75 @@ Leitura: mesmo com índice mais barato, reduzir o nginx para `0.16 CPU` voltou a
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `api1/api2=0.41 CPU` e `nginx=0.18 CPU`.
 
+## Incidente de submissão: tag mutável no GHCR causou resultado oficial inconsistente
+
+Resultado da issue oficial `#719`:
+
+```text
+Issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/719
+commit testado pela engine: 870d435
+imagem declarada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission
+p99: 1.64ms
+FP: 3
+FN: 4
+HTTP errors: 0
+failure_rate: 0.01%
+final_score: 5424.02
+```
+
+Leitura inicial: o resultado oficial teve latência excelente, mas quebrou a premissa mais importante do experimento (`0 FP/FN`). Isso invalidaria a submissão se fosse reproduzível.
+
+Reprodução local com a mesma branch `submission` e a mesma imagem GHCR:
+
+```text
+compose: origin/submission @ 870d435
+imagem: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission
+api1/api2: 0.41 CPU / 165MB
+nginx: 0.18 CPU / 20MB
+GET /ready => 204
+
+Resultado local:
+p99: 2.74ms
+FP: 0
+FN: 0
+HTTP errors: 0
+final_score: 5561.98
+```
+
+Hipótese de causa raiz: a engine oficial provavelmente reutilizou imagem antiga associada à tag mutável `:submission`. O compose novo ativou `IVF_BOUNDARY_FULL=true` e reparo seletivo `1..4`, mas a imagem antiga não continha `should_repair_extreme(...)`; isso explica precisamente o padrão `3 FP / 4 FN` observado oficialmente. Localmente, depois de puxar o manifest atualizado, o mesmo compose voltou a `0 FP/FN`.
+
+Correção operacional:
+
+```text
+Workflow atualizado:
+  .github/workflows/publish-submission-image.yml
+  adiciona tag imutável: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a9e49db
+  commit: ff4734c
+
+Publish:
+  https://github.com/viniciusdsandrade/rinha-de-backend-2026/actions/runs/25244642464
+  resultado: sucesso
+
+Imagem imutável:
+  ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a9e49db
+  digest: sha256:539fed1d7567f55115266141cae19620ef2cff400d2854fd6306d89d05c856ff
+  linux/amd64 manifest: sha256:7dc5200d1439aed1fec84274b208700e220989f942505ce97fc38ba31c1c83fb
+
+Branch submission:
+  origin/submission @ 8293b49
+  docker-compose.yml aponta para :submission-a9e49db
+```
+
+Nova issue oficial:
+
+```text
+https://github.com/zanfranceschi/rinha-de-backend-2026/issues/720
+title: andrade-cpp-ivf
+body: rinha/test andrade-cpp-ivf
+```
+
+Decisão: não considerar `#719` como validação técnica do experimento. A hipótese de cache/stale image é forte e foi mitigada com tag imutável. A validação oficial relevante passa a ser `#720`.
+
 ## Experimento rejeitado: CPU split `0.42/0.42/0.16` após reparo seletivo
 
 Hipótese: se o gargalo residual ainda estivesse nas APIs, aumentar a fatia de CPU de cada API poderia reduzir o p99 mesmo com menos CPU no nginx.
