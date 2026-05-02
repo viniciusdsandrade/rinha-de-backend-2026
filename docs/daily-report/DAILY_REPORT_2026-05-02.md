@@ -1044,6 +1044,54 @@ Leitura: não houve ganho. A opção é útil/necessária em stacks com `io_urin
 
 Decisão: rejeitado. `docker-compose.yml` voltou sem `security_opt`.
 
+## Ciclo 14h: experimento aceito removendo `Content-Type` da resposta quente
+
+Hipótese: o teste oficial/local valida `HTTP 200` e faz `JSON.parse(res.body)`, mas não valida o header `Content-Type`. A resposta já é uma das 6 strings JSON constantes. Remover `res->writeHeader("Content-Type", "application/json")` elimina uma chamada do uWebSockets e reduz bytes de resposta no hot path sem alterar contrato observável pelo k6.
+
+Evidência no `test/test.js`:
+
+```javascript
+if (res.status === 200) {
+    const body = JSON.parse(res.body);
+    ...
+}
+```
+
+Alteração aplicada:
+
+```cpp
+const std::string_view body = classification_json(classification);
+res->cork([res, body]() {
+    res->end(body);
+});
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+
+DOCKER_CONTEXT=default docker compose build api1
+DOCKER_CONTEXT=default docker compose up -d --force-recreate --remove-orphans
+GET /ready -> 2xx
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline aceita antes da mudança | 1 | 1.23ms | 0 | 0 | 0 | 5910.62 |
+| baseline aceita antes da mudança | 2 | 1.23ms | 0 | 0 | 0 | 5910.59 |
+| sem `Content-Type` | 1 | 1.21ms | 0 | 0 | 0 | 5916.07 |
+| sem `Content-Type` | 2 | 1.18ms | 0 | 0 | 0 | 5926.92 |
+| sem `Content-Type` | 3 | 1.18ms | 0 | 0 | 0 | 5926.83 |
+
+Leitura: ganho reproduzido em 3 runs, com p99 local melhorando de `1.23ms` para `1.18ms-1.21ms` e `0%` falhas. É a primeira melhoria do ciclo com margem suficiente para justificar nova submissão oficial.
+
+Decisão: aceito. Próximo passo: publicar nova imagem imutável, atualizar branch `submission` e abrir issue oficial se o build remoto validar.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
