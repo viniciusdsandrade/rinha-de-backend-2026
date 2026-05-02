@@ -182,6 +182,35 @@ Leitura: o worker extra não reduziu p99 e provavelmente aumentou disputa por um
 
 Decisão: rejeitado. `nginx.conf` voltou para `worker_processes 1`.
 
+## Experimento rejeitado: `multi_accept off` no nginx
+
+Hipótese: com apenas 1 worker e CPU limitada, `multi_accept on` poderia criar bursts de accept/proxy e aumentar latência de cauda. Desligar `multi_accept` poderia suavizar o p99.
+
+Alteração testada:
+
+```text
+nginx.conf:
+  multi_accept on -> off
+```
+
+Validação:
+
+```text
+GET /ready => 204
+nginx -T confirmou multi_accept off
+```
+
+Resultado no benchmark oficial local atualizado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| 1280 clusters + `multi_accept on` | 2.92ms | 0 | 0 | 0 | 5535.08 | referência |
+| 1280 clusters + `multi_accept off` | 2.97ms | 0 | 0 | 0 | 5526.71 | rejeitado |
+
+Leitura: suavizar accept não ajudou; o p99 piorou. A configuração atual com `multi_accept on` continua melhor para absorver o padrão de carga do k6.
+
+Decisão: rejeitado. `nginx.conf` voltou para `multi_accept on`.
+
 ## Experimento rejeitado: reteste de CPU split `0.40/0.40/0.20` com índice 1280
 
 Hipótese: depois de reduzir o custo do índice IVF, devolver CPU ao nginx poderia reduzir contenção no LB e compensar a perda pequena de CPU nas APIs.
