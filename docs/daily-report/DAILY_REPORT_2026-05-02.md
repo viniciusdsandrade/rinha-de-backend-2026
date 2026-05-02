@@ -753,6 +753,46 @@ Leitura: mesmo com um worker, manter `reuseport` foi melhor no benchmark local. 
 
 Decisão: rejeitado. `nginx.conf` voltou para `listen 9999 reuseport backlog=4096`.
 
+## Ciclo 16h: experimento rejeitado com `body.reserve(768)`
+
+Hipótese: pré-reservar o buffer de corpo HTTP poderia reduzir custo de `std::string::append` no hot path do `POST /fraud-score`. Um microbenchmark isolado em 5000 payloads indicou que o append ficava mais barato:
+
+| Caminho | ns/query |
+|---|---:|
+| `std::string` sem `reserve` | 31.9201 |
+| `std::string` com `reserve(768)` | 15.8951 |
+
+Alteração testada:
+
+```cpp
+std::string make_body_buffer() {
+    std::string body;
+    body.reserve(768);
+    return body;
+}
+```
+
+Validação funcional antes do k6:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+curl -fsS http://localhost:9999/ready
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Sem `reserve` explícito | 1.16ms-1.19ms | 0 | 0 | 0 | 5925.03-5935.65 | referência aceita anterior |
+| `body.reserve(768)` run 1 | 1.24ms | 0 | 0 | 0 | 5907.12 | rejeitado |
+| `body.reserve(768)` run 2 | 1.22ms | 0 | 0 | 0 | 5912.92 | rejeitado |
+| `body.reserve(768)` run 3 | 1.23ms | 0 | 0 | 0 | 5911.11 | rejeitado |
+
+Leitura: o microbenchmark de append foi real, mas enganoso para o sistema completo. No caminho k6, a reserva explícita adiciona trabalho por request e não reduz o gargalo dominante. A hipótese foi rejeitada por degradação reprodutível de p99.
+
+Decisão: rejeitado. `cpp/src/main.cpp` voltou para `body = std::string{}`.
+
 ## Ciclo 14h: candidato local removendo `res->cork` no hot path
 
 Hipótese: depois da remoção do header `Content-Type`, o caminho de resposta passou a fazer apenas um `end()` com uma das seis strings estáticas de classificação. Nesse caso, o `res->cork(...)` pode ser overhead desnecessário no hot path do uWebSockets, porque não há múltiplas escritas a agrupar.
