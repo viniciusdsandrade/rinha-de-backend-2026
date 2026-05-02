@@ -961,6 +961,66 @@ Leitura: a primeira run pareceu ganho, mas as duas seguintes ficaram abaixo da f
 
 Decisão: rejeitado. Código voltou ao `parse_payload(std::string_view)` com `simdjson::padded_string`. Não aceitar micro-otimização com ganho só em melhor caso isolado.
 
+## Ciclo 14h: experimento rejeitado com uSockets `LIBUS_USE_IO_URING`
+
+Hipótese: a principal diferença técnica da submissão líder em C é o servidor HTTP manual com `io_uring`. Como o uSockets vendorizado já contém backend `LIBUS_USE_IO_URING`, talvez ativar esse backend no uWebSockets reduza overhead de rede sem reescrever o servidor.
+
+Investigação:
+
+| Evidência | Leitura |
+|---|---|
+| `cpp/third_party/uWebSockets/uSockets/src/libusockets.h` | se nenhum backend é definido, Linux usa `LIBUS_USE_EPOLL` por padrão |
+| `uSockets/Makefile` | `WITH_IO_URING=1` adiciona `-DLIBUS_USE_IO_URING` e linka `liburing` |
+| `uSockets/src/io_uring/*` | backend existe, mas é um caminho separado de listen/read/write |
+| `thiagorigonatti/rinha-2026` | líder usa servidor C próprio com `io_uring`, não uWebSockets |
+
+Alteração testada:
+
+```cmake
+option(RINHA_USE_IO_URING "Use uSockets io_uring backend" OFF)
+
+if(RINHA_USE_IO_URING)
+    find_library(URING_LIBRARY uring REQUIRED)
+    target_compile_definitions(usockets PUBLIC LIBUS_USE_IO_URING)
+    target_link_libraries(usockets PUBLIC ${URING_LIBRARY})
+endif()
+```
+
+```dockerfile
+apt-get install ... liburing-dev ...
+cmake ... -DRINHA_USE_IO_URING=ON
+apt-get install ... liburing2 ...
+```
+
+Validação inicial:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+
+DOCKER_CONTEXT=default docker compose build api1
+```
+
+Achados de runtime:
+
+| Variante | Resultado |
+|---|---|
+| `LIBUS_USE_IO_URING` + Unix socket | APIs saíram com `exit=1`; nginx não encontrou `/sockets/api1.sock`/`api2.sock`; executar o container direto com `UNIX_SOCKET_PATH=/tmp/test.sock` também encerrou com `exit=1` sem log |
+| `LIBUS_USE_IO_URING` + TCP direto | container subiu e `GET /ready` em `:3000` respondeu `204`, indicando que a falha era o listen Unix socket nesse backend |
+| `LIBUS_USE_IO_URING` + nginx para `api1:3000`/`api2:3000` | aplicação subiu, mas k6 gerou erros HTTP e degradação forte |
+
+Resultado no `DOCKER_CONTEXT=default` para a variante TCP:
+
+| Variante | p99 | FP | FN | HTTP errors | failure_rate | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline aceita | 1.23ms-1.24ms | 0 | 0 | 0 | 0% | 5908.32-5910.62 |
+| uSockets io_uring + TCP interno | 1.32ms | 3 | 4 | 25 | 0.06% | 4821.76 |
+
+Leitura: ativar `io_uring` no uSockets não é equivalente ao servidor manual da submissão líder. No nosso caminho, o backend não escuta UDS e o fallback via TCP interno piora latência e estabilidade. Os 25 erros HTTP tornam a hipótese inaceitável, mesmo que a taxa ainda seja baixa.
+
+Decisão: rejeitado. `Dockerfile`, `CMakeLists.txt`, `docker-compose.yml` e `nginx.conf` voltaram ao backend epoll + UDS atual. Se formos perseguir `io_uring`, o caminho tecnicamente correto é um servidor HTTP manual dedicado, não o backend experimental do uSockets.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
