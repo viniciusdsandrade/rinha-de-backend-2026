@@ -38,3 +38,4 @@ jobs:
             ghcr.io/${{ github.repository }}:submission-a9e49db
             ghcr.io/${{ github.repository }}:submission-1273343
             ghcr.io/${{ github.repository }}:submission-322cc1d
+            ghcr.io/${{ github.repository }}:submission-e63ae1a
