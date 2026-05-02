@@ -232,6 +232,61 @@ Leitura: o ganho não é apenas microbenchmark. A primeira run ficou abaixo da s
 
 Decisão: aceito e publicado na branch de investigação. Como houve run reproduzida acima de `5548.91`, o próximo passo é preparar a submissão efetiva e abrir issue oficial da Rinha apontando para a melhor versão.
 
+### Publicação da submissão oficial
+
+Passos executados:
+
+```text
+Branch de investigação publicada:
+  perf/noon-tuning @ a9e49db
+
+Workflow de imagem:
+  Publish submission image
+  Run: https://github.com/viniciusdsandrade/rinha-de-backend-2026/actions/runs/25244430850
+  Resultado: sucesso
+
+Imagem pública:
+  ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission
+  digest: sha256:a61bcd2b3e32674e04f0a174ad59601c4d3f12c542aca01255905b8ae1ff28c2
+  plataforma confirmada: linux/amd64
+
+Branch submission:
+  origin/submission @ 870d435
+  docker-compose.yml na raiz
+  info.json na raiz
+  nginx.conf na raiz
+```
+
+Validação da branch `submission`:
+
+```text
+docker compose config => válido
+serviços: nginx + api1 + api2
+recursos: 0.18 + 0.41 + 0.41 = 1.00 CPU
+memória: 20MB + 165MB + 165MB = 350MB
+network: bridge
+porta externa: 9999
+imagem: linux/amd64
+```
+
+Tentativa de reabrir a issue anterior:
+
+```text
+Issue anterior: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/603
+Comando: gh issue reopen 603
+Resultado: falhou com GraphQL: Could not reopen the issue. (reopenIssue)
+```
+
+Issue oficial aberta:
+
+```text
+https://github.com/zanfranceschi/rinha-de-backend-2026/issues/719
+title: andrade-cpp-ivf
+body: rinha/test andrade-cpp-ivf
+```
+
+Decisão: submissão efetiva disparada porque a nova melhor run local (`5576.34`) superou a submissão oficial anterior (`5548.91`) mantendo `0%` de falhas.
+
 ## Experimento rejeitado: `worker_processes 2` no nginx
 
 Hipótese: aumentar o nginx de 1 para 2 workers poderia reduzir fila de accept/proxy no LB e melhorar p99, mesmo com `0.18 CPU`.
