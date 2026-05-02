@@ -920,3 +920,37 @@ submission: manter commit 8293b49 e imagem immutable submission-a9e49db
 perf/noon-tuning: manter como branch de investigação com o histórico de experimentos
 próximo foco técnico: somente mudanças com sinal local claro abaixo de ~2.65ms e sem qualquer erro de detecção
 ```
+
+## Ciclo 13h: experimento rejeitado no backlog UDS do uSockets
+
+Hipótese: o nginx encaminha para as APIs via Unix Domain Socket. O uSockets abre o socket Unix com `listen(..., 512)`, enquanto o nginx externo já usa `backlog=4096`. Aumentar o backlog interno das APIs para `4096` poderia absorver melhor rajadas do k6 e reduzir p99 sem tocar na lógica de negócio.
+
+Alteração testada:
+
+```c
+// cpp/third_party/uWebSockets/uSockets/src/bsd.c
+listen(listenFd, 512)
+listen(listenFd, 4096)
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp test -j8
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+
+Docker Desktop estava parado; foi reiniciado para manter o mesmo contexto de benchmark.
+docker info => 29.4.1 Docker Desktop
+GET /ready => 204
+```
+
+Resultado no benchmark oficial local:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Estado aceito, backlog UDS 512 | 2.65ms-2.86ms | 0 | 0 | 0 | 5543.37-5576.34 | referência |
+| Backlog UDS 4096 | 29.83ms | 0 | 0 | 0 | 4525.41 | rejeitado |
+
+Leitura: a mudança preservou correção, mas destruiu cauda de latência. É provável que aumentar a fila interna permita acúmulo maior antes de backpressure, piorando p99 em vez de estabilizar accept. Em desafio com score logarítmico e p99 crítico, backlog menor no socket da API é mais saudável.
+
+Decisão: rejeitado. `bsd.c` voltou para `listen(..., 512)` e não há alteração de código pendente desse experimento.
