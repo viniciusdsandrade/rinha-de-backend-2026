@@ -1092,6 +1092,26 @@ Leitura: ganho reproduzido em 3 runs, com p99 local melhorando de `1.23ms` para 
 
 Decisão: aceito. Próximo passo: publicar nova imagem imutável, atualizar branch `submission` e abrir issue oficial se o build remoto validar.
 
+Publicação oficial:
+
+| Item | Valor |
+|---|---|
+| commit da implementação | `322cc1d` |
+| commit da branch `submission` testado | `5db572a` |
+| imagem GHCR | `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-322cc1d` |
+| workflow de build | <https://github.com/viniciusdsandrade/rinha-de-backend-2026/actions/runs/25257770729> |
+| issue oficial | <https://github.com/zanfranceschi/rinha-de-backend-2026/issues/769> |
+
+Resultado oficial da issue `#769`:
+
+| p99 | FP | FN | HTTP errors | failure_rate | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1.48ms | 0 | 0 | 0 | 0% | 5830.15 |
+
+Leitura oficial: apesar do ganho local claro, a engine oficial piorou de `1.44ms / 5842.78` (`#764`) para `1.48ms / 5830.15`. A mudança não quebrou acurácia nem disponibilidade, mas não reproduziu no ambiente oficial. Como o ranking/submissão deve privilegiar resultado oficial, a branch `submission` deve voltar para a imagem `submission-a9e49db`, que gerou o melhor resultado oficial conhecido do dia.
+
+Decisão pós-oficial: rejeitado para submissão oficial. Manter o aprendizado e o commit na branch de exploração, mas restaurar `submission` para a melhor imagem oficial.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
