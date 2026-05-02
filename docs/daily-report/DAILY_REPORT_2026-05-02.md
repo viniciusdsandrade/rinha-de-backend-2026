@@ -875,6 +875,31 @@ Leitura: aumentar CPU do LB não trouxe melhora clara. O melhor score da famíli
 
 Decisão: rejeitado. `docker-compose.yml` voltou para `api=0.41+0.41`, `nginx=0.18`.
 
+## Ciclo 15h: experimento rejeitado com `ulimits.nofile=65535`
+
+Investigação externa: `thiagorigonatti/rinha-2026` e `joojf/rinha-2026` declaram `nofile=65535` nos serviços. A hipótese era que um limite maior de descritores poderia suavizar rajadas de conexões e reduzir cauda sem alterar recursos de CPU/memória.
+
+Alteração testada:
+
+```yaml
+ulimits:
+  nofile:
+    soft: 65535
+    hard: 65535
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| Referência `no-cork` | 1.16ms-1.19ms | 0 | 0 | 0 | 5925.03-5935.65 | melhor atual |
+| `nofile=65535` run 1 | 1.27ms | 0 | 0 | 0 | 5896.76 | rejeitado |
+| `nofile=65535` run 2 | 1.29ms | 0 | 0 | 0 | 5890.90 | rejeitado |
+
+Leitura: nesta stack, o aumento de `nofile` não só não ajudou como piorou a cauda local. Não há sinal de exaustão de file descriptors; o ajuste provavelmente só muda comportamento/overhead do runtime de forma desfavorável ou expôs ruído de ambiente sem benefício.
+
+Decisão: rejeitado. `docker-compose.yml` voltou sem `ulimits`.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
