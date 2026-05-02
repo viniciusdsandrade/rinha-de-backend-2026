@@ -793,6 +793,29 @@ Leitura: o microbenchmark de append foi real, mas enganoso para o sistema comple
 
 Decisão: rejeitado. `cpp/src/main.cpp` voltou para `body = std::string{}`.
 
+## Ciclo 16h: tentativa abortada de `known_merchants` com `string_view`
+
+Hipótese considerada: remover alocações de `std::string` em `customer.known_merchants` e `merchant.id`, mantendo `std::string_view` locais apenas até calcular `payload.known_merchant`.
+
+Alteração chegou a ser aplicada localmente e os testes unitários passaram:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests benchmark-request-cpp -j4
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Antes do k6, a hipótese foi cruzada contra o próprio histórico do report. Ela já havia sido testada e rejeitada mais de uma vez:
+
+| Registro histórico | Resultado | Decisão |
+|---|---:|---|
+| `2026-05-02`, parser com `string_view` para merchant matching | p99 `3.06ms`, score `5514.43` | rejeitado |
+| `2026-05-01`, `known_merchants` inline com `string_view` | p99 `4.71ms`, `123` FP, `117` FN | rejeitado por risco semântico |
+| `2026-04-25`, parser com `std::string_view` | p99 `5.24ms`, score `5280.75` | rejeitado |
+
+Leitura: a ideia é atraente em microbenchmark, mas já falhou no k6 e tem histórico de risco de lifetime/área interna do `simdjson` para strings materializadas. Repetir essa família seria ruído.
+
+Decisão: abortado antes de k6 e revertido. `cpp/src/request.cpp` voltou ao parser original com `std::vector<std::string>` e `std::string merchant_id`.
+
 ## Ciclo 14h: candidato local removendo `res->cork` no hot path
 
 Hipótese: depois da remoção do header `Content-Type`, o caminho de resposta passou a fazer apenas um `end()` com uma das seis strings estáticas de classificação. Nesse caso, o `res->cork(...)` pode ser overhead desnecessário no hot path do uWebSockets, porque não há múltiplas escritas a agrupar.
