@@ -33,4 +33,6 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64
-          tags: ghcr.io/${{ github.repository }}:submission
+          tags: |
+            ghcr.io/${{ github.repository }}:submission
+            ghcr.io/${{ github.repository }}:submission-a9e49db
