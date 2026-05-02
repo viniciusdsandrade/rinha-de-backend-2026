@@ -1023,3 +1023,42 @@ Screening de `nprobe`:
 Leitura: a aparente vitória inicial de `full_nprobe=3` era ruído de microbenchmark. Ao alternar contra a baseline com `repeat=2`, `fast=1/full=1` venceu de forma consistente. Nenhuma alteração de `nprobe` merece k6 enquanto a máquina estiver sob swap.
 
 Decisão: manter `IVF_FAST_NPROBE=1`, `IVF_FULL_NPROBE=1`, `IVF_BBOX_REPAIR=true`, `IVF_REPAIR_MIN_FRAUDS=1`, `IVF_REPAIR_MAX_FRAUDS=4`.
+
+## Ciclo 13h: experimento rejeitado em lookup de MCC por `switch`
+
+Hipótese: `mcc_risk` faz até 10 comparações de `std::string` por request. Como MCC tem 4 caracteres, converter o código para uma chave `uint32_t` e usar `switch` poderia reduzir custo de vetorização sem alterar precisão.
+
+Alteração testada:
+
+```cpp
+std::uint32_t mcc_key(std::string_view mcc) noexcept;
+
+float mcc_risk(std::string_view mcc) noexcept {
+    switch (mcc_key(mcc)) {
+        case 0x35343131U: return 0.15f;  // 5411
+        ...
+        default: return 0.50f;
+    }
+}
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests benchmark-ivf-cpp -j4
+ctest --test-dir cpp/build --output-on-failure
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+```
+
+Resultado offline:
+
+| Variante | `ns_per_query` | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| baseline antes do experimento | 17875.7-18383.5 | 0 | 0 | referência |
+| MCC por `switch`, round 1 | 18643.9 | 0 | 0 | rejeitado |
+| MCC por `switch`, round 2 | 17697.7 | 0 | 0 | inconclusivo |
+| MCC por `switch`, round 3 | 18422.5 | 0 | 0 | rejeitado |
+
+Leitura: a mudança é correta, mas o ganho não apareceu de forma robusta. O melhor round foi só ruído favorável; mediana e cauda ficaram iguais ou piores que a implementação simples com comparação de `std::string`. Como o objetivo é performance sustentável e inquestionável, isso não entra.
+
+Decisão: rejeitado. `vectorize.cpp` voltou ao lookup simples por comparação de string.
