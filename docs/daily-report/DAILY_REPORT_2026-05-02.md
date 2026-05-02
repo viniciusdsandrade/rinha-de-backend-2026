@@ -900,6 +900,56 @@ Leitura: nesta stack, o aumento de `nofile` não só não ajudou como piorou a c
 
 Decisão: rejeitado. `docker-compose.yml` voltou sem `ulimits`.
 
+## Ciclo 15h: experimento rejeitado com nginx `http` + upstream keepalive
+
+Investigação externa: `joojf/rinha-2026` usa nginx em modo `http`, proxy para UDS e upstream keepalive. A hipótese era que, embora `stream` seja mais simples, ele balanceia por conexão TCP; o modo `http` poderia distribuir por request e manter conexões upstream, talvez reduzindo cauda se houvesse desbalanceamento entre APIs.
+
+Alteração testada:
+
+```nginx
+http {
+    access_log off;
+    error_log /dev/null;
+
+    upstream api {
+        server unix:/sockets/api1.sock;
+        server unix:/sockets/api2.sock;
+        keepalive 256;
+    }
+
+    server {
+        listen 9999 reuseport backlog=4096;
+        keepalive_timeout 75s;
+        keepalive_requests 100000;
+
+        location / {
+            proxy_pass http://api;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_buffering off;
+        }
+    }
+}
+```
+
+Validação:
+
+```text
+nginx -T: syntax is ok
+GET /ready: HTTP/1.1 204 No Content
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| nginx `stream` UDS | 1.16ms-1.19ms | 0 | 0 | 0 | 5925.03-5935.65 | melhor atual |
+| nginx `http` + keepalive | 9.02ms | 0 | 0 | 0 | 5044.59 | rejeitado |
+
+Leitura: o custo de HTTP proxy no nginx dominou completamente qualquer benefício potencial de keepalive upstream ou balanceamento por request. A queda foi grande o suficiente para interromper as runs seguintes.
+
+Decisão: rejeitado. `nginx.conf` voltou para `stream` L4 com UDS.
+
 ## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
 
 Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
