@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -44,6 +43,7 @@ struct AppState {
 
             const std::uint8_t fraud_count = ivf->fraud_count(query, ivf_config);
             classification.fraud_score = static_cast<float>(fraud_count) * 0.2f;
+            classification.fraud_count = fraud_count;
             classification.approved = fraud_count < 3U;
             return true;
         }
@@ -173,10 +173,7 @@ std::string_view classification_json(const rinha::Classification& classification
     constexpr std::string_view json_4 = "{\"approved\":false,\"fraud_score\":0.8}";
     constexpr std::string_view json_5 = "{\"approved\":false,\"fraud_score\":1.0}";
 
-    const int bucket =
-        std::clamp(static_cast<int>(std::floor((classification.fraud_score * 5.0f) + 0.5f)), 0, 5);
-
-    switch (bucket) {
+    switch (classification.fraud_count) {
         case 0:
             return json_0;
         case 1:

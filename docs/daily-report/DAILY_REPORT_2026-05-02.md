@@ -788,6 +788,50 @@ Leitura: reservar explicitamente não reduziu p99 e ficou abaixo da referência.
 
 Decisão: rejeitado. `main.cpp` voltou ao `body.append(...)` simples.
 
+## Ciclo 13h: experimento aceito com `fraud_count` inteiro na resposta
+
+Hipótese: `classification_json` recalculava o bucket da resposta usando `floor((fraud_score * 5.0f) + 0.5f)`. No caminho IVF, o valor inteiro `fraud_count` já existe. Carregar esse inteiro em `Classification` permite selecionar a resposta JSON constante sem matemática float no hot path.
+
+Alteração aplicada:
+
+```cpp
+struct Classification {
+    bool approved = true;
+    float fraud_score = 0.0f;
+    std::uint8_t fraud_count = 0;
+};
+
+classification.fraud_score = static_cast<float>(fraud_count) * 0.2f;
+classification.fraud_count = fraud_count;
+classification.approved = fraud_count < 3U;
+
+switch (classification.fraud_count) {
+    case 0: return json_0;
+    ...
+}
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline aceita antes da mudança | 1 | 1.23ms | 0 | 0 | 0 | 5909.72 |
+| baseline aceita antes da mudança | 2 | 1.24ms | 0 | 0 | 0 | 5908.32 |
+| `fraud_count` inteiro no JSON path | 1 | 1.23ms | 0 | 0 | 0 | 5910.62 |
+| `fraud_count` inteiro no JSON path | 2 | 1.23ms | 0 | 0 | 0 | 5910.59 |
+
+Leitura: o ganho é pequeno, mas reproduzido em duas runs e sem mexer em precisão, topologia ou recursos. A mudança também remove ambiguidade float no response path e simplifica a seleção das strings constantes.
+
+Decisão: aceito. Próximo passo: publicar imagem imutável nova, atualizar branch `submission` e abrir issue oficial se o build remoto validar.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.

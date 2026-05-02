@@ -29,6 +29,7 @@ struct Payload {
 struct Classification {
     bool approved = true;
     float fraud_score = 0.0f;
+    std::uint8_t fraud_count = 0;
 };
 
 using QueryVector = std::array<float, kDimensions>;

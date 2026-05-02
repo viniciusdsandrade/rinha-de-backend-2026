@@ -60,6 +60,7 @@ bool Classifier::classify(const Payload& payload, Classification& classification
     }
 
     classification.fraud_score = static_cast<float>(fraud_count) * 0.2f;
+    classification.fraud_count = static_cast<std::uint8_t>(fraud_count);
     classification.approved = fraud_count < 3U;
     return true;
 }
