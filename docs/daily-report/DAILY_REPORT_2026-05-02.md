@@ -1208,3 +1208,30 @@ Resultado no `DOCKER_CONTEXT=default`:
 Leitura: a diretiva é válida, mas não melhorou o caminho. O default atual já está suficientemente bom ou o gargalo não está em coalescência de pacotes.
 
 Decisão: rejeitado. `nginx.conf` voltou a não declarar `tcp_nodelay`.
+
+## Ciclo 13h: experimento rejeitado com backlog externo `8192`
+
+Hipótese: aumentar o backlog externo da porta `9999` poderia absorver melhor rajadas de conexão do k6. Diferente do backlog UDS interno, esse ajuste atua na entrada do LB antes do proxy para as APIs.
+
+Alteração testada:
+
+```nginx
+listen 9999 reuseport backlog=8192;
+```
+
+Validação:
+
+```text
+nginx -T confirmou listen 9999 reuseport backlog=8192
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| `backlog=4096` | 1.23ms-1.24ms | 0 | 0 | 0 | 5908.32-5909.72 | referência |
+| `backlog=8192` | 1.24ms | 0 | 0 | 0 | 5908.31 | rejeitado |
+
+Leitura: o resultado empatou com a pior run da referência e não superou a melhor. Sem ganho claro, aumentar backlog só adiciona superfície de configuração sem retorno.
+
+Decisão: rejeitado. `nginx.conf` voltou para `listen 9999 reuseport backlog=4096`.
