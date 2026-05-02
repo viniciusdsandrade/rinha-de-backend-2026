@@ -850,6 +850,69 @@ Resultado oficial da issue `#767`:
 
 Leitura oficial: a submissão nova foi aceita pela engine e validou a imagem `submission-1273343`, mas não superou a melhor rerun oficial do dia (`#764`, `final_score=5842.78`). A diferença é de `-0.54` ponto, dentro do ruído esperado para p99 arredondado em `1.44ms`. Portanto, o patch fica aceito tecnicamente por clareza e leve ganho local, mas não deve ser tratado como novo topo oficial.
 
+## Ciclo 14h: experimento rejeitado com HAProxy como LB
+
+Hipótese: as submissões acima da nossa no ranking parcial usam UDS com LBs muito enxutos. A líder em C (`thiagorigonatti-c`) usa `haproxy:3.3` com dois backends em Unix socket, e a `jairoblatt-rust` também usa UDS com um LB L4 dedicado. Talvez trocar `nginx stream` por HAProxy reduza overhead de proxy e aproxime a execução local de `1.20ms-1.25ms`.
+
+Investigação:
+
+| Fonte | Observação relevante |
+|---|---|
+| `thiagorigonatti/rinha-2026` | HAProxy `3.3`, `balance roundrobin`, `server apiN unix@...`, APIs com `0.40 CPU / 150MB`, LB com `0.20 CPU / 50MB` |
+| `jairoblatt/rinha-2026-rust` | LB L4 via socket Unix, `0.2 CPU`, APIs `0.4 CPU`, `seccomp=unconfined` |
+| nossa stack | `nginx:1.27-alpine` em `stream`, UDS, `0.18 CPU / 20MB`, APIs `0.41 CPU / 165MB` |
+
+Alteração testada:
+
+```yaml
+haproxy:
+  image: haproxy:3.3
+  volumes:
+    - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    - sockets:/sockets
+  deploy:
+    resources:
+      limits:
+        cpus: "0.20"
+        memory: "50MB"
+
+api1/api2:
+  cpus: "0.40"
+  memory: "150MB"
+```
+
+Configuração do HAProxy:
+
+```text
+defaults
+    mode tcp
+    retries 0
+    timeout connect 50ms
+    timeout client 2s
+    timeout server 2s
+
+frontend main
+    bind *:9999 backlog 4096
+    default_backend api
+
+backend api
+    balance roundrobin
+    server api1 unix@/sockets/api1.sock
+    server api2 unix@/sockets/api2.sock
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| nginx atual | referência | 1.23ms-1.24ms | 0 | 0 | 0 | 5908.32-5910.62 |
+| HAProxy `3.3` | 1 | 1.28ms | 0 | 0 | 0 | 5892.38 |
+| HAProxy `3.3` | 2 | 1.28ms | 0 | 0 | 0 | 5892.90 |
+
+Leitura: HAProxy funcionou corretamente e preservou `0%` falhas, mas piorou p99 de forma reproduzida. O ganho dos líderes parece vir mais do servidor HTTP/io_uring/classificador do que do HAProxy isoladamente. Para a nossa pilha uWebSockets + nginx stream, o nginx atual continua superior.
+
+Decisão: rejeitado. `docker-compose.yml` voltou para `nginx:1.27-alpine`, `0.18 CPU / 20MB` no LB e `0.41 CPU / 165MB` nas APIs.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
