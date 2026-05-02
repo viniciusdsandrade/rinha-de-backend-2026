@@ -753,6 +753,41 @@ Leitura: mesmo com um worker, manter `reuseport` foi melhor no benchmark local. 
 
 Decisão: rejeitado. `nginx.conf` voltou para `listen 9999 reuseport backlog=4096`.
 
+## Ciclo 13h: experimento rejeitado com `body.reserve(768)`
+
+Hipótese: o corpo do `POST /fraud-score` é maior que SSO e normalmente chega em um chunk. Reservar capacidade antes do `append` poderia evitar alocação/tamanho exato no hot path do uWebSockets.
+
+Alteração testada:
+
+```cpp
+res->onData([res, state, body = std::string{}](std::string_view chunk, bool is_last) mutable {
+    if (body.empty()) {
+        body.reserve(768);
+    }
+    body.append(chunk.data(), chunk.size());
+    ...
+});
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+1/1 Test #1: rinha-backend-2026-cpp-tests ..... Passed
+```
+
+Resultado no `DOCKER_CONTEXT=default`:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---|
+| append default | 1.23ms-1.24ms | 0 | 0 | 0 | 5908.32-5909.72 | referência |
+| `body.reserve(768)` | 1.24ms | 0 | 0 | 0 | 5908.08 | rejeitado |
+
+Leitura: reservar explicitamente não reduziu p99 e ficou abaixo da referência. O custo relevante continua no parser/classificador e no caminho de rede, não nessa alocação específica.
+
+Decisão: rejeitado. `main.cpp` voltou ao `body.append(...)` simples.
+
 ## Experimento rejeitado: índice 1280 com treino maior e mais iterações
 
 Hipótese: depois de aceitar `1280` clusters, aumentar a amostra de treino e as iterações do k-means poderia melhorar a distribuição dos clusters, reduzir custo de reparo e manter `0 FP/FN`.
