@@ -313,3 +313,25 @@ Resultado:
 Leitura: não houve sinal de ganho; ficou pior que o estado `seccomp` puro. O teste local não parece limitado por `nofile`.
 
 Decisão: rejeitado e revertido. Manter apenas `seccomp=unconfined`.
+
+## Ciclo 21h25: escopo mínimo do `seccomp=unconfined`
+
+Hipótese: talvez o ajuste de `seccomp=unconfined` precisasse ficar apenas nas APIs, reduzindo superfície de configuração no LB.
+
+Alteração experimental:
+
+```text
+api1/api2: seccomp=unconfined
+nginx: seccomp padrão do Docker
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `seccomp=unconfined` em APIs + nginx | 1.59ms-1.60ms | 0 | 0 | 0 | 5796.73-5798.91 |
+| `seccomp=unconfined` apenas nas APIs | 1.64ms | 0 | 0 | 0 | 5785.66 |
+
+Leitura: reduzir o escopo para apenas APIs piorou a cauda. O pequeno ganho observado parece depender do nginx também, ou pelo menos da recriação completa com ambos sem seccomp.
+
+Decisão: rejeitar escopo parcial e restaurar `seccomp=unconfined` em APIs e nginx no branch de tuning.
