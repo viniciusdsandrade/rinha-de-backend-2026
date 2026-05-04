@@ -174,3 +174,37 @@ Foram preparados índices alternativos com os mesmos parâmetros de treino (`sam
 Leitura: `1536` parece levemente mais rápido offline, mas já introduz erro. Pela fórmula, mesmo poucos FP/FN quebram o teto de `detection_score=3000`, então a troca não é sustentável. O índice `1280` segue sendo o melhor compromisso medido: 0 erro e custo competitivo.
 
 Decisão: não alterar `Dockerfile`, índice nem variáveis IVF.
+
+## Ciclo 20h35: investigação em repositórios líderes e ordem de prune AVX2
+
+Fontes consultadas:
+
+- `https://github.com/thiagorigonatti/rinha-2026`
+- `https://github.com/joojf/rinha-2026`
+
+Achados relevantes:
+
+- A solução C líder usa C + `io_uring` + HAProxy, respostas HTTP pré-montadas, UDS e IVF quantizado.
+- A solução Rust usa parser manual de bytes, monoio, respostas HTTP pré-montadas e busca IVF quantizada.
+- Ambas evitam parser JSON genérico no hot path e tratam o score como contagem inteira de fraudes.
+- A implementação C líder usa uma ordem manual de dimensões no scan escalar (`5,6,2,0,7,8,11,12,9,10,1,13,3,4`) para tentar cortar cedo por dimensões discriminativas.
+
+Hipótese testada: aplicar a mesma ordem de dimensões no nosso `scan_blocks_avx2`, mantendo o cálculo exato/quantizado e só mudando a ordem de acumulação antes do prune parcial.
+
+Validação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j4
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado:
+
+| Variante | ns/query | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| Ordem original AVX2 | 17741.1 | 0 | 0 | referência da rodada |
+| Ordem estilo líder C no prune AVX2 | 21701.9 | 0 | 0 | rejeitar |
+
+Leitura: a ideia faz sentido no escalar, mas piorou nosso AVX2. A hipótese provável é que o nosso layout transposto por blocos e o ponto de prune depois de 8 dimensões favorecem a ordem sequencial atual; reordenar acessos aumenta custo/cache ou piora o código gerado mais do que ajuda o corte.
+
+Decisão: rejeitado e revertido. Nenhuma alteração de código foi mantida.
