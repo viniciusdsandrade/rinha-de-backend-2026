@@ -80,3 +80,32 @@ Resultado: 100% tests passed, 0 failed
 1. Criar um harness local estável sem dependência de `jslib.k6.io`, mas sem alterar o arquivo oficial `test/test.js`, para evitar bloqueios de rede durante experimentos longos.
 2. Revalidar baseline uWebSockets em uma janela fria com 3 runs antes de aceitar qualquer microganho.
 3. Priorizar experimentos menores que o servidor manual completo: headers/resposta, recycle de buffers, tuning de compose e ajustes localizados no parser/classificador.
+
+## Ciclo 20h20: runner k6 local sem dependência remota
+
+Hipótese: a investigação estava sendo bloqueada por uma dependência externa (`jslib.k6.io`) que não participa do cálculo de score. Um runner auxiliar local permitiria repetir o benchmark sem editar `test/test.js` nem depender de rede durante cada experimento.
+
+Implementação:
+
+```text
+run-local-k6.sh
+```
+
+O script cria uma cópia temporária de `test/test.js`, remove apenas a linha de import de `k6-summary`, copia `test/test-data.json`, cria o diretório temporário `test/` necessário para o `handleSummary`, roda `k6`, copia `test/results.json` de volta para o repo e imprime o JSON com `jq`.
+
+Validação:
+
+```text
+bash -n run-local-k6.sh
+./run-local-k6.sh
+```
+
+Resultado de smoke/benchmark no estado uWebSockets atual:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| uWebSockets atual via `run-local-k6.sh` | 1.78ms | 0 | 0 | 0 | 5749.22 |
+
+Leitura: o runner resolveu o bloqueio operacional, mas a máquina/janela continuou mais lenta que a faixa histórica boa (`~1.22ms-1.25ms`). Portanto, esse número serve como baseline da janela atual, não como regressão do código.
+
+Decisão: aceitar o runner como ferramenta de investigação branch-local. Ele não altera o teste oficial e reduz dependência de rede em ciclos longos.
