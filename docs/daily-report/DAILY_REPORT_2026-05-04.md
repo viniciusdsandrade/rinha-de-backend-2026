@@ -286,7 +286,7 @@ Leitura: o ganho é pequeno, mas reproduziu na mesma janela e não alterou compo
 
 Risco regulatório: a regra oficial proíbe `privileged` e `network_mode: host`; não há proibição explícita de `security_opt`. As submissões líderes consultadas também usam esse ajuste. Ainda assim, por ser uma opção de segurança do container, deve ser revalidada antes de promover para `submission`.
 
-Decisão: aceitar como candidato branch-local. Manter no `perf/noon-tuning` para mais reamostragem; não abrir submissão oficial só por esse ganho marginal sem novo bloco robusto.
+Decisão inicial: aceitar como candidato branch-local para reamostragem; não abrir submissão oficial só por esse ganho marginal sem novo bloco robusto.
 
 ## Ciclo 21h10: `ulimits.nofile=65535`
 
@@ -334,4 +334,19 @@ Resultado:
 
 Leitura: reduzir o escopo para apenas APIs piorou a cauda. O pequeno ganho observado parece depender do nginx também, ou pelo menos da recriação completa com ambos sem seccomp.
 
-Decisão: rejeitar escopo parcial e restaurar `seccomp=unconfined` em APIs e nginx no branch de tuning.
+Decisão: rejeitar escopo parcial e restaurar `seccomp=unconfined` em APIs e nginx para mais uma medição.
+
+## Ciclo 21h35: reamostragem final do `seccomp=unconfined`
+
+Hipótese: se o ganho fosse real, uma nova medição com `seccomp=unconfined` em APIs e nginx deveria continuar próxima de `1.59ms-1.60ms`.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `seccomp=unconfined` em APIs + nginx, reamostragem final | 1.63ms | 0 | 0 | 0 | 5786.57 |
+| Controle reverso sem `seccomp=unconfined` | 1.63ms | 0 | 0 | 0 | 5788.78 |
+
+Leitura: a reamostragem final empatou com o controle sem `seccomp`. O ganho inicial existiu na janela, mas não sustentou evidência suficiente para ser chamado de inquestionável.
+
+Decisão final: rejeitado por sustentabilidade. `docker-compose.yml` voltou ao estado sem `security_opt`; manter apenas o aprendizado no relatório.
