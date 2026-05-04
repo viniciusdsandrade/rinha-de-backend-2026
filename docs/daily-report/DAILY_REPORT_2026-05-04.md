@@ -208,3 +208,42 @@ Resultado:
 Leitura: a ideia faz sentido no escalar, mas piorou nosso AVX2. A hipótese provável é que o nosso layout transposto por blocos e o ponto de prune depois de 8 dimensões favorecem a ordem sequencial atual; reordenar acessos aumenta custo/cache ou piora o código gerado mais do que ajuda o corte.
 
 Decisão: rejeitado e revertido. Nenhuma alteração de código foi mantida.
+
+## Ciclo 20h45: HAProxy HTTP com UDS como substituto do nginx
+
+Hipótese: a solução C líder usa HAProxy em HTTP mode com UDS e `http-reuse always`. Talvez o HAProxy pudesse reduzir overhead do LB em relação ao nginx atual.
+
+Alteração experimental:
+
+```text
+nginx:1.27-alpine -> haproxy:3.3
+backend via unix@/sockets/api1.sock e unix@/sockets/api2.sock
+balance roundrobin
+http-reuse always
+```
+
+Validação funcional:
+
+```text
+docker compose config
+docker compose up -d --force-recreate --remove-orphans
+curl http://localhost:9999/ready
+Resultado: ready após duas conexões resetadas durante startup
+```
+
+Benchmark:
+
+```text
+./run-local-k6.sh
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| HAProxy 3.3 HTTP/UDS | 36.96ms | 0 | 0 | 0 | 4432.31 |
+| nginx atual na mesma janela, referência recente | 1.78ms | 0 | 0 | 0 | 5749.22 |
+
+Leitura: HAProxy nessa configuração é muito pior localmente. Pode funcionar bem na solução C líder por causa do servidor `io_uring` e do desenho completo do stack, mas como swap isolado de LB para nossa API uWebSockets/UDS não é sustentável.
+
+Decisão: rejeitado e revertido para nginx. Nenhuma alteração de infra foi mantida.
