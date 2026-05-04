@@ -287,3 +287,29 @@ Leitura: o ganho é pequeno, mas reproduziu na mesma janela e não alterou compo
 Risco regulatório: a regra oficial proíbe `privileged` e `network_mode: host`; não há proibição explícita de `security_opt`. As submissões líderes consultadas também usam esse ajuste. Ainda assim, por ser uma opção de segurança do container, deve ser revalidada antes de promover para `submission`.
 
 Decisão: aceitar como candidato branch-local. Manter no `perf/noon-tuning` para mais reamostragem; não abrir submissão oficial só por esse ganho marginal sem novo bloco robusto.
+
+## Ciclo 21h10: `ulimits.nofile=65535`
+
+Hipótese: soluções líderes configuram `nofile=65535`; mesmo que o teste não pareça bater limite de descritores, aumentar o limite poderia reduzir risco de cauda em pico de conexões.
+
+Alteração experimental:
+
+```yaml
+ulimits:
+  nofile:
+    soft: 65535
+    hard: 65535
+```
+
+Aplicada em APIs e nginx, sobre o estado já com `seccomp=unconfined`.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `seccomp=unconfined` sem `ulimits`, referência | 1.59ms-1.60ms | 0 | 0 | 0 | 5796.73-5798.91 |
+| `seccomp=unconfined` + `ulimits.nofile=65535` | 1.62ms | 0 | 0 | 0 | 5789.72 |
+
+Leitura: não houve sinal de ganho; ficou pior que o estado `seccomp` puro. O teste local não parece limitado por `nofile`.
+
+Decisão: rejeitado e revertido. Manter apenas `seccomp=unconfined`.
