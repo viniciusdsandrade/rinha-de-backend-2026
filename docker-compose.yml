@@ -14,6 +14,8 @@ services:
       IVF_REPAIR_MAX_FRAUDS: "4"
     networks:
       - backend
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - sockets:/sockets
     deploy:
@@ -42,6 +44,8 @@ services:
       - "9999:9999"
     networks:
       - backend
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - sockets:/sockets

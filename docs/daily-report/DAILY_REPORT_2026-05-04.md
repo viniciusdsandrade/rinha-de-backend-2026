@@ -247,3 +247,43 @@ Resultado:
 Leitura: HAProxy nessa configuração é muito pior localmente. Pode funcionar bem na solução C líder por causa do servidor `io_uring` e do desenho completo do stack, mas como swap isolado de LB para nossa API uWebSockets/UDS não é sustentável.
 
 Decisão: rejeitado e revertido para nginx. Nenhuma alteração de infra foi mantida.
+
+## Ciclo 21h00: `seccomp=unconfined` em APIs e LB
+
+Hipótese: soluções líderes usam `security_opt: seccomp=unconfined`, principalmente para caminhos de I/O mais baixo nível. Mesmo sem `io_uring`, remover o filtro seccomp padrão do Docker poderia reduzir overhead marginal de syscalls no caminho nginx/API.
+
+Alteração:
+
+```yaml
+security_opt:
+  - seccomp=unconfined
+```
+
+Aplicada em:
+
+- `api1`/`api2` via âncora comum.
+- `nginx`.
+
+Validação:
+
+```text
+docker compose config
+docker compose up -d --force-recreate --remove-orphans
+curl http://localhost:9999/ready
+Resultado: ready
+```
+
+Resultados:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Sem `seccomp=unconfined`, baseline anterior da janela | 1.78ms | 0 | 0 | 0 | 5749.22 |
+| Com `seccomp=unconfined`, run 1 | 1.60ms | 0 | 0 | 0 | 5796.73 |
+| Com `seccomp=unconfined`, run 2 | 1.59ms | 0 | 0 | 0 | 5798.91 |
+| A/B reverso sem `seccomp=unconfined` | 1.63ms | 0 | 0 | 0 | 5788.78 |
+
+Leitura: o ganho é pequeno, mas reproduziu na mesma janela e não alterou comportamento de detecção. O A/B reverso não voltou para o pior `1.78ms`, então parte do ganho inicial era ambiente; ainda assim, `seccomp=unconfined` ficou consistentemente melhor que o controle imediato (`1.59-1.60ms` vs `1.63ms`).
+
+Risco regulatório: a regra oficial proíbe `privileged` e `network_mode: host`; não há proibição explícita de `security_opt`. As submissões líderes consultadas também usam esse ajuste. Ainda assim, por ser uma opção de segurança do container, deve ser revalidada antes de promover para `submission`.
+
+Decisão: aceitar como candidato branch-local. Manter no `perf/noon-tuning` para mais reamostragem; não abrir submissão oficial só por esse ganho marginal sem novo bloco robusto.
