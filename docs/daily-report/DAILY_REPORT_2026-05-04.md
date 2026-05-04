@@ -109,3 +109,68 @@ Resultado de smoke/benchmark no estado uWebSockets atual:
 Leitura: o runner resolveu o bloqueio operacional, mas a máquina/janela continuou mais lenta que a faixa histórica boa (`~1.22ms-1.25ms`). Portanto, esse número serve como baseline da janela atual, não como regressão do código.
 
 Decisão: aceitar o runner como ferramenta de investigação branch-local. Ele não altera o teste oficial e reduz dependência de rede em ciclos longos.
+
+## Ciclo 20h25: benchmark offline do hot path e varredura IVF
+
+Hipótese: com o k6 contaminado por ambiente, benchmarks internos poderiam apontar gargalos com menos ruído antes de qualquer nova alteração em Docker.
+
+Benchmark de decomposição:
+
+```text
+./cpp/build/benchmark-request-cpp test/test-data.json resources/references.json.gz 3 54100
+```
+
+Resultado:
+
+| Métrica | ns/query |
+|---|---:|
+| `body_append_default` | 40.13 |
+| `body_append_reserve768` | 39.34 |
+| `dom_padded_parse` | 343.49 |
+| `dom_reserve768_parse` | 632.99 |
+| `parse_payload` | 703.26 |
+| `parse_vectorize` | 771.62 |
+| `parse_classify` | 451672 |
+
+Leitura: parser/vetorização é irrelevante perto do classificador quando medido isoladamente. O resultado também confirma novamente que `reserve(768)` e parse com string reservada não merecem voltar: o ganho de append é sub-ns/baixo, e o parse reservado é pior.
+
+### Varredura de configuração IVF no índice atual
+
+Índice atual copiado do container:
+
+```text
+refs=3000000
+clusters=1280
+index_memory_mb=94.6933
+```
+
+Resultados com `benchmark-ivf-cpp`:
+
+| Configuração | ns/query | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| `fast=1 full=1 bbox=1 repair=1..4` | 17741.1 | 0 | 0 | manter |
+| `fast=1 full=1 bbox=0 repair=1..4` | 14611.7 | 254 | 262 | rejeitar |
+| `fast=1 full=1 bbox=1 repair=2..3` | 20438.8 | 44 | 56 | rejeitar |
+| `fast=1 full=1 bbox=1 repair=2..4` | 20633.3 | 0 | 56 | rejeitar |
+| `fast=1 full=1 bbox=1 repair=1..3` | 24379.3 | 44 | 0 | rejeitar |
+| `fast=1 full=2 bbox=1 repair=1..4` | 22891.2 | 0 | 0 | rejeitar, mais lento |
+| `fast=1 full=1 bbox=1 repair=0..5` | 75221.8 | 0 | 0 | rejeitar, muito mais lento |
+
+Leitura: desligar `bbox_repair` é mais rápido, mas os erros de detecção destruiriam mais score do que qualquer ganho de p99. A configuração atual continua sendo o melhor ponto sem erro.
+
+### Varredura de quantidade de clusters
+
+Foram preparados índices alternativos com os mesmos parâmetros de treino (`sample=65536`, `iterations=6`) e apenas `clusters` variando.
+
+| Clusters | Configuração | ns/query | FP | FN | Decisão |
+|---:|---|---:|---:|---:|---|
+| 1024 | `fast=1 full=1 bbox=1 repair=1..4` | 18763.7 | 2 | 4 | rejeitar |
+| 1024 | `fast=1 full=2 bbox=1 repair=1..4` | 16677.8 | 2 | 4 | rejeitar |
+| 1536 | `fast=1 full=1 bbox=1 repair=1..4` | 17251.4 | 4 | 0 | rejeitar |
+| 1536 | `fast=1 full=1 bbox=0 repair=1..4` | 13750.1 | 262 | 268 | rejeitar |
+| 2048 | `fast=1 full=1 bbox=1 repair=1..4` | 19253.2 | 6 | 6 | rejeitar |
+| 2048 | `fast=1 full=1 bbox=0 repair=1..4` | 15318.8 | 286 | 296 | rejeitar |
+
+Leitura: `1536` parece levemente mais rápido offline, mas já introduz erro. Pela fórmula, mesmo poucos FP/FN quebram o teto de `detection_score=3000`, então a troca não é sustentável. O índice `1280` segue sendo o melhor compromisso medido: 0 erro e custo competitivo.
+
+Decisão: não alterar `Dockerfile`, índice nem variáveis IVF.
