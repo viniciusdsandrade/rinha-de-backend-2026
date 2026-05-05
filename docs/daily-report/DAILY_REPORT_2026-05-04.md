@@ -409,3 +409,19 @@ Resultado:
 Leitura: reduzir clusters aumentou o tamanho dos grupos e deixou o repair mais caro, além de introduzir erros. A escolha atual `1280` segue sendo o único ponto da varredura ampla com 0 erro e custo competitivo.
 
 Decisão: não alterar índice nem `Dockerfile`.
+
+## Ciclo 21h10: treino IVF mais caro com `1280` clusters
+
+Hipótese: mantendo `1280` clusters, aumentar iterações de k-means ou amostra de treino poderia melhorar a qualidade dos clusters, reduzir repair/scan e preservar 0 erro.
+
+Resultado:
+
+| Variante de build | ns/query | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| `clusters=1280 sample=65536 iterations=6` atual | 17741.1 | 0 | 0 | manter |
+| `clusters=1280 sample=65536 iterations=8` | 18292.4 | 0 | 2 | rejeitar |
+| `clusters=1280 sample=131072 iterations=6` | 20169.8 | 4 | 4 | rejeitar |
+
+Leitura: treinar mais não melhorou o índice para o dataset de teste; pelo contrário, introduziu erros e aumentou custo. A versão atual parece melhor calibrada para o conjunto rotulado local.
+
+Decisão: não alterar parâmetros de build do índice.
