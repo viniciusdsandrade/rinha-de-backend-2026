@@ -1744,3 +1744,33 @@ Resultado válido:
 Leitura: com reconstrução real, a flag piorou a amostra. O ganho aparente anterior era apenas variação de benchmark sobre a mesma imagem antiga. Este achado também reforça a disciplina operacional: mudanças de CMake/Dockerfile exigem rebuild explícito antes de qualquer conclusão.
 
 Decisão: rejeitado e revertido. Manter o CMake estável sem `-fno-plt`.
+
+## Ciclo 04h20: split CPU intermediário (`0.415/0.415/0.17`)
+
+Hipótese: como `0.42/0.42/0.16` e `0.40/0.40/0.20` já tinham sido rejeitados, talvez um ponto intermediário entregasse mais CPU às APIs sem reduzir demais o nginx.
+
+Alteração experimental:
+
+```yaml
+api1/api2: cpus: "0.415"
+nginx:     cpus: "0.17"
+```
+
+Validação do Docker:
+
+```text
+/perf-noon-tuning-api1-1 NanoCpus=415000000 Memory=173015040
+/perf-noon-tuning-api2-1 NanoCpus=415000000 Memory=173015040
+/perf-noon-tuning-nginx-1 NanoCpus=170000000 Memory=20971520
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.415/0.415/0.17` | 1.74ms | 0 | 0 | 0 | 5760.68 |
+| Controle reverso `0.41/0.41/0.18` | 1.59ms | 0 | 0 | 0 | 5799.57 |
+
+Leitura: reduzir nginx de `0.18` para `0.17` piorou a cauda nesta janela. A configuração atual continua mais segura: o LB aparentemente ainda precisa dessa folga mínima para segurar a borda sob rampa.
+
+Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
