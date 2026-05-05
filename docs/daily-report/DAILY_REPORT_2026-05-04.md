@@ -967,6 +967,37 @@ Leitura: mais CPU no nginx não compensou a perda de CPU nas APIs. O classificad
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
 
+## Fechamento operacional 02h00
+
+Nota de ordenação: durante a rodada final, alguns blocos foram inseridos antes do fim físico do arquivo por reaproveitamento de contexto no patch. Os blocos finais da madrugada estão registrados neste arquivo em:
+
+| Linha aproximada | Bloco |
+|---:|---|
+| 970 | `Ciclo 04h35: revalidação do split dos líderes (0.40/0.40/0.20)` |
+| 1000 | `Ciclo 04h50: HAProxy TCP L4 com UDS` |
+| 1042 | `Ciclo 05h10: binário principal com -fno-rtti` |
+| 1065 | `Ciclo 05h25: caracterização de variância da stack estável` |
+| 1093 | `Ciclo 05h40: split de memória inspirado nos líderes (160/160/30)` |
+| 1123 | `Fechamento 05h50: última run estável antes de encerrar` |
+
+Resumo final da janela até `2026-05-05 02:00 -03`:
+
+| Experimento | Melhor leitura | Decisão |
+|---|---:|---|
+| `worker_priority -5` | 1.60ms / 5797.22 | rejeitado |
+| `-fno-plt` com rebuild real | 1.60ms / 5796.52 | rejeitado |
+| CPU `0.415/0.415/0.17` | 1.74ms / 5760.68 | rejeitado |
+| CPU `0.40/0.40/0.20` | 1.59ms / 5799.47 | rejeitado por empate/ruído |
+| HAProxy TCP L4/UDS | 3.53ms / 5451.81 | rejeitado |
+| `-fno-rtti` com rebuild real | 1.63ms / 5788.55 | rejeitado |
+| Variância estável | 1.57ms-1.65ms / 5783.57-5803.96 | apenas caracterização |
+| Memória `160/160/30` | 1.67ms / 5775.99 | rejeitado |
+| Última run estável restaurada | 1.58ms / 5802.28 | saudável, sem submissão |
+
+Melhor submissão publicada permanece a issue oficial #1314: `p99 1.43ms`, `final_score 5844.41`, 0 FP/FN/HTTP errors. Nenhum resultado desta rodada superou esse patamar de forma sustentável, portanto nenhuma nova issue/submissão foi aberta.
+
+Estado preservado: `docker-compose.yml` voltou para `0.41/0.41/0.18` e `165/165/20`, `nginx.conf` voltou para nginx `stream` com `worker_processes 2`, `multi_accept off`, `reuseport backlog=4096`, e o CMake voltou sem `-fno-plt`/`-fno-rtti`.
+
 ## Ciclo 04h35: revalidação do split dos líderes (`0.40/0.40/0.20`)
 
 Hipótese: os repositórios líderes usam desenho próximo de `0.40/0.40/0.20`, com LB um pouco mais privilegiado. Como o teste `0.415/0.415/0.17` indicou sensibilidade ao CPU do nginx, valia revalidar a alternativa com mais CPU na borda no Docker Engine correto.
