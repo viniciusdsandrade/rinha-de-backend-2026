@@ -1124,6 +1124,51 @@ Achados:
 
 Decisão: nenhuma nova mudança derivada dessas fontes. Elas reforçam as rejeições já medidas: parser padding não compensa, e ajustes de accept mutex/multi_accept/worker count fora do estado atual têm baixa chance sem novo desenho estrutural.
 
+## Ciclo 01h15: diagnóstico de dois Docker daemons
+
+Problema observado: a porta `9999` permanecia ocupada mesmo após `docker compose down` no contexto padrão.
+
+Investigação:
+
+```text
+docker context show
+desktop-linux
+
+ss -ltnp 'sport = :9999'
+LISTEN 0 4096 0.0.0.0:9999
+
+ps -fp 1808,168120,168144,168173,168181
+/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+/usr/bin/containerd-shim-runc-v2 ... -id 352592...
+nginx: master process nginx -g daemon off;
+/usr/bin/docker-proxy ... -host-port 9999 ...
+
+DOCKER_HOST=unix:///run/docker.sock docker ps -a
+352592... perf-noon-tuning-nginx-1 Up ... 0.0.0.0:9999->9999/tcp
+```
+
+Leitura: havia dois daemons em uso:
+
+- Docker Desktop (`desktop-linux`), usado pelo `docker` padrão da sessão.
+- Docker Engine do sistema (`/run/docker.sock`), que ainda mantinha containers antigos `perf-noon-tuning-*` e prendia a porta `9999`.
+
+Ação:
+
+```text
+DOCKER_HOST=unix:///run/docker.sock docker compose down --remove-orphans
+```
+
+Resultado: porta `9999` liberada.
+
+Revalidação de benchmark:
+
+| Ambiente | p99 | FP | FN | HTTP errors | final_score | Leitura |
+|---|---:|---:|---:|---:|---:|---|
+| Docker Desktop `desktop-linux` | 50.12ms | 0 | 0 | 0 | 4299.99 | inválido/degradado |
+| Docker Engine do sistema `/run/docker.sock` | 1.64ms | 0 | 0 | 0 | 5785.30 | ambiente local correto para comparar |
+
+Decisão operacional: para experimentos k6 locais nesta máquina, usar explicitamente `DOCKER_HOST=unix:///run/docker.sock`. O Docker Desktop está ativo, mas seus resultados nesta janela não são comparáveis com a submissão/benchmarks históricos.
+
 ## Ciclo 00h45: especialização `nprobe=1` no loop de centróides
 
 Hipótese: no caminho dominante (`fast_nprobe=1` e `full_nprobe=1`), não é necessário manter um top-N genérico de centróides; basta guardar o único melhor cluster. Isso removeria `insert_probe()` e arrays de distância no caso `MaxNprobe == 1`.
