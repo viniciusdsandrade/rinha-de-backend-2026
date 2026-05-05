@@ -706,3 +706,26 @@ Resultado:
 Leitura: aumentar backlog não trouxe ganho. A fila externa não aparece como gargalo no ambiente local, e o valor atual já é amplo para o cenário.
 
 Decisão: rejeitado e revertido. Manter `backlog=4096`.
+
+## Ciclo 22h40: nginx `worker_cpu_affinity auto`
+
+Hipótese: fixar automaticamente os dois workers do nginx em CPUs distintas poderia reduzir migração de CPU e estabilizar a cauda do LB.
+
+Alteração experimental:
+
+```nginx
+worker_processes 2;
+worker_cpu_affinity auto;
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Sem afinidade, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| Sem afinidade, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| `worker_cpu_affinity auto` | 1.51ms | 0 | 0 | 0 | 5820.79 |
+
+Leitura: pinning piorou a cauda local, provavelmente por interagir mal com quota de CPU em container e scheduler do Docker. O nginx se comporta melhor deixando o kernel agendar livremente dentro da cota.
+
+Decisão: rejeitado e revertido. Não usar afinidade manual no nginx.
