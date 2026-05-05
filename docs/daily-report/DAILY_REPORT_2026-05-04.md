@@ -717,6 +717,28 @@ Leitura: não houve ganho e a configuração ficou pior que a melhor banda local
 
 Decisão: rejeitado e revertido. Manter `proxy_connect_timeout 1s` e `proxy_timeout 30s`.
 
+## Ciclo 23h45: AVX2 no cálculo de centróide IVF
+
+Hipótese: a busca do centróide mais próximo em `IvfIndex::fraud_count_once_fixed<1>` ainda percorre `1280 × 14` dimensões em escalar. Como os centróides estão em layout SoA (`centroids_[dim * clusters + cluster]`), uma versão AVX2 em blocos de 8 centróides poderia reduzir o custo antes do scan dos blocos.
+
+Alteração experimental temporária:
+
+- Adicionar `nearest_probe_avx2()` com `_mm256_loadu_ps` e FMA sobre 8 centróides por vez.
+- Usar essa rotina apenas quando `MaxNprobe == 1`, que é a configuração publicada (`fast_nprobe=1`, `full_nprobe=1`).
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Referência offline anterior do índice atual | ~18k | 0 | 0 | 0 | base histórica |
+| AVX2 centróide, run 1 | 28613.2 | 0 | 0 | 0 | rejeitar |
+| AVX2 centróide, run 2 | 29203.1 | 0 | 0 | 0 | rejeitar |
+| Após revert, sanity check local | 39491.9 | 0 | 0 | 0 | ambiente ruidoso |
+
+Leitura: a versão AVX2 não mostrou ganho; pelo contrário, as primeiras duas medições ficaram bem piores que a referência histórica. O sanity após revert ficou ainda mais lento, indicando ruído forte de máquina nessa janela, mas não há evidência positiva suficiente para manter a mudança. Como a regra da rodada é melhoria sustentável e inquestionável, a decisão correta é descartar.
+
+Decisão: rejeitado e revertido. Nenhuma mudança de código foi mantida.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
