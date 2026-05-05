@@ -1108,6 +1108,22 @@ Leitura: a primeira execução parecia promissora quando comparada com runs degr
 
 Decisão: rejeitado e revertido.
 
+## Ciclo 01h00: checagem web de knobs restantes
+
+Fontes consultadas:
+
+- `https://simdjson.github.io/simdjson/md_doc_2dom.html`
+- `https://simdjson.org/api/0.9.0/md_doc_performance.html`
+- `https://www.nginx.com/wp-content/uploads/2018/08/nginx-modules-reference-r17.pdf`
+
+Achados:
+
+- A documentação do simdjson confirma que `padded_string_view`/padding sobre buffer próprio pode evitar cópias, mas exige responsabilidade sobre capacidade/padding. Isso bate com o experimento local: a técnica é válida em tese, porém no nosso fluxo `append + parse + DOM + extração` ficou indistinguível do baseline.
+- As notas de performance do simdjson recomendam evitar criar muitos `std::string`/`padded_string` e reutilizar buffers. A nossa tentativa de reservar body e usar `pad_with_reserve` foi justamente essa linha, mas o ganho medido foi ~0,09% no melhor caso.
+- A referência de nginx indica que, com `reuseport`, não há necessidade de habilitar `accept_mutex`; além disso, já estamos com `listen 9999 reuseport backlog=4096`, `multi_accept off` e `worker_processes 2`, que foram os knobs que sobreviveram ao A/B local.
+
+Decisão: nenhuma nova mudança derivada dessas fontes. Elas reforçam as rejeições já medidas: parser padding não compensa, e ajustes de accept mutex/multi_accept/worker count fora do estado atual têm baixa chance sem novo desenho estrutural.
+
 ## Ciclo 00h45: especialização `nprobe=1` no loop de centróides
 
 Hipótese: no caminho dominante (`fast_nprobe=1` e `full_nprobe=1`), não é necessário manter um top-N genérico de centróides; basta guardar o único melhor cluster. Isso removeria `insert_probe()` e arrays de distância no caso `MaxNprobe == 1`.
