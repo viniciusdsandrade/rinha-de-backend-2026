@@ -1062,6 +1062,34 @@ Leitura: a flag piorou a cauda. Como RTTI não é o gargalo e o binário já é 
 
 Decisão: rejeitado e revertido. Manter o CMake sem `-fno-rtti`.
 
+## Ciclo 05h25: caracterização de variância da stack estável
+
+Hipótese: depois de várias rejeições por ruído, era melhor medir a dispersão natural da configuração estável antes de insistir em novos knobs pequenos.
+
+Configuração medida:
+
+```text
+nginx stream/UDS
+worker_processes 2
+multi_accept off
+api1/api2/nginx CPU: 0.41/0.41/0.18
+IVF_FAST_NPROBE=1
+IVF_FULL_NPROBE=1
+repair bbox ativo
+```
+
+Resultado:
+
+| Run estável | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| 1 | 1.58ms | 0 | 0 | 0 | 5801.60 |
+| 2 | 1.65ms | 0 | 0 | 0 | 5783.57 |
+| 3 | 1.57ms | 0 | 0 | 0 | 5803.96 |
+
+Leitura: a janela local está oscilando cerca de `20` pontos e `0.08ms` de p99 entre runs consecutivas, sempre com 0 erros de detecção/HTTP. Isso explica por que diferenças pequenas de microconfiguração não devem ser promovidas sem repetição forte. Nenhuma run estável desta caracterização superou a submissão oficial #1314 (`1.43ms`, `5844.41`).
+
+Decisão: manter a submissão atual como melhor versão publicada. O próximo ganho material provavelmente exige mudança estrutural de hot path, especialmente servidor HTTP manual/`io_uring` ou redução real do custo do uWebSockets, e não mais knobs pequenos de nginx/compose/flags.
+
 ## Ciclo 23h10: flags Haswell inspiradas nos líderes
 
 Hipótese: os dois primeiros colocados usam alvo Haswell explicitamente. O primeiro colocado em C compila com `-O3 -march=haswell -mtune=haswell -flto -fomit-frame-pointer -DNDEBUG`; o segundo, em Rust, usa `target-cpu=haswell` e `target-feature=+avx2,+fma,+f16c,+bmi2,+popcnt`. Como a CPU oficial descrita pelos participantes líderes é Haswell e o projeto já assumiu AVX2/FMA como requisito efetivo, valia medir se especializar o binário C++ geraria ganho no kernel IVF.
