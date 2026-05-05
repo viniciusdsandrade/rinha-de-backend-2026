@@ -1644,3 +1644,24 @@ Leitura: a flag não ajudou. É possível que o gargalo em `usockets` seja sysca
 Decisão: rejeitado e revertido.
 
 Fechamento operacional: a imagem estável foi reconstruída após a reversão da flag e a pilha foi recriada. O benchmark de limpeza marcou `p99 1.59ms`, `final_score 5798.27`, 0 FP/FN/HTTP errors. Estado local novamente coerente com a configuração publicada.
+
+## Ciclo 02h50: compilar `simdjson_singleheader` com `-march=x86-64-v3`
+
+Hipótese: parse JSON é parte do hot path. Compilar a tradução única do simdjson com o mesmo baseline de CPU do binário principal poderia reduzir custo de parse.
+
+Alteração experimental:
+
+```cmake
+target_compile_options(simdjson_singleheader PRIVATE -march=x86-64-v3)
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Controle estável recente | 1.59ms | 0 | 0 | 0 | 5798.27 |
+| `simdjson_singleheader` com `-march=x86-64-v3` | 1.67ms | 0 | 0 | 0 | 5776.37 |
+
+Leitura: piorou. O simdjson já possui dispatch/implementações próprias para SIMD, e forçar a flag no TU da biblioteca não trouxe benefício para o payload do desafio.
+
+Decisão: rejeitado e revertido.
