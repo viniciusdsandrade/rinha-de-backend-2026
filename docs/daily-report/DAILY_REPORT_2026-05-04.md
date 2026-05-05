@@ -998,6 +998,33 @@ Melhor submissão publicada permanece a issue oficial #1314: `p99 1.43ms`, `fina
 
 Estado preservado: `docker-compose.yml` voltou para `0.41/0.41/0.18` e `165/165/20`, `nginx.conf` voltou para nginx `stream` com `worker_processes 2`, `multi_accept off`, `reuseport backlog=4096`, e o CMake voltou sem `-fno-plt`/`-fno-rtti`.
 
+## Ciclo 06h05: uWebSockets `setSilent(true)` e ruído de janela
+
+Hipótese: líderes usam respostas HTTP completas pré-montadas e evitam headers extras. No uWebSockets, `uWS::Loop::get()->setSilent(true)` remove o header `uWebSockets: 20`; talvez isso reduzisse bytes escritos e custo de montagem da resposta.
+
+Alteração experimental:
+
+```cpp
+uWS::Loop::get()->setSilent(true);
+auto app = uWS::App();
+```
+
+Evidência de header: uma chamada manual retornou `400 Bad Request` com `Date`, mas sem `uWebSockets: 20`. O payload manual usado nessa checagem estava inválido por erro de seleção no `jq`, então ele só foi usado para observar headers; a validade funcional foi medida pelo k6.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `setSilent(true)`, run 1 | 1.18ms | 0 | 0 | 0 | 5928.93 |
+| `setSilent(true)`, run 2 | 1.23ms | 0 | 0 | 0 | 5910.71 |
+| Controle reverso sem `setSilent`, run 1 | 1.23ms | 0 | 0 | 0 | 5910.30 |
+| Controle reverso sem `setSilent`, run 2 | 1.24ms | 0 | 0 | 0 | 5907.66 |
+| Controle reverso sem `setSilent`, run 3 | 1.24ms | 0 | 0 | 0 | 5907.01 |
+
+Leitura: o primeiro número parecia excelente, mas o controle sem a alteração reproduziu praticamente o mesmo patamar. Logo, o ganho não é causal; a janela local simplesmente ficou muito mais favorável nesta manhã. A mudança não deve ser promovida porque não explica o ganho e adiciona uma chamada de configuração sem evidência própria.
+
+Decisão: rejeitado e revertido. Manter o código sem `setSilent(true)`. Não abrir nova submissão apenas com essa evidência, porque a implementação efetiva é a mesma da submissão oficial #1314 e o ganho local não veio de mudança sustentável de código.
+
 ## Ciclo 04h35: revalidação do split dos líderes (`0.40/0.40/0.20`)
 
 Hipótese: os repositórios líderes usam desenho próximo de `0.40/0.40/0.20`, com LB um pouco mais privilegiado. Como o teste `0.415/0.415/0.17` indicou sensibilidade ao CPU do nginx, valia revalidar a alternativa com mais CPU na borda no Docker Engine correto.
