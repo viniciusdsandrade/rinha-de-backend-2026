@@ -639,3 +639,26 @@ Resultado:
 Leitura: 3 workers preserva estabilidade, mas não melhora p99. Provavelmente aumenta coordenação/competição dentro da mesma fatia de `0.18` CPU do nginx.
 
 Decisão: rejeitado e revertido. Manter `worker_processes 2`.
+
+## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
+
+Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
+
+Alteração experimental:
+
+```yaml
+api1/api2: cpus "0.40"
+nginx:     cpus "0.20"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.41/0.41/0.18`, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `0.41/0.41/0.18`, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| `0.40/0.40/0.20` | 1.28ms | 0 | 0 | 0 | 5892.61 |
+
+Leitura: mais CPU no nginx não compensou a perda de CPU nas APIs. O classificador ainda precisa da fatia atual para segurar cauda; a suspeita de LB limitado por CPU não se confirmou localmente.
+
+Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
