@@ -1120,6 +1120,18 @@ Leitura: não houve benefício em transferir memória das APIs para o LB. O ngin
 
 Decisão: rejeitado e revertido. Manter `165/165/20`.
 
+## Fechamento 05h50: última run estável antes de encerrar
+
+Objetivo: confirmar que o estado restaurado segue saudável antes de encerrar a janela de investigação.
+
+Resultado:
+
+| Estado | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Stack estável restaurada | 1.58ms | 0 | 0 | 0 | 5802.28 |
+
+Leitura: stack funcional, sem erros, mas abaixo da submissão oficial #1314 (`1.43ms`, `5844.41`). Não há base para nova issue/submissão nesta rodada.
+
 ## Ciclo 23h10: flags Haswell inspiradas nos líderes
 
 Hipótese: os dois primeiros colocados usam alvo Haswell explicitamente. O primeiro colocado em C compila com `-O3 -march=haswell -mtune=haswell -flto -fomit-frame-pointer -DNDEBUG`; o segundo, em Rust, usa `target-cpu=haswell` e `target-feature=+avx2,+fma,+f16c,+bmi2,+popcnt`. Como a CPU oficial descrita pelos participantes líderes é Haswell e o projeto já assumiu AVX2/FMA como requisito efetivo, valia medir se especializar o binário C++ geraria ganho no kernel IVF.
