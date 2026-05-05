@@ -476,3 +476,24 @@ Resultado:
 Leitura: tirar CPU do nginx piorou a cauda nesta janela. O LB ainda precisa da fatia `0.18` para segurar o ramp local.
 
 Decisão: rejeitado e revertido para `0.41/0.41/0.18`.
+
+## Ciclo 21h20: nginx sem `reuseport`
+
+Hipótese: como o nginx usa apenas `worker_processes 1`, `reuseport` poderia ser redundante no `listen` e talvez simplificar a socket externa.
+
+Alteração experimental:
+
+```nginx
+listen 9999 backlog=4096;
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `listen 9999 reuseport backlog=4096`, referência | 1.63ms | 0 | 0 | 0 | 5787.14 |
+| `listen 9999 backlog=4096` | 1.64ms | 0 | 0 | 0 | 5786.48 |
+
+Leitura: remover `reuseport` não trouxe ganho e ficou ligeiramente pior. Mesmo com um worker, manter a configuração atual não custa score na janela.
+
+Decisão: rejeitado e revertido. Manter `reuseport`.
