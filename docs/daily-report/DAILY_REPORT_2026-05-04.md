@@ -1029,6 +1029,40 @@ Leitura: a porta 9999 está presa por um `docker-proxy`/nginx órfão root de ex
 
 Decisão: inconclusivo e revertido. O compose voltou ao estado limpo, e os containers parciais desta branch foram removidos com `docker compose down --remove-orphans`.
 
+## Ciclo 23h35: parser sem cópia com `simdjson::pad_with_reserve`
+
+Hipótese: os líderes evitam parser JSON genérico no hot path. Antes de reescrever parser seletivo, foi testada uma melhoria menor e sustentável: evitar a cópia para `simdjson::padded_string` quando o body já está em `std::string`, usando `simdjson::pad_with_reserve(body)`. Para compensar a necessidade de padding/capacity, também foi medida a reserva prévia de `768` bytes no body do handler.
+
+Alterações experimentais:
+
+- Overload `parse_payload(std::string& body, ...)` usando `simdjson::padded_string_view`.
+- `body.reserve(768)` no handler `POST /fraud-score`.
+- Métricas temporárias em `benchmark-request-cpp`.
+
+Resultados offline em 200 amostras, 20 repetições:
+
+| Métrica | ns/query | Leitura |
+|---|---:|---|
+| `parse_payload` baseline | 617.609 | caminho atual com `padded_string` |
+| `parse_payload_mutable` sem reserva prévia | 635.840 | piora por realocação/padding |
+| `body_reserve768_parse_payload_mutable` | 617.062 | diferença de 0,09%, ruído |
+| `body_append_default` | 29.9405 | append atual isolado |
+| `body_append_reserve768` | 14.4622 | reserva melhora append, mas o ganho absoluto é ~15 ns |
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp benchmark-request-cpp -j4
+Resultado: passou.
+
+./cpp/build/rinha-backend-2026-cpp-tests
+Resultado: processo morto com exit 137 em ambiente local já degradado/pressionado; não foi usado como evidência de correção.
+```
+
+Leitura: o ganho potencial no parser é muito pequeno e não sobrevive quando medido como fluxo completo `append + parse`. Pior, o overload mutable pode piorar se algum caminho chamar sem reserva suficiente. Como o melhor caso economiza nanos e não há k6 disponível por bloqueio da porta 9999, não é sustentável promover.
+
+Decisão: rejeitado e revertido. O código voltou ao parser atual.
+
 ## Ciclo 23h20: margem de FD/backlog no nginx
 
 Hipótese: inspirada por configurações de repositórios líderes, aumentar margem de file descriptors e declarar `somaxconn` no container do nginx poderia ajudar a borda em rajadas oficiais.
