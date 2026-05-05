@@ -967,6 +967,32 @@ Leitura: mais CPU no nginx não compensou a perda de CPU nas APIs. O classificad
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
 
+## Ciclo 23h10: flags Haswell inspiradas nos líderes
+
+Hipótese: os dois primeiros colocados usam alvo Haswell explicitamente. O primeiro colocado em C compila com `-O3 -march=haswell -mtune=haswell -flto -fomit-frame-pointer -DNDEBUG`; o segundo, em Rust, usa `target-cpu=haswell` e `target-feature=+avx2,+fma,+f16c,+bmi2,+popcnt`. Como a CPU oficial descrita pelos participantes líderes é Haswell e o projeto já assumiu AVX2/FMA como requisito efetivo, valia medir se especializar o binário C++ geraria ganho no kernel IVF.
+
+Alteração experimental limitada ao alvo `benchmark-ivf-cpp`, sem promover para o serviço:
+
+```cmake
+# variante 1
+-mavx2 -mfma -march=x86-64-v3 -mtune=haswell -fomit-frame-pointer
+
+# variante 2
+-march=haswell -mtune=haswell -fomit-frame-pointer
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| baseline restaurado `x86-64-v3` | 39499.6 | 0 | 0 | 0 | manter |
+| `x86-64-v3 + mtune=haswell + omit-frame-pointer` | 39819.2 | 0 | 0 | 0 | rejeitar |
+| `march=haswell + mtune=haswell + omit-frame-pointer` | 39388.1 | 0 | 0 | 0 | rejeitar por ruído |
+
+Leitura: a variante Haswell completa ficou numericamente 0,28% melhor que o baseline restaurado no mesmo ambiente aquecido, mas isso está abaixo do ruído observado hoje nos benchmarks offline e não justificaria trocar a baseline de compilação nem reduzir portabilidade. A variante menos invasiva foi pior.
+
+Decisão: rejeitado e revertido. Manter `-mavx2 -mfma -march=x86-64-v3` no CMake.
+
 ## Ciclo 23h20: margem de FD/backlog no nginx
 
 Hipótese: inspirada por configurações de repositórios líderes, aumentar margem de file descriptors e declarar `somaxconn` no container do nginx poderia ajudar a borda em rajadas oficiais.
