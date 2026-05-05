@@ -997,6 +997,48 @@ Leitura: empate prático na janela atual. O split dos líderes é coerente, mas 
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`, que é a configuração já submetida e validada oficialmente em #1314.
 
+## Ciclo 04h50: HAProxy TCP L4 com UDS
+
+Hipótese: os líderes usam HAProxy em `mode tcp`, não nginx. O ciclo anterior com HAProxy havia testado `mode http`, então faltava fechar a hipótese do swap L4 puro usando UDS e round-robin simples.
+
+Alteração experimental:
+
+```haproxy
+global
+    maxconn 20000
+    nbthread 1
+    tune.bufsize 16384
+
+defaults
+    mode tcp
+    retries 0
+    timeout connect 1s
+    timeout client 30s
+    timeout server 30s
+
+frontend rinha_front
+    bind *:9999 backlog 4096
+    default_backend rinha_api
+
+backend rinha_api
+    balance roundrobin
+    server api1 unix@/sockets/api1.sock
+    server api2 unix@/sockets/api2.sock
+```
+
+Observação operacional: o primeiro `curl /ready` logo após `docker compose up` recebeu reset de conexão, mas a segunda tentativa respondeu `204`; o benchmark foi executado com a stack já pronta.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| HAProxy TCP/UDS | 3.53ms | 0 | 0 | 0 | 5451.81 |
+| Controle reverso nginx stream/UDS | 1.59ms | 0 | 0 | 0 | 5797.27 |
+
+Leitura: HAProxy isolado é claramente pior nesta stack. Nos líderes, HAProxy aparece junto de servidor manual/`io_uring`/parser próprio; copiar apenas o LB não transfere o ganho e aumenta bastante a cauda.
+
+Decisão: rejeitado e revertido para `nginx:1.27-alpine` em `stream`.
+
 ## Ciclo 23h10: flags Haswell inspiradas nos líderes
 
 Hipótese: os dois primeiros colocados usam alvo Haswell explicitamente. O primeiro colocado em C compila com `-O3 -march=haswell -mtune=haswell -flto -fomit-frame-pointer -DNDEBUG`; o segundo, em Rust, usa `target-cpu=haswell` e `target-feature=+avx2,+fma,+f16c,+bmi2,+popcnt`. Como a CPU oficial descrita pelos participantes líderes é Haswell e o projeto já assumiu AVX2/FMA como requisito efetivo, valia medir se especializar o binário C++ geraria ganho no kernel IVF.
