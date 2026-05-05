@@ -967,6 +967,41 @@ Leitura: mais CPU no nginx não compensou a perda de CPU nas APIs. O classificad
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
 
+## Ciclo 07h00: `known_merchants` como `std::string_view`
+
+Hipótese: `parse_payload` copiava cada item de `customer.known_merchants` para `std::vector<std::string>`, mas esses valores só são usados para comparar com `merchant.id` dentro do próprio parse. Trocar o buffer temporário para `std::vector<std::string_view>` evitaria cópias de strings no hot path sem alterar o contrato.
+
+Alteração experimental:
+
+```cpp
+std::vector<std::string_view> known_merchants;
+known_merchants.emplace_back(merchant_id);
+
+const std::string_view merchant_id_view{merchant_id};
+payload.known_merchant =
+    std::find(known_merchants.begin(), known_merchants.end(), merchant_id_view) != known_merchants.end();
+```
+
+Validação funcional:
+
+```bash
+cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j2
+cpp/build/rinha-backend-2026-cpp-tests
+# exit code 0
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `known_merchants` com `std::string_view` | 1.27ms | 0 | 0 | 0 | 5895.55 |
+| Controle reverso com `std::string` | 1.29ms | 0 | 0 | 0 | 5891.03 |
+
+Leitura: a direção é tecnicamente coerente, mas o ganho medido foi de apenas `0.02ms` de p99 e `4.52` pontos, muito abaixo da variância normal observada nesta madrugada. Como a mudança aumenta a dependência de lifetime do buffer do `simdjson::padded_string`, ela não passa no critério de ganho sustentável e inquestionável.
+
+Decisão: rejeitado e revertido. Manter `std::vector<std::string>` no parser.
+
 ## Fechamento operacional 02h00
 
 Nota de ordenação: durante a rodada final, alguns blocos foram inseridos antes do fim físico do arquivo por reaproveitamento de contexto no patch. Os blocos finais da madrugada estão registrados neste arquivo em:
