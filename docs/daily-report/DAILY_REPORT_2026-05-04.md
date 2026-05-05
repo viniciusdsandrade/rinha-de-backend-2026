@@ -781,6 +781,42 @@ Leitura: a precisão foi preservada, mas o p99 piorou bastante. Reparar toda con
 
 Decisão: rejeitado e revertido. Manter `IVF_BOUNDARY_FULL=true`.
 
+## Fechamento 08h00: controle final da configuração estável
+
+Após reverter os experimentos rejeitados, a stack foi reconstruída com a configuração estável do arquivo (`IVF_BOUNDARY_FULL=true`, `IVF_BBOX_REPAIR=true`, `0.41/0.41/0.18`) para não deixar container rodando variante descartada.
+
+Comando:
+
+```bash
+DOCKER_HOST=unix:///run/docker.sock docker compose up -d --build --force-recreate
+DOCKER_HOST=unix:///run/docker.sock ./run-local-k6.sh
+```
+
+Resultado:
+
+| p99 | FP | FN | HTTP errors | failure_rate | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1.28ms | 0 | 0 | 0 | 0% | 5893.69 |
+
+Leitura: a configuração oficial/local estável continua forte e, nesta janela, roda acima da submissão oficial anterior `#1314` (`1.43ms / 5844.41`). Porém a rodada de hoje não produziu uma alteração causal nova e sustentável que explique esse ganho; as melhores leituras locais (`1.14ms` e outras próximas de `1.18ms`) não reproduziram em A/B. Portanto, não há base técnica para abrir nova Issue apenas por variação favorável de benchmark local.
+
+Resumo técnico da janela:
+
+| Hipótese | Resultado | Decisão |
+|---|---|---|
+| `body.append()` bypass em chunk único | empate prático | rejeitada |
+| `known_merchants` com `string_view` | ganho marginal não sustentável | rejeitada |
+| MCC via `switch` 4 bytes | primeira amostra forte, repetição não confirmou | rejeitada |
+| microbenchmark hot path | classificador/IVF domina custo; parser é secundário | aprendizado incorporado |
+| `IVF_BBOX_REPAIR=false` | latência boa, mas FP/FN inviabilizam score | rejeitada |
+| `IVF_BOUNDARY_FULL=false` | acurácia perfeita, p99 pior | rejeitada |
+
+Próximos caminhos com melhor relação risco/retorno:
+
+- Corrigir/adaptar `benchmark-classifier-cpp` para o formato atual de `test/test-data.json`, permitindo experimentos de IVF mais baratos que k6 completo.
+- Medir internamente quantas consultas acionam `bbox_repair` e quantos clusters extras são varridos, para atacar seletividade do repair sem perder os `0%` erros.
+- Explorar pruning dentro de `bbox_lower_bound`/`scan_blocks_avx2` com contadores de blocos escaneados, não micro-otimizações de parser.
+
 ## Ciclo 00h15: `IVF_FULL_NPROBE=2`
 
 Hipótese: aumentar apenas o nprobe da passagem de repair para 2 poderia reduzir casos difíceis sem afetar a busca rápida inicial. Offline, essa variante preservou 0 erros e apareceu competitiva em uma janela ruidosa, então mereceu k6 real.
