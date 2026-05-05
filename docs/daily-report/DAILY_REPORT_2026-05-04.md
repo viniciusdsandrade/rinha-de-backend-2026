@@ -694,6 +694,29 @@ Resumo das decisões:
 
 Leitura final: a única melhoria sustentável encontrada nesta rodada foi ajustar o comportamento de accept do nginx com 2 workers fixos e `multi_accept off`. Localmente isso parece grande, mas no runner oficial virou um ganho pequeno; portanto os próximos saltos provavelmente exigem mexer no caminho API/classificador ou numa estratégia de LB substancialmente diferente, não mais em microtuning de nginx.
 
+## Ciclo 23h35: timeouts menores no nginx
+
+Hipótese: reduzir timeouts do nginx poderia diminuir retenção de conexões problemáticas e suavizar cauda sem impactar requisições normais.
+
+Alteração experimental:
+
+```nginx
+proxy_connect_timeout 50ms;
+proxy_timeout 5s;
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Estado publicado, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| Estado publicado, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| Timeouts menores | 1.24ms | 0 | 0 | 0 | 5905.61 |
+
+Leitura: não houve ganho e a configuração ficou pior que a melhor banda local. Como o teste oficial não apresentou HTTP errors, encurtar timeouts não ataca um problema real observado.
+
+Decisão: rejeitado e revertido. Manter `proxy_connect_timeout 1s` e `proxy_timeout 30s`.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
