@@ -1108,6 +1108,22 @@ Leitura: a primeira execução parecia promissora quando comparada com runs degr
 
 Decisão: rejeitado e revertido.
 
+## Ciclo 00h30: corte parcial AVX2 após 4 dimensões
+
+Hipótese: além do corte parcial já existente após 8 dimensões, um corte antecipado após 4 dimensões poderia descartar blocos ruins mais cedo e economizar as dimensões `4..13`. A mudança é exata: só pula bloco quando todas as lanes já excedem o pior top-5 parcial.
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Baseline da janela anterior | 17730.5 | 0 | 0 | 0 | manter |
+| Corte extra após 4 dims, run 1 | 18344.4 | 0 | 0 | 0 | rejeitar |
+| Corte extra após 4 dims, run 2 | 20710.2 | 0 | 0 | 0 | rejeitar |
+
+Leitura: a comparação extra e a pressão adicional no loop AVX2 custam mais do que economizam. O corte atual após 8 dimensões segue melhor.
+
+Decisão: rejeitado e revertido.
+
 ## Ciclo 23h20: margem de FD/backlog no nginx
 
 Hipótese: inspirada por configurações de repositórios líderes, aumentar margem de file descriptors e declarar `somaxconn` no container do nginx poderia ajudar a borda em rajadas oficiais.
