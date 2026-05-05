@@ -640,6 +640,60 @@ Leitura: 3 workers preserva estabilidade, mas não melhora p99. Provavelmente au
 
 Decisão: rejeitado e revertido. Manter `worker_processes 2`.
 
+## Fechamento da rodada noturna
+
+Estado final aplicado na branch `perf/noon-tuning` e promovido para `submission`:
+
+```nginx
+worker_processes 2;
+
+events {
+    worker_connections 4096;
+    multi_accept off;
+    use epoll;
+}
+```
+
+```yaml
+api1/api2: cpus "0.41", memory "165MB"
+nginx:     cpus "0.18", memory "20MB"
+```
+
+Melhores resultados da rodada:
+
+| Ambiente | Estado | p99 | FP | FN | HTTP errors | final_score |
+|---|---|---:|---:|---:|---:|---:|
+| Local | melhor run com `worker_processes 2` + `multi_accept off` | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| Local | validação na branch `submission` publicada | 1.22ms | 0 | 0 | 0 | 5912.31 |
+| Local | controle final restaurado | 1.23ms | 0 | 0 | 0 | 5908.34 |
+| Oficial | issue #1314, commit `4d5bedb` | 1.43ms | 0 | 0 | 0 | 5844.41 |
+
+Comparativo oficial:
+
+| Submissão | Commit | p99 | final_score |
+|---|---|---:|---:|
+| #770 anterior | `e3fdd2b` | 1.44ms | 5842.99 |
+| #1314 nova | `4d5bedb` | 1.43ms | 5844.41 |
+
+Ganho oficial confirmado: `+1.42` pontos e `-0.01ms` de p99, mantendo 0% de falhas.
+
+Resumo das decisões:
+
+| Experimento | Decisão |
+|---|---|
+| `worker_processes 2` | aceito |
+| `multi_accept off` | aceito |
+| `worker_processes 3` | rejeitado |
+| `worker_processes auto` | rejeitado |
+| splits CPU `0.42/0.42/0.16`, `0.40/0.40/0.20`, `0.405/0.405/0.19`, `0.415/0.415/0.17` | rejeitados |
+| `worker_connections 1024` | rejeitado |
+| `backlog=8192` | rejeitado |
+| `worker_cpu_affinity auto` | rejeitado |
+| `nginx:1.29-alpine` | rejeitado |
+| `worker_rlimit_nofile` + `ulimits` + `somaxconn` | rejeitado |
+
+Leitura final: a única melhoria sustentável encontrada nesta rodada foi ajustar o comportamento de accept do nginx com 2 workers fixos e `multi_accept off`. Localmente isso parece grande, mas no runner oficial virou um ganho pequeno; portanto os próximos saltos provavelmente exigem mexer no caminho API/classificador ou numa estratégia de LB substancialmente diferente, não mais em microtuning de nginx.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
