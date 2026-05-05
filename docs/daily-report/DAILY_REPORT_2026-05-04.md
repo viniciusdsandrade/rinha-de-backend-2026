@@ -449,3 +449,15 @@ Resultado:
 Leitura: não houve ganho; a diferença ficou contra a mudança. Além disso, `-mtune=native` é dependente do host de build, então mesmo um ganho pequeno exigiria muito mais cautela antes de submissão.
 
 Decisão: rejeitado e revertido. Flags continuam em `-mavx2 -mfma -march=x86-64-v3`.
+
+## Ciclo 21h20: benchmark do estado restaurado
+
+Depois das reversões de HAProxy, nginx HTTP, `seccomp`, `ulimits`, clusters alternativos e flags, foi executada uma medição do estado limpo atual para registrar a referência da janela.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Estado restaurado atual | 1.63ms | 0 | 0 | 0 | 5787.14 |
+
+Leitura: a janela permaneceu mais lenta que o melhor histórico local (`~1.22ms-1.25ms`), mas o estado limpo está coerente com os controles recentes (`1.63ms`). Não há evidência de regressão persistente de código após as reversões.
