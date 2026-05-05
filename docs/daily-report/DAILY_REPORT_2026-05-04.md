@@ -781,6 +781,31 @@ Leitura: a precisão foi preservada, mas o p99 piorou bastante. Reparar toda con
 
 Decisão: rejeitado e revertido. Manter `IVF_BOUNDARY_FULL=true`.
 
+## Ciclo 00h15: `IVF_FULL_NPROBE=2`
+
+Hipótese: aumentar apenas o nprobe da passagem de repair para 2 poderia reduzir casos difíceis sem afetar a busca rápida inicial. Offline, essa variante preservou 0 erros e apareceu competitiva em uma janela ruidosa, então mereceu k6 real.
+
+Resultados offline:
+
+| fast_nprobe | full_nprobe | bbox_repair | FP | FN | ns/query |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | true | 0 | 0 | 45754.3 |
+| 1 | 2 | true | 0 | 0 | 41681.7 |
+| 2 | 2 | true | 0 | 0 | 49086.4 |
+| 2 | 2 | false | 41 | 38 | 43086.2 |
+
+Resultado k6:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Estado publicado, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| Estado publicado, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| `IVF_FULL_NPROBE=2` | 1.37ms | 0 | 0 | 0 | 5863.46 |
+
+Leitura: a medição offline não se transferiu para o k6. Aumentar `full_nprobe` mantém precisão, mas amplia trabalho nas requisições de borda e piora a cauda.
+
+Decisão: rejeitado e revertido. Manter `IVF_FULL_NPROBE=1`.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
