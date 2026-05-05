@@ -1442,3 +1442,26 @@ Resultado:
 Leitura: a variante empatou com o controle reverso e ficou nominalmente 1 ponto abaixo no score. A realocação do buffer de corpo não aparece como gargalo mensurável no k6 local.
 
 Decisão: rejeitado e revertido. Manter o hot path mais simples com `body = std::string{}`.
+
+## Ciclo 00h25: `MALLOC_ARENA_MAX=1` nas APIs
+
+Hipótese: reduzir o número de arenas da glibc nas duas APIs poderia diminuir fragmentação/memória e estabilizar cauda, sem rebuild de imagem.
+
+Alteração experimental:
+
+```yaml
+environment:
+  MALLOC_ARENA_MAX: "1"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Controle recente sem `MALLOC_ARENA_MAX` | 1.59ms | 0 | 0 | 0 | 5799.46 |
+| APIs com `MALLOC_ARENA_MAX=1` | 1.76ms | 0 | 0 | 0 | 5755.72 |
+| Controle pós-reversão | 1.65ms | 0 | 0 | 0 | 5781.42 |
+
+Leitura: limitar a arena piorou a cauda de forma clara. Para essa aplicação, a hipótese mais provável é aumento de contenção no allocator sem benefício prático, já que o hot path foi desenhado para alocar pouco.
+
+Decisão: rejeitado e revertido. Não usar `MALLOC_ARENA_MAX`.
