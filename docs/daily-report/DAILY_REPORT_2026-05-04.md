@@ -1691,3 +1691,33 @@ Leitura: a run antiga não reproduziu. A configuração preserva precisão, mas 
 Decisão: rejeitado e revertido para `IVF_FULL_NPROBE=1`.
 
 Fechamento operacional: depois da reversão, a pilha foi recriada com `IVF_FULL_NPROBE=1`. Benchmark de limpeza: `p99 1.61ms`, `final_score 5793.60`, 0 FP/FN/HTTP errors.
+
+## Ciclo 03h55: nginx `worker_priority -5`
+
+Hipótese: o LB está no caminho crítico e usa pouca CPU. Dar prioridade um pouco maior aos workers do nginx poderia reduzir fila no accept/proxy sem alterar as APIs, o classificador ou a topologia.
+
+Alteração experimental:
+
+```nginx
+worker_processes 2;
+worker_priority -5;
+```
+
+Validação de configuração:
+
+```bash
+nginx -t
+# syntax is ok
+# test is successful
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `worker_priority -5` | 1.60ms | 0 | 0 | 0 | 5797.22 |
+| Controle reverso sem `worker_priority` | 1.60ms | 0 | 0 | 0 | 5794.70 |
+
+Leitura: empate prático. A prioridade não trouxe ganho separável do ruído local e adiciona dependência de comportamento de scheduler/capacidade do container.
+
+Decisão: rejeitado e revertido. Manter nginx sem `worker_priority` explícito.
