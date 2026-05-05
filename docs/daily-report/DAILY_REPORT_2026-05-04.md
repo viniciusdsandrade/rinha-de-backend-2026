@@ -739,6 +739,23 @@ Leitura: a versão AVX2 não mostrou ganho; pelo contrário, as primeiras duas m
 
 Decisão: rejeitado e revertido. Nenhuma mudança de código foi mantida.
 
+## Ciclo 23h55: janela de repair IVF menor
+
+Hipótese: a configuração publicada repara resultados de borda com `repair_min=1` e `repair_max=4`. Reduzir essa janela poderia cortar trabalho do classificador e melhorar p99, desde que mantivesse 0 erro.
+
+Resultado offline sobre `test/test-data.json`, `54100` amostras:
+
+| repair_min | repair_max | ns/query | FP | FN | parse_errors | Decisão |
+|---:|---:|---:|---:|---:|---:|---|
+| 1 | 4 | 45754.3 | 0 | 0 | 0 | manter |
+| 1 | 3 | 50069.3 | 22 | 0 | 0 | rejeitar |
+| 2 | 4 | 44165.2 | 0 | 28 | 0 | rejeitar |
+| 2 | 3 | 44921.2 | 22 | 28 | 0 | rejeitar |
+
+Leitura: reduzir a janela de repair quebra a precisão. Mesmo quando uma variante fica numericamente mais rápida, qualquer FP/FN derruba o `detection_score`, então a troca não é aceitável.
+
+Decisão: rejeitado. Manter `IVF_REPAIR_MIN_FRAUDS=1` e `IVF_REPAIR_MAX_FRAUDS=4`.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
