@@ -1101,6 +1101,27 @@ Leitura: a latência permaneceu competitiva, mas a queda de acurácia destrói o
 
 Decisão: rejeitado e revertido. Manter `IVF_BBOX_REPAIR=true`.
 
+## Ciclo 08h00: `IVF_BOUNDARY_FULL=false`
+
+Hipótese: a configuração atual usa `IVF_BOUNDARY_FULL=true`, que faz uma primeira busca rápida sem repair e só aciona a busca com `bbox_repair` para fronteiras/extremos. O experimento inverteu isso para `false`, fazendo o caminho rápido usar repair sempre (`fast_repair = bbox_repair && !boundary_full`). A expectativa era confirmar se repair universal melhora estabilidade de acurácia ou piora custo.
+
+Alteração experimental:
+
+```yaml
+IVF_BOUNDARY_FULL: "false"
+IVF_BBOX_REPAIR: "true"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `IVF_BOUNDARY_FULL=false` | 1.60ms | 0 | 0 | 0 | 5795.71 |
+
+Leitura: a acurácia permaneceu perfeita, mas o p99 piorou materialmente frente à configuração estável recente (`~1.25-1.43ms`). Isso confirma que o desenho atual de repair seletivo é correto para score: usa `bbox_repair` onde ele evita erro, mas não paga esse custo em toda consulta.
+
+Decisão: rejeitado e revertido. Manter `IVF_BOUNDARY_FULL=true`.
+
 ## Fechamento operacional 02h00
 
 Nota de ordenação: durante a rodada final, alguns blocos foram inseridos antes do fim físico do arquivo por reaproveitamento de contexto no patch. Os blocos finais da madrugada estão registrados neste arquivo em:
