@@ -1642,3 +1642,5 @@ Resultado:
 Leitura: a flag não ajudou. É possível que o gargalo em `usockets` seja syscall/event-loop e não código gerado, ou que o binário maior/mais específico piore cache/branching nessa janela.
 
 Decisão: rejeitado e revertido.
+
+Fechamento operacional: a imagem estável foi reconstruída após a reversão da flag e a pilha foi recriada. O benchmark de limpeza marcou `p99 1.59ms`, `final_score 5798.27`, 0 FP/FN/HTTP errors. Estado local novamente coerente com a configuração publicada.
