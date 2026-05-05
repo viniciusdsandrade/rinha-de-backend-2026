@@ -350,3 +350,43 @@ Resultado:
 Leitura: a reamostragem final empatou com o controle sem `seccomp`. O ganho inicial existiu na janela, mas não sustentou evidência suficiente para ser chamado de inquestionável.
 
 Decisão final: rejeitado por sustentabilidade. `docker-compose.yml` voltou ao estado sem `security_opt`; manter apenas o aprendizado no relatório.
+
+## Ciclo 21h00: nginx HTTP proxy vs stream L4
+
+Hipótese: a solução Rust líder usa nginx em modo `http` com upstream keepalive. Talvez manter conexões upstream HTTP pudesse ganhar contra o `stream` L4 atual.
+
+Alteração experimental:
+
+```nginx
+http {
+    upstream api {
+        server unix:/sockets/api1.sock;
+        server unix:/sockets/api2.sock;
+        keepalive 256;
+    }
+
+    server {
+        listen 9999 backlog=4096;
+        keepalive_timeout 75s;
+        keepalive_requests 100000;
+
+        location / {
+            proxy_pass http://api;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_buffering off;
+        }
+    }
+}
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| nginx `http` + upstream keepalive | 45.88ms | 0 | 0 | 0 | 4338.37 |
+| nginx `stream` L4 atual, referência da janela | 1.63ms-1.78ms | 0 | 0 | 0 | 5749.22-5788.78 |
+
+Leitura: para nossa API uWebSockets atrás de UDS, o `stream` L4 é muito superior. O modo `http` adiciona trabalho no LB e explode p99, mesmo sem erro HTTP.
+
+Decisão: rejeitado e revertido. Manter nginx `stream`.
