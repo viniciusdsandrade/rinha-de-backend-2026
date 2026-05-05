@@ -580,6 +580,21 @@ Com a branch `submission` publicada em `4d5bedb` e validada localmente em `p99 1
 
 Expectativa: a avaliação oficial deve buscar o repositório público `https://github.com/viniciusdsandrade/rinha-de-backend-2026`, branch `submission`, e registrar no comentário o commit avaliado. O commit esperado é `4d5bedb`.
 
+Resultado oficial retornado:
+
+| Issue | Commit | p99 | FP | FN | HTTP errors | final_score |
+|---|---|---:|---:|---:|---:|---:|
+| #1314 | `4d5bedb` | 1.43ms | 0 | 0 | 0 | 5844.41 |
+
+Comparação com a submissão anterior `#770`:
+
+| Issue | Commit | p99 | final_score | Delta score |
+|---|---|---:|---:|---:|
+| #770 | `e3fdd2b` | 1.44ms | 5842.99 | referência |
+| #1314 | `4d5bedb` | 1.43ms | 5844.41 | +1.42 |
+
+Leitura: a melhoria local (`1.18ms-1.22ms`) não se transferiu integralmente para o runner oficial, mas a submissão oficial nova ainda melhorou levemente o score e manteve 0 falhas. O achado é válido, porém o runner oficial mostra que a mudança é incremental, não uma quebra de patamar pública.
+
 ## Ciclo 21h55: reamostragem de split CPU após nginx 2 workers
 
 Hipótese: depois do ganho com `worker_processes 2` + `multi_accept off`, talvez o nginx precisasse de menos CPU e a API se beneficiasse de voltar para `0.42/0.42/0.16`, que havia sido rejeitado antes no desenho antigo do LB.
@@ -602,3 +617,25 @@ Resultado:
 Leitura: o split alternativo é competitivo, mas não supera a melhor configuração e reduz a fatia do nginx justamente depois de termos melhorado o comportamento do accept. Como o ganho é inexistente na prática, a versão mais conservadora continua sendo `0.41/0.41/0.18`.
 
 Decisão: rejeitado e revertido. Manter CPU split publicado.
+
+## Ciclo 22h00: nginx `worker_processes 3`
+
+Hipótese: se dois workers melhoraram o accept externo, talvez três workers ainda reduzissem fila no LB. O teste manteve `multi_accept off`, `reuseport` e o split CPU publicado.
+
+Alteração experimental:
+
+```nginx
+worker_processes 3;
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `worker_processes 2`, melhor run | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `worker_processes 2`, validação em `submission` | 1.22ms | 0 | 0 | 0 | 5912.31 |
+| `worker_processes 3` | 1.23ms | 0 | 0 | 0 | 5910.22 |
+
+Leitura: 3 workers preserva estabilidade, mas não melhora p99. Provavelmente aumenta coordenação/competição dentro da mesma fatia de `0.18` CPU do nginx.
+
+Decisão: rejeitado e revertido. Manter `worker_processes 2`.
