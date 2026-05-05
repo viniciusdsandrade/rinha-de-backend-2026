@@ -967,6 +967,36 @@ Leitura: mais CPU no nginx não compensou a perda de CPU nas APIs. O classificad
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
 
+## Ciclo 04h35: revalidação do split dos líderes (`0.40/0.40/0.20`)
+
+Hipótese: os repositórios líderes usam desenho próximo de `0.40/0.40/0.20`, com LB um pouco mais privilegiado. Como o teste `0.415/0.415/0.17` indicou sensibilidade ao CPU do nginx, valia revalidar a alternativa com mais CPU na borda no Docker Engine correto.
+
+Alteração experimental:
+
+```yaml
+api1/api2: cpus: "0.40"
+nginx:     cpus: "0.20"
+```
+
+Validação do Docker:
+
+```text
+/perf-noon-tuning-api1-1 NanoCpus=400000000 Memory=173015040
+/perf-noon-tuning-api2-1 NanoCpus=400000000 Memory=173015040
+/perf-noon-tuning-nginx-1 NanoCpus=200000000 Memory=20971520
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.40/0.40/0.20` | 1.59ms | 0 | 0 | 0 | 5799.47 |
+| Controle reverso `0.41/0.41/0.18` | 1.60ms | 0 | 0 | 0 | 5795.55 |
+
+Leitura: empate prático na janela atual. O split dos líderes é coerente, mas não entrega ganho sustentável nesta stack porque o gargalo residual parece estar no runtime/HTTP/classificador, não apenas na fatia do LB.
+
+Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`, que é a configuração já submetida e validada oficialmente em #1314.
+
 ## Ciclo 23h10: flags Haswell inspiradas nos líderes
 
 Hipótese: os dois primeiros colocados usam alvo Haswell explicitamente. O primeiro colocado em C compila com `-O3 -march=haswell -mtune=haswell -flto -fomit-frame-pointer -DNDEBUG`; o segundo, em Rust, usa `target-cpu=haswell` e `target-feature=+avx2,+fma,+f16c,+bmi2,+popcnt`. Como a CPU oficial descrita pelos participantes líderes é Haswell e o projeto já assumiu AVX2/FMA como requisito efetivo, valia medir se especializar o binário C++ geraria ganho no kernel IVF.
