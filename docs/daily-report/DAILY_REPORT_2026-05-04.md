@@ -1595,3 +1595,5 @@ nginx: no live upstreams while connecting to upstream
 Leitura: no uWebSockets, quando o handler retorna sem responder imediatamente e delega a resposta para `onData`, é obrigatório anexar abort handler. Sem isso, as APIs abortaram e o nginx ficou sem upstream vivo. O p99 baixo é irrelevante porque a taxa de erro foi 100%.
 
 Decisão: rejeitado e revertido. Manter `res->onAborted([]() {});`.
+
+Fechamento operacional: após a reversão, a imagem estável foi reconstruída e a pilha recriada no Docker Engine do sistema. O benchmark de limpeza marcou `p99 1.59ms`, `final_score 5799.17`, 0 FP/FN/HTTP errors. O ambiente voltou a responder normalmente.
