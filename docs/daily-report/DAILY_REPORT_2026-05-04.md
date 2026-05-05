@@ -756,6 +756,31 @@ Leitura: reduzir a janela de repair quebra a precisão. Mesmo quando uma variant
 
 Decisão: rejeitado. Manter `IVF_REPAIR_MIN_FRAUDS=1` e `IVF_REPAIR_MAX_FRAUDS=4`.
 
+## Ciclo 00h05: repair direto sem `boundary_full`
+
+Hipótese: a configuração atual faz uma busca rápida sem repair e, se o resultado cai na fronteira, repete com bbox repair. Forçar `IVF_BOUNDARY_FULL=false` faria o repair diretamente na primeira passagem, evitando a segunda busca em casos de borda.
+
+Alteração experimental:
+
+```yaml
+IVF_BOUNDARY_FULL: "false"
+IVF_BBOX_REPAIR: "true"
+IVF_REPAIR_MIN_FRAUDS: "1"
+IVF_REPAIR_MAX_FRAUDS: "4"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Estado publicado, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| Estado publicado, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| `boundary_full=false` | 1.65ms | 0 | 0 | 0 | 5783.70 |
+
+Leitura: a precisão foi preservada, mas o p99 piorou bastante. Reparar toda consulta de primeira custa mais do que repetir seletivamente só as consultas de borda.
+
+Decisão: rejeitado e revertido. Manter `IVF_BOUNDARY_FULL=true`.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
