@@ -545,3 +545,27 @@ Resultado:
 Leitura: o ganho foi grande o suficiente para sair da faixa normal de ruído desta janela e foi reproduzido em duas execuções consecutivas. O resultado volta ao patamar dos melhores históricos locais e supera a submissão oficial anterior registrada localmente (`p99 1.44ms`, `final_score 5842.99`), ainda sem introduzir erros de detecção ou HTTP.
 
 Decisão: aceitar `worker_processes 2` + `multi_accept off` como melhor configuração de LB encontrada hoje. Próximo passo: validar se a configuração deve ser promovida para `submission` e, se mantiver o desempenho, abrir nova issue oficial.
+
+## Ciclo 21h40: promoção e validação na branch `submission`
+
+A configuração aceita foi promovida para a branch oficial `submission` no commit `4d5bedb`:
+
+```nginx
+worker_processes 2;
+
+events {
+    worker_connections 4096;
+    multi_accept off;
+    use epoll;
+}
+```
+
+Validação executada contra o compose da própria branch `submission`, usando a imagem pública já declarada no `docker-compose.yml` e o `nginx.conf` publicado:
+
+| Branch/estado | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `submission` publicada, commit `4d5bedb` | 1.22ms | 0 | 0 | 0 | 5912.31 |
+
+Leitura: o resultado reproduz o ganho observado no worktree de investigação e supera a submissão oficial anterior registrada localmente (`p99 1.44ms`, `final_score 5842.99`). A mudança é restrita ao nginx, preserva limites de CPU/memória, `bridge`, duas APIs, LB sem lógica de aplicação e imagem pública.
+
+Decisão: preparar nova issue oficial de submissão usando a branch `submission` atual.
