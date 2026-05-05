@@ -1528,7 +1528,7 @@ Resultado:
 
 Leitura: é o melhor sinal novo da noite até aqui. A melhora ainda é pequena e não supera a submissão oficial #1314 (`p99 1.43ms`, `final_score 5844.41`), mas foi repetida em A/B/A na mesma janela e não introduz risco funcional evidente.
 
-Decisão: manter como candidato na branch exploratória `perf/noon-tuning` para reamostragem. Não promover ainda para `submission` sem validação adicional, porque o ganho local é menor que a variância histórica da máquina.
+Decisão inicial: manter como candidato na branch exploratória `perf/noon-tuning` para reamostragem. Não promover ainda para `submission` sem validação adicional, porque o ganho local é menor que a variância histórica da máquina.
 
 ## Ciclo 01h25: upper-bound do backlog UDS (`8192`)
 
@@ -1549,4 +1549,19 @@ Resultado:
 
 Leitura: aumentar além de `4096` piorou a cauda. A interpretação mais provável é que `4096` alinha o gargalo com o nginx sem criar fila exagerada; `8192` não reduz trabalho, apenas permite mais acúmulo sob pico.
 
-Decisão: rejeitado e revertido para `4096`.
+Decisão inicial: rejeitado e revertido para `4096`.
+
+## Ciclo 01h35: revalidação do backlog UDS `4096`
+
+Após o teste de `8192`, foi necessário reconstruir novamente a imagem com `4096`, porque a imagem local ainda carregava o binário experimental anterior. A reamostragem do suposto candidato `4096` não sustentou o ganho inicial.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| UDS backlog `4096`, melhor amostra anterior | 1.57ms | 0 | 0 | 0 | 5803.32 |
+| UDS backlog `4096`, revalidação pós-`8192` | 1.66ms | 0 | 0 | 0 | 5780.15 |
+
+Leitura: o sinal positivo A/B/A inicial não reproduziu depois da reconstrução/recriação seguinte. Isso coloca o resultado na mesma categoria dos demais ganhos marginais da noite: interessante como investigação, insuficiente como melhoria sustentável.
+
+Decisão final: rejeitado e revertido para o backlog original `512`. Não promover alteração vendored do uSockets.

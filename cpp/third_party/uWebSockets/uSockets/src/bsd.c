@@ -575,7 +575,7 @@ LIBUS_SOCKET_DESCRIPTOR bsd_create_listen_socket_unix(const char *path, int opti
     unlink(path);
 #endif
 
-    if (bind(listenFd, (struct sockaddr *)&server_address, size) || listen(listenFd, 4096)) {
+    if (bind(listenFd, (struct sockaddr *)&server_address, size) || listen(listenFd, 512)) {
         bsd_close_socket(listenFd);
         return LIBUS_SOCKET_ERROR;
     }
