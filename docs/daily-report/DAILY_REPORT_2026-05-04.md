@@ -1049,6 +1049,28 @@ Leitura: a primeira run sem `Date` parecia promissora, mas não reproduziu. A se
 
 Decisão: rejeitado e revertido. Manter uWebSockets vendored sem patch de `Date`.
 
+## Ciclo 06h30: `res->tryEnd()` no lugar de `res->end()`
+
+Hipótese: para respostas pequenas e com `Content-Length` conhecido, `tryEnd(body, body.size())` poderia usar um caminho de escrita mais direto ou evitar algum overhead de `end(body)`.
+
+Alteração experimental:
+
+```cpp
+const std::string_view body = classification_json(classification);
+(void) res->tryEnd(body, body.size());
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `tryEnd(body, body.size())` | 1.34ms | 0 | 0 | 0 | 5872.28 |
+| Controle reverso `end(body)` | 1.28ms | 0 | 0 | 0 | 5894.35 |
+
+Leitura: `tryEnd` piorou a amostra e não há motivo funcional para trocar o caminho atual. Para este uso, `end(body)` permanece mais simples e mais rápido na medição reversa.
+
+Decisão: rejeitado e revertido. Manter `res->end(body)`.
+
 ## Ciclo 04h35: revalidação do split dos líderes (`0.40/0.40/0.20`)
 
 Hipótese: os repositórios líderes usam desenho próximo de `0.40/0.40/0.20`, com LB um pouco mais privilegiado. Como o teste `0.415/0.415/0.17` indicou sensibilidade ao CPU do nginx, valia revalidar a alternativa com mais CPU na borda no Docker Engine correto.
