@@ -663,6 +663,38 @@ Leitura: mais CPU no nginx não compensou a perda de CPU nas APIs. O classificad
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
 
+## Ciclo 23h20: margem de FD/backlog no nginx
+
+Hipótese: inspirada por configurações de repositórios líderes, aumentar margem de file descriptors e declarar `somaxconn` no container do nginx poderia ajudar a borda em rajadas oficiais.
+
+Alteração experimental:
+
+```nginx
+worker_rlimit_nofile 65535;
+```
+
+```yaml
+nginx:
+  ulimits:
+    nofile:
+      soft: 65535
+      hard: 65535
+  sysctls:
+    net.core.somaxconn: 4096
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Estado publicado, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| Estado publicado, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| FD/somaxconn no nginx | 1.24ms | 0 | 0 | 0 | 5908.28 |
+
+Leitura: não houve ganho mensurável. A configuração aumenta superfície operacional e já havia sinais anteriores de que `ulimits` não traziam benefício consistente nesta stack.
+
+Decisão: rejeitado e revertido. Manter compose simples sem `ulimits`/`sysctls`.
+
 ## Ciclo 23h10: split CPU intermediário pró-API (`0.415/0.415/0.17`)
 
 Hipótese: como `0.42/0.42/0.16` ficou competitivo, mas não superior, um meio-termo dando um pouco mais de CPU às APIs sem reduzir tanto o nginx poderia melhorar a cauda.
