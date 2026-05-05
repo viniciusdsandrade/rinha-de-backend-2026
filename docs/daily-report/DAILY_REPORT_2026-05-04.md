@@ -1043,6 +1043,44 @@ Leitura: a primeira amostra parecia excelente, mas a repetição da própria var
 
 Decisão: rejeitado e revertido. Manter a cadeia de `if`, que é simples, clara e não aparece como gargalo sustentável.
 
+## Ciclo 07h35: microbenchmark do hot path
+
+Hipótese: depois de várias microtrocas de parser/HTTP não reproduzirem, valia revalidar onde está o custo dominante antes de propor outro patch. O objetivo era separar custo de cópia/parsing/vetorização do custo real de classificação.
+
+Comando executado:
+
+```bash
+cmake --build cpp/build --target benchmark-request-cpp -j2
+cpp/build/benchmark-request-cpp test/test-data.json resources/references.json.gz 2 20000
+```
+
+Resultado relevante:
+
+```text
+samples=20000 repeat=2 avg_body_bytes=434.47 max_body_bytes=471
+body_append_default_ns_per_query=32.3816
+body_append_reserve768_ns_per_query=16.5623
+dom_padded_parse_ns_per_query=241.832
+dom_reserve768_parse_ns_per_query=247.237
+parse_payload_ns_per_query=618.281
+parse_vectorize_ns_per_query=671.959
+parse_classify_ns_per_query=413067
+```
+
+Leitura: parser e vetorização estão na ordem de centenas de nanossegundos por payload no microbenchmark; o custo total com classificação é de centenas de milhares de nanossegundos. Isso explica por que `body.reserve`, `string_view` em `known_merchants`, `onDataV2`, `tryEnd`, remoção de headers e `switch` de MCC não sustentaram ganho no k6: eles mexem em uma fatia muito pequena do tempo de requisição.
+
+Checagem adicional:
+
+```bash
+cmake --build cpp/build --target benchmark-classifier-cpp -j2
+cpp/build/benchmark-classifier-cpp resources/references.json.gz test/test-data.json 1000
+# falhou: entrada sem info.vector
+```
+
+O `benchmark-classifier-cpp` não é evidência confiável nesta rodada porque espera `info.vector` no dataset local e o arquivo atual não expõe esse campo nesse formato.
+
+Decisão: nenhuma alteração de código. Próximas hipóteses com chance real devem mirar `Classifier`/IVF, pruning/ordenação do índice ou distribuição de CPU/LB; micro-otimizações de parser só valem se vierem acopladas a uma redução estrutural maior.
+
 ## Fechamento operacional 02h00
 
 Nota de ordenação: durante a rodada final, alguns blocos foram inseridos antes do fim físico do arquivo por reaproveitamento de contexto no patch. Os blocos finais da madrugada estão registrados neste arquivo em:
