@@ -1732,13 +1732,15 @@ Alteração experimental:
 target_compile_options(rinha-backend-2026-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3 -fno-plt)
 ```
 
-Resultado:
+Observação metodológica: a primeira leitura (`1.57ms / 5805.35`) foi descartada porque `run-local-k6.sh` apenas executa o k6 contra a stack já em pé e não recompila a imagem. A medição válida abaixo foi feita após `docker compose up -d --build --force-recreate` com a flag aplicada.
+
+Resultado válido:
 
 | Variante | p99 | FP | FN | HTTP errors | final_score |
 |---|---:|---:|---:|---:|---:|
-| `-fno-plt` | 1.57ms | 0 | 0 | 0 | 5805.35 |
-| Controle reverso sem `-fno-plt` | 1.57ms | 0 | 0 | 0 | 5804.52 |
+| `-fno-plt`, imagem reconstruída | 1.60ms | 0 | 0 | 0 | 5796.52 |
+| Controle reverso sem `-fno-plt`, imagem reconstruída | 1.57ms | 0 | 0 | 0 | 5804.71 |
 
-Leitura: a diferença de `0.83` ponto é ruído. A flag não prejudicou, mas também não gerou ganho sustentável nem aproxima a run da submissão oficial #1314 (`1.43ms`, `5844.41`).
+Leitura: com reconstrução real, a flag piorou a amostra. O ganho aparente anterior era apenas variação de benchmark sobre a mesma imagem antiga. Este achado também reforça a disciplina operacional: mudanças de CMake/Dockerfile exigem rebuild explícito antes de qualquer conclusão.
 
 Decisão: rejeitado e revertido. Manter o CMake estável sem `-fno-plt`.
