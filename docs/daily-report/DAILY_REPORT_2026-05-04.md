@@ -663,6 +663,29 @@ Leitura: mais CPU no nginx não compensou a perda de CPU nas APIs. O classificad
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
 
+## Ciclo 23h10: split CPU intermediário pró-API (`0.415/0.415/0.17`)
+
+Hipótese: como `0.42/0.42/0.16` ficou competitivo, mas não superior, um meio-termo dando um pouco mais de CPU às APIs sem reduzir tanto o nginx poderia melhorar a cauda.
+
+Alteração experimental:
+
+```yaml
+api1/api2: cpus "0.415"
+nginx:     cpus "0.17"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.41/0.41/0.18`, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `0.42/0.42/0.16` | 1.22ms | 0 | 0 | 0 | 5913.50 |
+| `0.415/0.415/0.17` | 1.24ms | 0 | 0 | 0 | 5906.26 |
+
+Leitura: o ajuste fino pró-API não melhorou. A família de splits em torno de `0.41/0.41/0.18` já foi suficientemente varrida nesta janela: `0.40/0.20`, `0.405/0.19`, `0.415/0.17`, `0.42/0.16` e o atual.
+
+Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
+
 ## Ciclo 22h20: nginx `worker_connections 1024`
 
 Hipótese: a carga local não deveria exigir `4096` conexões por worker; reduzir para `1024` poderia diminuir estruturas internas do nginx sem afetar capacidade.
