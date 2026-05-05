@@ -1721,3 +1721,24 @@ Resultado:
 Leitura: empate prático. A prioridade não trouxe ganho separável do ruído local e adiciona dependência de comportamento de scheduler/capacidade do container.
 
 Decisão: rejeitado e revertido. Manter nginx sem `worker_priority` explícito.
+
+## Ciclo 04h05: binário principal com `-fno-plt`
+
+Hipótese: reduzir chamadas via PLT no binário principal poderia cortar alguns ciclos em chamadas externas frequentes no hot path HTTP/parser/classificador, sem alterar comportamento funcional.
+
+Alteração experimental:
+
+```cmake
+target_compile_options(rinha-backend-2026-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3 -fno-plt)
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `-fno-plt` | 1.57ms | 0 | 0 | 0 | 5805.35 |
+| Controle reverso sem `-fno-plt` | 1.57ms | 0 | 0 | 0 | 5804.52 |
+
+Leitura: a diferença de `0.83` ponto é ruído. A flag não prejudicou, mas também não gerou ganho sustentável nem aproxima a run da submissão oficial #1314 (`1.43ms`, `5844.41`).
+
+Decisão: rejeitado e revertido. Manter o CMake estável sem `-fno-plt`.
