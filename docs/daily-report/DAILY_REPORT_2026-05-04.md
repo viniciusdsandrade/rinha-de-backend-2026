@@ -1597,3 +1597,25 @@ Leitura: no uWebSockets, quando o handler retorna sem responder imediatamente e 
 Decisão: rejeitado e revertido. Manter `res->onAborted([]() {});`.
 
 Fechamento operacional: após a reversão, a imagem estável foi reconstruída e a pilha recriada no Docker Engine do sistema. O benchmark de limpeza marcou `p99 1.59ms`, `final_score 5799.17`, 0 FP/FN/HTTP errors. O ambiente voltou a responder normalmente.
+
+## Ciclo 02h10: evitar cópia de `shared_ptr` no `onData`
+
+Hipótese: o callback `onData` capturava `std::shared_ptr<AppState>` por request, potencialmente pagando incremento/decremento atômico no hot path. Como o handler externo mantém o `shared_ptr` vivo, o `onData` poderia capturar apenas `const AppState*`.
+
+Alteração experimental:
+
+```cpp
+const AppState* app_state = state.get();
+res->onData([res, app_state, body = std::string{}](...) { ... });
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Controle estável prévio | 1.59ms | 0 | 0 | 0 | 5799.17 |
+| `onData` capturando `const AppState*` | 1.59ms | 0 | 0 | 0 | 5798.06 |
+
+Leitura: a alteração é funcionalmente segura na estrutura atual, mas não apresentou ganho mensurável. O custo do `shared_ptr` não aparece no p99 local ou é pequeno demais para separar do ruído.
+
+Decisão: rejeitado e revertido por KISS. Manter captura de `shared_ptr` como estava.
