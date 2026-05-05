@@ -390,3 +390,22 @@ Resultado:
 Leitura: para nossa API uWebSockets atrás de UDS, o `stream` L4 é muito superior. O modo `http` adiciona trabalho no LB e explode p99, mesmo sem erro HTTP.
 
 Decisão: rejeitado e revertido. Manter nginx `stream`.
+
+## Ciclo 21h05: IVF com menos clusters
+
+Hipótese: a solução C líder usa um IVF mais grosso; talvez menos clusters reduzissem custo de seleção de centroides sem perder precisão na nossa implementação.
+
+Foram preparados índices com `sample=65536`, `iterations=6` e variação apenas em `clusters`.
+
+Resultado:
+
+| Clusters | ns/query | FP | FN | Decisão |
+|---:|---:|---:|---:|---|
+| 256 | 44810.0 | 2 | 2 | rejeitar |
+| 512 | 27211.1 | 0 | 2 | rejeitar |
+| 768 | 20698.2 | 4 | 0 | rejeitar |
+| 1280 atual | 17741.1 | 0 | 0 | manter |
+
+Leitura: reduzir clusters aumentou o tamanho dos grupos e deixou o repair mais caro, além de introduzir erros. A escolha atual `1280` segue sendo o único ponto da varredura ampla com 0 erro e custo competitivo.
+
+Decisão: não alterar índice nem `Dockerfile`.
