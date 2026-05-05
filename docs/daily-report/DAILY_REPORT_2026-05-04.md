@@ -903,6 +903,33 @@ Leitura: a precisão foi preservada, mas o custo de `round` no hot path piorou a
 
 Decisão: rejeitado e revertido. Manter vetorização sem `round4` explícito.
 
+## Ciclo 00h45: prefetch no scanner AVX2
+
+Hipótese: o scanner do segundo colocado faz prefetch de blocos futuros no loop AVX2. Adicionar `_mm_prefetch` em `scan_blocks_avx2` para `block + 8` poderia reduzir miss de cache durante o repair.
+
+Alteração experimental temporária:
+
+```cpp
+const std::uint32_t prefetch_block = block + 8U;
+if (prefetch_block < end_block) {
+    const std::size_t prefetch_base = prefetch_block * kDimensions * kBlockLanes;
+    _mm_prefetch(reinterpret_cast<const char*>(blocks_ptr + prefetch_base), _MM_HINT_T0);
+    _mm_prefetch(reinterpret_cast<const char*>(blocks_ptr + prefetch_base + (7U * kBlockLanes)), _MM_HINT_T0);
+}
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Referência histórica do índice atual | ~18k | 0 | 0 | 0 | base histórica |
+| Prefetch, run 1 | 40609.2 | 0 | 0 | 0 | rejeitar |
+| Prefetch, run 2 | 35271.0 | 0 | 0 | 0 | rejeitar |
+
+Leitura: preservou precisão, mas não deu sinal positivo. O prefetch explícito parece redundante ou contraproducente no nosso layout/kernel; no código do Jairo ele opera sobre outra forma de blocos e outro runtime.
+
+Decisão: rejeitado e revertido. Não levar para k6.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
