@@ -1665,3 +1665,5 @@ Resultado:
 Leitura: piorou. O simdjson já possui dispatch/implementações próprias para SIMD, e forçar a flag no TU da biblioteca não trouxe benefício para o payload do desafio.
 
 Decisão: rejeitado e revertido.
+
+Fechamento operacional: imagem estável reconstruída após a reversão e pilha recriada. Benchmark de limpeza: `p99 1.66ms`, `final_score 5780.59`, 0 FP/FN/HTTP errors. O estado está funcional, mas a janela local segue mais lenta que o melhor histórico/oficial.
