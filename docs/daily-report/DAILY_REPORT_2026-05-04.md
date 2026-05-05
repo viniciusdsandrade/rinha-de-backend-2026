@@ -1081,6 +1081,26 @@ O `benchmark-classifier-cpp` não é evidência confiável nesta rodada porque e
 
 Decisão: nenhuma alteração de código. Próximas hipóteses com chance real devem mirar `Classifier`/IVF, pruning/ordenação do índice ou distribuição de CPU/LB; micro-otimizações de parser só valem se vierem acopladas a uma redução estrutural maior.
 
+## Ciclo 07h50: desligar `IVF_BBOX_REPAIR`
+
+Hipótese: o `bbox_repair` é a parte que pode transformar `nprobe=1` em varredura de clusters adicionais quando o bounding box indica risco de erro. Desligar essa etapa deveria reduzir trabalho do classificador e talvez melhorar p99, ao custo potencial de acurácia. Como o score atual exige `0%` falhas para competir no topo, a hipótese só seria aceitável se os erros continuassem zerados.
+
+Alteração experimental:
+
+```yaml
+IVF_BBOX_REPAIR: "false"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | failure_rate | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| `IVF_BBOX_REPAIR=false` | 1.24ms | 127 | 131 | 0 | 0.48% | 4109.24 |
+
+Leitura: a latência permaneceu competitiva, mas a queda de acurácia destrói o score. Foram `520` erros ponderados (`127*1 + 131*3`), reduzindo o `detection_score` para `1201.81`. Este é um bom achado de fronteira: o repair não é perfumaria, é o mecanismo que mantém `0%` FP/FN na configuração atual.
+
+Decisão: rejeitado e revertido. Manter `IVF_BBOX_REPAIR=true`.
+
 ## Fechamento operacional 02h00
 
 Nota de ordenação: durante a rodada final, alguns blocos foram inseridos antes do fim físico do arquivo por reaproveitamento de contexto no patch. Os blocos finais da madrugada estão registrados neste arquivo em:
