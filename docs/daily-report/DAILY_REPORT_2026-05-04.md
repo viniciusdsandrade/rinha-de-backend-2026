@@ -684,3 +684,25 @@ Resultado:
 Leitura: a redução não trouxe ganho claro. Como `4096` dá mais margem em ambiente oficial sem custo observado, não há motivo para reduzir.
 
 Decisão: rejeitado e revertido. Manter `worker_connections 4096`.
+
+## Ciclo 22h30: nginx `backlog=8192`
+
+Hipótese: se o runner oficial tiver rajadas de conexão mais agressivas, aumentar a fila de accept externa de `4096` para `8192` poderia reduzir recusas/esperas na borda sem mexer nas APIs.
+
+Alteração experimental:
+
+```nginx
+listen 9999 reuseport backlog=8192;
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `backlog=4096`, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `backlog=4096`, validação em `submission` | 1.22ms | 0 | 0 | 0 | 5912.31 |
+| `backlog=8192` | 1.22ms | 0 | 0 | 0 | 5912.23 |
+
+Leitura: aumentar backlog não trouxe ganho. A fila externa não aparece como gargalo no ambiente local, e o valor atual já é amplo para o cenário.
+
+Decisão: rejeitado e revertido. Manter `backlog=4096`.
