@@ -662,3 +662,25 @@ Resultado:
 Leitura: mais CPU no nginx não compensou a perda de CPU nas APIs. O classificador ainda precisa da fatia atual para segurar cauda; a suspeita de LB limitado por CPU não se confirmou localmente.
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
+
+## Ciclo 22h20: nginx `worker_connections 1024`
+
+Hipótese: a carga local não deveria exigir `4096` conexões por worker; reduzir para `1024` poderia diminuir estruturas internas do nginx sem afetar capacidade.
+
+Alteração experimental:
+
+```nginx
+worker_connections 1024;
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `worker_connections 4096`, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `worker_connections 4096`, validação em `submission` | 1.22ms | 0 | 0 | 0 | 5912.31 |
+| `worker_connections 1024` | 1.22ms | 0 | 0 | 0 | 5912.89 |
+
+Leitura: a redução não trouxe ganho claro. Como `4096` dá mais margem em ambiente oficial sem custo observado, não há motivo para reduzir.
+
+Decisão: rejeitado e revertido. Manter `worker_connections 4096`.
