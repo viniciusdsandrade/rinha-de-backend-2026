@@ -1667,3 +1667,25 @@ Leitura: piorou. O simdjson já possui dispatch/implementações próprias para 
 Decisão: rejeitado e revertido.
 
 Fechamento operacional: imagem estável reconstruída após a reversão e pilha recriada. Benchmark de limpeza: `p99 1.66ms`, `final_score 5780.59`, 0 FP/FN/HTTP errors. O estado está funcional, mas a janela local segue mais lenta que o melhor histórico/oficial.
+
+## Ciclo 03h05: revalidação de `IVF_FULL_NPROBE=2`
+
+Hipótese: em uma rodada anterior, `IVF_FULL_NPROBE=2` marcou `p99 1.37ms`, 0 erros e `final_score 5863.46`. Embora tenha sido rejeitado por perder para o melhor local histórico (`1.18ms`), esse número seria melhor que a submissão oficial #1314 (`1.43ms`, `5844.41`). Por isso, valia revalidar no Docker Engine correto antes de descartar definitivamente.
+
+Alteração experimental:
+
+```yaml
+IVF_FAST_NPROBE: "1"
+IVF_FULL_NPROBE: "2"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `IVF_FULL_NPROBE=2`, melhor run antiga | 1.37ms | 0 | 0 | 0 | 5863.46 |
+| `IVF_FULL_NPROBE=2`, revalidação atual | 1.60ms | 0 | 0 | 0 | 5795.49 |
+
+Leitura: a run antiga não reproduziu. A configuração preserva precisão, mas não entrega ganho sustentável de p99 nesta janela. O resultado atual fica abaixo da submissão oficial e abaixo do estado estável recente.
+
+Decisão: rejeitado e revertido para `IVF_FULL_NPROBE=1`.
