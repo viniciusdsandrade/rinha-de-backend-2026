@@ -883,6 +883,26 @@ Insights acionáveis:
 
 Leitura final desta comparação: não há knob simples restante copiado dos líderes que melhore nossa stack atual. O caminho para salto material é aproximar o hot path deles: servidor manual/io_uring ou pelo menos epoll com HTTP completo pré-montado, batch/pipeline e escrita vetorizada. Essa é uma mudança maior que precisa de rodada própria e benchmarkado contra a branch `submission` atual.
 
+## Ciclo 00h35: arredondamento da query em 4 casas
+
+Hipótese: o segundo colocado arredonda dimensões contínuas em 4 casas antes da busca. Como nosso índice usa quantização `×10000`, arredondar a query antes da seleção de centróide poderia alinhar melhor a geometria da consulta.
+
+Alteração experimental temporária:
+
+- Adicionar `round4(x) = round(x * 10000) * 0.0001`.
+- Aplicar nos campos contínuos normalizados da vetorização.
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Estado atual, referência ruidosa da janela | 45754.3 | 0 | 0 | 0 | base |
+| `round4` na vetorização | 53523.5 | 0 | 0 | 0 | rejeitar |
+
+Leitura: a precisão foi preservada, mas o custo de `round` no hot path piorou a medição. Na implementação Rust do Jairo esse arredondamento está acoplado a um parser/vetorizador manual; na nossa stack ele adiciona custo sem retorno.
+
+Decisão: rejeitado e revertido. Manter vetorização sem `round4` explícito.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
