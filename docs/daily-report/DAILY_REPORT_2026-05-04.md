@@ -1039,6 +1039,29 @@ Leitura: HAProxy isolado é claramente pior nesta stack. Nos líderes, HAProxy a
 
 Decisão: rejeitado e revertido para `nginx:1.27-alpine` em `stream`.
 
+## Ciclo 05h10: binário principal com `-fno-rtti`
+
+Hipótese: o executável não usa RTTI diretamente no hot path. Desabilitar RTTI poderia reduzir metadados/código auxiliar e melhorar discretamente cache/branching, mantendo comportamento funcional.
+
+Alteração experimental:
+
+```cmake
+target_compile_options(rinha-backend-2026-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3 -fno-rtti)
+```
+
+Validação: rebuild explícito com `docker compose up -d --build --force-recreate`; compilação concluída sem erro.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `-fno-rtti`, imagem reconstruída | 1.63ms | 0 | 0 | 0 | 5788.55 |
+| Controle reverso sem `-fno-rtti`, imagem reconstruída | 1.59ms | 0 | 0 | 0 | 5797.35 |
+
+Leitura: a flag piorou a cauda. Como RTTI não é o gargalo e o binário já é LTO/Release, a mudança não traz benefício sustentável.
+
+Decisão: rejeitado e revertido. Manter o CMake sem `-fno-rtti`.
+
 ## Ciclo 23h10: flags Haswell inspiradas nos líderes
 
 Hipótese: os dois primeiros colocados usam alvo Haswell explicitamente. O primeiro colocado em C compila com `-O3 -march=haswell -mtune=haswell -flto -fomit-frame-pointer -DNDEBUG`; o segundo, em Rust, usa `target-cpu=haswell` e `target-feature=+avx2,+fma,+f16c,+bmi2,+popcnt`. Como a CPU oficial descrita pelos participantes líderes é Haswell e o projeto já assumiu AVX2/FMA como requisito efetivo, valia medir se especializar o binário C++ geraria ganho no kernel IVF.
