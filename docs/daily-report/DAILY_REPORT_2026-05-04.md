@@ -729,3 +729,26 @@ Resultado:
 Leitura: pinning piorou a cauda local, provavelmente por interagir mal com quota de CPU em container e scheduler do Docker. O nginx se comporta melhor deixando o kernel agendar livremente dentro da cota.
 
 Decisão: rejeitado e revertido. Não usar afinidade manual no nginx.
+
+## Ciclo 22h50: imagem `nginx:1.29-alpine`
+
+Hipótese: uma versão mais nova do nginx poderia trazer melhorias no módulo `stream` ou no pacote Alpine sem mudar a configuração da aplicação. Antes do teste, foi verificado que as tags `nginx:1.29-alpine` e `nginx:1.28-alpine` existem; tag flutuante `nginx:alpine` foi descartada por timeout de registry e por ser menos reprodutível.
+
+Alteração experimental:
+
+```yaml
+nginx:
+  image: nginx:1.29-alpine
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `nginx:1.27-alpine`, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `nginx:1.27-alpine`, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| `nginx:1.29-alpine` | 1.22ms | 0 | 0 | 0 | 5912.65 |
+
+Leitura: a imagem nova é funcional, mas não melhora o p99 local. Como troca de imagem aumenta superfície de variância oficial e não mostrou ganho, não vale promover.
+
+Decisão: rejeitado e revertido. Manter `nginx:1.27-alpine`.
