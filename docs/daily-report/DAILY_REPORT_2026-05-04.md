@@ -497,3 +497,25 @@ Resultado:
 Leitura: remover `reuseport` não trouxe ganho e ficou ligeiramente pior. Mesmo com um worker, manter a configuração atual não custa score na janela.
 
 Decisão: rejeitado e revertido. Manter `reuseport`.
+
+## Ciclo 21h35: nginx com `worker_processes 2`
+
+Hipótese: com `reuseport` ativo na porta externa, permitir dois workers no nginx poderia reduzir fila no LB durante a rampa do k6 sem colocar lógica de aplicação no balanceador.
+
+Alteração experimental:
+
+```nginx
+worker_processes 2;
+```
+
+Resultado:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| `worker_processes 1`, referência restaurada | controle | 1.63ms | 0 | 0 | 0 | 5787.14 |
+| `worker_processes 2` | 1 | 1.61ms | 0 | 0 | 0 | 5792.06 |
+| `worker_processes 2` | 2 | 1.57ms | 0 | 0 | 0 | 5803.79 |
+
+Leitura: o ganho é pequeno, mas apareceu em duas medições consecutivas e não alterou contrato, topologia, recursos declarados, nem lógica de negócio do LB. Como a mudança é apenas operacional e reversível, fica como candidato aceito provisório para a branch de investigação.
+
+Decisão: manter `worker_processes 2` por enquanto e continuar medindo em novos ciclos. Ainda não supera a melhor submissão oficial/histórica, portanto não justifica nova issue oficial isoladamente.
