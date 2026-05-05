@@ -1071,6 +1071,36 @@ Leitura: `tryEnd` piorou a amostra e não há motivo funcional para trocar o cam
 
 Decisão: rejeitado e revertido. Manter `res->end(body)`.
 
+## Ciclo 06h40: `onDataV2` direto no uWebSockets
+
+Hipótese: `res->onData()` é um wrapper sobre `onDataV2()` que converte `maxRemainingBodyLength == 0` em `is_last`. Usar `onDataV2()` diretamente poderia remover uma pequena camada de callback no hot path.
+
+Alteração experimental:
+
+```cpp
+res->onDataV2([res, state, body = std::string{}](
+    std::string_view chunk,
+    std::uint64_t max_remaining_body_length
+) mutable {
+    body.append(chunk.data(), chunk.size());
+    if (max_remaining_body_length != 0U) {
+        return;
+    }
+    // parse/classify/respond
+});
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `onDataV2` direto | 1.28ms | 0 | 0 | 0 | 5893.29 |
+| Controle reverso `onData` | 1.28ms | 0 | 0 | 0 | 5891.57 |
+
+Leitura: empate prático. A diferença de `1.72` ponto é menor que a variação normal da janela, então não justifica trocar a API mais simples por um caminho menos idiomático.
+
+Decisão: rejeitado e revertido. Manter `res->onData(...)`.
+
 ## Ciclo 04h35: revalidação do split dos líderes (`0.40/0.40/0.20`)
 
 Hipótese: os repositórios líderes usam desenho próximo de `0.40/0.40/0.20`, com LB um pouco mais privilegiado. Como o teste `0.415/0.415/0.17` indicou sensibilidade ao CPU do nginx, valia revalidar a alternativa com mais CPU na borda no Docker Engine correto.
