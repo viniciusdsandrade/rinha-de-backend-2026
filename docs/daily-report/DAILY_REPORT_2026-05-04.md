@@ -519,3 +519,29 @@ Resultado:
 Leitura: o ganho é pequeno, mas apareceu em duas medições consecutivas e não alterou contrato, topologia, recursos declarados, nem lógica de negócio do LB. Como a mudança é apenas operacional e reversível, fica como candidato aceito provisório para a branch de investigação.
 
 Decisão: manter `worker_processes 2` por enquanto e continuar medindo em novos ciclos. Ainda não supera a melhor submissão oficial/histórica, portanto não justifica nova issue oficial isoladamente.
+
+## Ciclo 21h30: nginx `multi_accept off` com 2 workers
+
+Hipótese: depois de aceitar provisoriamente `worker_processes 2`, manter `multi_accept on` poderia causar rajadas de accept em um worker e piorar a distribuição efetiva entre os workers. Com `reuseport` ativo, testar `multi_accept off` é uma mudança pequena para reduzir essa possibilidade sem alterar lógica de aplicação.
+
+Alteração experimental:
+
+```nginx
+events {
+    worker_connections 4096;
+    multi_accept off;
+    use epoll;
+}
+```
+
+Resultado:
+
+| Variante | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| `worker_processes 2`, `multi_accept on` | melhor repetida | 1.57ms | 0 | 0 | 0 | 5803.79 |
+| `worker_processes 2`, `multi_accept off` | 1 | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `worker_processes 2`, `multi_accept off` | 2 | 1.21ms | 0 | 0 | 0 | 5915.55 |
+
+Leitura: o ganho foi grande o suficiente para sair da faixa normal de ruído desta janela e foi reproduzido em duas execuções consecutivas. O resultado volta ao patamar dos melhores históricos locais e supera a submissão oficial anterior registrada localmente (`p99 1.44ms`, `final_score 5842.99`), ainda sem introduzir erros de detecção ou HTTP.
+
+Decisão: aceitar `worker_processes 2` + `multi_accept off` como melhor configuração de LB encontrada hoje. Próximo passo: validar se a configuração deve ser promovida para `submission` e, se mantiver o desempenho, abrir nova issue oficial.
