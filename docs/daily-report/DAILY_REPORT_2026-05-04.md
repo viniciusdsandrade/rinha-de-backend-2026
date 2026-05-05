@@ -1565,3 +1565,5 @@ Resultado:
 Leitura: o sinal positivo A/B/A inicial não reproduziu depois da reconstrução/recriação seguinte. Isso coloca o resultado na mesma categoria dos demais ganhos marginais da noite: interessante como investigação, insuficiente como melhoria sustentável.
 
 Decisão final: rejeitado e revertido para o backlog original `512`. Não promover alteração vendored do uSockets.
+
+Fechamento operacional: depois da reversão, a imagem local foi reconstruída explicitamente no Docker Engine do sistema e a pilha foi recriada. O benchmark de limpeza do estado restaurado marcou `p99 1.65ms`, `final_score 5783.32`, 0 FP/FN/HTTP errors. Esse resultado confirma que o ambiente voltou ao comportamento estável da janela, embora ainda abaixo da submissão oficial #1314.
