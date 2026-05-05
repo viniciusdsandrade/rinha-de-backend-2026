@@ -1500,3 +1500,32 @@ Resultado:
 Leitura: houve leve vantagem nominal contra os controles imediatamente adjacentes, mas o resultado continuou dentro do ruído local da noite e pior que os melhores controles recentes (`1.59ms`). Como o ganho não superou o critério de sustentabilidade/inquestionabilidade, não vale promover para `submission`.
 
 Decisão: rejeitado e revertido. Manter nginx sem `tcp_nodelay` explícito.
+
+## Ciclo 01h10: backlog do unix socket das APIs no uSockets
+
+Hipótese: o nginx externo já escuta com `backlog=4096`, mas o uSockets usado pelo uWebSockets fixa `listen(..., 512)` para unix domain sockets. Em bursts, a fila menor no trecho nginx -> API poderia contribuir para cauda. Aumentar o backlog do UDS para `4096` alinha API e LB sem mudar contrato, topologia ou algoritmo.
+
+Achado no código:
+
+```c
+// cpp/third_party/uWebSockets/uSockets/src/bsd.c
+listen(listenFd, 512)
+```
+
+Alteração experimental:
+
+```c
+listen(listenFd, 4096)
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| UDS backlog `4096`, primeira amostra | 1.58ms | 0 | 0 | 0 | 5800.61 |
+| Controle reverso UDS backlog `512` | 1.62ms | 0 | 0 | 0 | 5789.78 |
+| UDS backlog `4096`, segunda amostra | 1.57ms | 0 | 0 | 0 | 5803.32 |
+
+Leitura: é o melhor sinal novo da noite até aqui. A melhora ainda é pequena e não supera a submissão oficial #1314 (`p99 1.43ms`, `final_score 5844.41`), mas foi repetida em A/B/A na mesma janela e não introduz risco funcional evidente.
+
+Decisão: manter como candidato na branch exploratória `perf/noon-tuning` para reamostragem. Não promover ainda para `submission` sem validação adicional, porque o ganho local é menor que a variância histórica da máquina.
