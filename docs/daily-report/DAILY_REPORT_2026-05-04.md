@@ -461,3 +461,18 @@ Resultado:
 | Estado restaurado atual | 1.63ms | 0 | 0 | 0 | 5787.14 |
 
 Leitura: a janela permaneceu mais lenta que o melhor histórico local (`~1.22ms-1.25ms`), mas o estado limpo está coerente com os controles recentes (`1.63ms`). Não há evidência de regressão persistente de código após as reversões.
+
+## Ciclo 21h15: reamostragem de CPU split `0.42/0.42/0.16`
+
+Hipótese: o split antigo `api=0.42` cada e `nginx=0.16` já foi competitivo em outras janelas; poderia voltar a ganhar no estado atual.
+
+Resultado:
+
+| Split | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| APIs `0.41/0.41`, nginx `0.18`, referência restaurada | 1.63ms | 0 | 0 | 0 | 5787.14 |
+| APIs `0.42/0.42`, nginx `0.16` | 1.68ms | 0 | 0 | 0 | 5773.49 |
+
+Leitura: tirar CPU do nginx piorou a cauda nesta janela. O LB ainda precisa da fatia `0.18` para segurar o ramp local.
+
+Decisão: rejeitado e revertido para `0.41/0.41/0.18`.
