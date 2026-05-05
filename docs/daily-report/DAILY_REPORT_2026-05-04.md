@@ -1002,6 +1002,47 @@ Leitura: a direção é tecnicamente coerente, mas o ganho medido foi de apenas 
 
 Decisão: rejeitado e revertido. Manter `std::vector<std::string>` no parser.
 
+## Ciclo 07h15: MCC por `switch` de 4 bytes
+
+Hipótese: `mcc_risk` usa uma cadeia curta de comparações de `std::string`. Como MCC tem sempre 4 caracteres nos códigos conhecidos, empacotar os 4 bytes em um `uint32_t` e usar `switch` poderia reduzir comparações no hot path da vetorização.
+
+Alteração experimental:
+
+```cpp
+constexpr std::uint32_t mcc_code(char a, char b, char c, char d) noexcept {
+    return (static_cast<std::uint32_t>(a) << 24U) |
+           (static_cast<std::uint32_t>(b) << 16U) |
+           (static_cast<std::uint32_t>(c) << 8U) |
+           static_cast<std::uint32_t>(d);
+}
+
+const std::uint32_t code = mcc_code(mcc[0], mcc[1], mcc[2], mcc[3]);
+switch (code) {
+    case mcc_code('5', '4', '1', '1'): return 0.15f;
+    // ...
+}
+```
+
+Validação funcional:
+
+```bash
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j2
+cpp/build/rinha-backend-2026-cpp-tests
+# exit code 0
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| MCC `switch` amostra 1 | 1.14ms | 0 | 0 | 0 | 5942.93 |
+| Controle reverso com cadeia de `if` | 1.25ms | 0 | 0 | 0 | 5902.36 |
+| MCC `switch` amostra 2 | 1.27ms | 0 | 0 | 0 | 5897.65 |
+
+Leitura: a primeira amostra parecia excelente, mas a repetição da própria variante caiu para a mesma faixa do controle. O ganho não reproduziu e provavelmente foi mais uma janela favorável do host do que efeito do `switch`.
+
+Decisão: rejeitado e revertido. Manter a cadeia de `if`, que é simples, clara e não aparece como gargalo sustentável.
+
 ## Fechamento operacional 02h00
 
 Nota de ordenação: durante a rodada final, alguns blocos foram inseridos antes do fim físico do arquivo por reaproveitamento de contexto no patch. Os blocos finais da madrugada estão registrados neste arquivo em:
