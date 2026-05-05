@@ -1085,6 +1085,29 @@ Leitura: o baseline reverso ficou praticamente igual ao estado com `seccomp`, en
 
 Decisão: rejeitado. Não promover `seccomp=unconfined`. O compose foi restaurado para a porta oficial `9999`, e os containers de laboratório foram removidos com `docker compose down --remove-orphans`.
 
+## Ciclo 00h15: reorder de dimensões no corte parcial AVX2 do IVF
+
+Hipótese: o scanner AVX2 atual acumula as dimensões `0..7`, faz um corte parcial contra o pior top-5 e só então acumula `8..13`. A solução C líder e nosso escalar usam uma ordem mais discriminativa (`5,6,2,0,7,8,11,12,9,10,1,13,3,4`). Trocar apenas a ordem da primeira passada AVX2 poderia antecipar pruning sem alterar a distância final.
+
+Alteração experimental em `scan_blocks_avx2`:
+
+```cpp
+constexpr std::array<std::size_t, 8> kFirstPassDims{5, 6, 2, 0, 7, 8, 11, 12};
+constexpr std::array<std::size_t, 6> kSecondPassDims{9, 10, 1, 13, 3, 4};
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Reorder AVX2, run 1 | 18176.9 | 0 | 0 | 0 | rejeitar |
+| Reorder AVX2, run 2 | 20630.6 | 0 | 0 | 0 | rejeitar |
+| Baseline restaurado, mesma janela | 17730.5 | 0 | 0 | 0 | manter |
+
+Leitura: a primeira execução parecia promissora quando comparada com runs degradadas anteriores, mas o A/B real na mesma janela mostrou que o baseline atual é mais rápido. A ordem original `0..7` no corte parcial AVX2 deve permanecer.
+
+Decisão: rejeitado e revertido.
+
 ## Ciclo 23h20: margem de FD/backlog no nginx
 
 Hipótese: inspirada por configurações de repositórios líderes, aumentar margem de file descriptors e declarar `somaxconn` no container do nginx poderia ajudar a borda em rajadas oficiais.
