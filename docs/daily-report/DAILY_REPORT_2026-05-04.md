@@ -1465,3 +1465,38 @@ Resultado:
 Leitura: limitar a arena piorou a cauda de forma clara. Para essa aplicação, a hipótese mais provável é aumento de contenção no allocator sem benefício prático, já que o hot path foi desenhado para alocar pouco.
 
 Decisão: rejeitado e revertido. Não usar `MALLOC_ARENA_MAX`.
+
+## Ciclo 00h45: nginx stream `tcp_nodelay on`
+
+Hipótese: como as respostas são muito pequenas, habilitar `tcp_nodelay` no servidor `stream` do nginx poderia reduzir atraso de pacotes pequenos no trecho cliente -> LB. O trecho LB -> API continua via unix socket.
+
+Alteração experimental:
+
+```nginx
+server {
+    listen 9999 reuseport backlog=4096;
+    tcp_nodelay on;
+    proxy_pass api;
+}
+```
+
+Validação de configuração:
+
+```bash
+nginx -t
+# syntax is ok
+# test is successful
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Controle sem `tcp_nodelay`, janela recente | 1.65ms | 0 | 0 | 0 | 5781.42 |
+| `tcp_nodelay on`, primeira amostra | 1.62ms | 0 | 0 | 0 | 5791.68 |
+| Controle reverso sem `tcp_nodelay` | 1.66ms | 0 | 0 | 0 | 5779.49 |
+| `tcp_nodelay on`, segunda amostra | 1.63ms | 0 | 0 | 0 | 5788.18 |
+
+Leitura: houve leve vantagem nominal contra os controles imediatamente adjacentes, mas o resultado continuou dentro do ruído local da noite e pior que os melhores controles recentes (`1.59ms`). Como o ganho não superou o critério de sustentabilidade/inquestionabilidade, não vale promover para `submission`.
+
+Decisão: rejeitado e revertido. Manter nginx sem `tcp_nodelay` explícito.
