@@ -1619,3 +1619,26 @@ Resultado:
 Leitura: a alteração é funcionalmente segura na estrutura atual, mas não apresentou ganho mensurável. O custo do `shared_ptr` não aparece no p99 local ou é pequeno demais para separar do ruído.
 
 Decisão: rejeitado e revertido por KISS. Manter captura de `shared_ptr` como estava.
+
+## Ciclo 02h35: compilar `usockets` com `-march=x86-64-v3`
+
+Hipótese: o alvo principal já usa `-mavx2 -mfma -march=x86-64-v3`, mas a biblioteca vendored `usockets` era compilada apenas com flags Release padrão. Como o caminho de accept/read/write passa por ela, compilar `usockets` para o mesmo baseline de CPU poderia reduzir overhead do servidor.
+
+Alteração experimental:
+
+```cmake
+target_compile_options(usockets PRIVATE -march=x86-64-v3)
+```
+
+Validação: build completo com `--no-cache` para garantir recompilação real de `usockets`.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Controle estável recente | 1.59ms | 0 | 0 | 0 | 5799.17 |
+| `usockets` com `-march=x86-64-v3` | 1.64ms | 0 | 0 | 0 | 5786.48 |
+
+Leitura: a flag não ajudou. É possível que o gargalo em `usockets` seja syscall/event-loop e não código gerado, ou que o binário maior/mais específico piore cache/branching nessa janela.
+
+Decisão: rejeitado e revertido.
