@@ -752,3 +752,26 @@ Resultado:
 Leitura: a imagem nova é funcional, mas não melhora o p99 local. Como troca de imagem aumenta superfície de variância oficial e não mostrou ganho, não vale promover.
 
 Decisão: rejeitado e revertido. Manter `nginx:1.27-alpine`.
+
+## Ciclo 23h00: split CPU intermediário (`0.405/0.405/0.19`)
+
+Hipótese: como `0.42/0.42/0.16` e `0.40/0.40/0.20` foram piores, um ponto intermediário poderia dar um pouco mais de CPU ao nginx sem penalizar tanto as APIs.
+
+Alteração experimental:
+
+```yaml
+api1/api2: cpus "0.405"
+nginx:     cpus "0.19"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.41/0.41/0.18`, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `0.41/0.41/0.18`, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| `0.405/0.405/0.19` | 1.24ms | 0 | 0 | 0 | 5906.48 |
+
+Leitura: o split intermediário também piorou. A cauda parece mais sensível à perda de CPU das APIs do que a qualquer ganho marginal no nginx.
+
+Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
