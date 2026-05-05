@@ -1414,3 +1414,31 @@ Resultado:
 Leitura: a primeira medição controle estava fria/pior na janela. Quando o controle foi repetido após a variante, `reuseport` empatou ou superou levemente o teste sem `reuseport`. Portanto, não há evidência de ganho sustentável ao remover `reuseport`.
 
 Decisão: rejeitado. Manter `listen 9999 reuseport backlog=4096`.
+
+## Ciclo 00h00: reserva do buffer HTTP no hot path
+
+Hipótese: cada `POST /fraud-score` acumula o corpo em um `std::string` antes do parse. Como os payloads são pequenos e previsíveis, reservar capacidade inicial poderia evitar realocação no `append` e reduzir levemente o p99.
+
+Alteração experimental:
+
+```cpp
+res->onData([res, state, body = [] {
+    std::string value;
+    value.reserve(768);
+    return value;
+}()](std::string_view chunk, bool is_last) mutable {
+```
+
+Observação operacional: a primeira tentativa de build usou o contexto Docker padrão (`desktop-linux`) por engano. Esse resultado foi descartado porque o Compose de benchmark estava preso ao Docker Engine do sistema (`DOCKER_HOST=unix:///run/docker.sock`). A medição válida abaixo foi feita após reconstruir a imagem explicitamente no daemon correto.
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Controle anterior com `reuseport` | 1.60ms | 0 | 0 | 0 | 5794.60 |
+| Buffer com `reserve(768)` | 1.59ms | 0 | 0 | 0 | 5798.46 |
+| Controle reverso sem `reserve(768)` | 1.59ms | 0 | 0 | 0 | 5799.46 |
+
+Leitura: a variante empatou com o controle reverso e ficou nominalmente 1 ponto abaixo no score. A realocação do buffer de corpo não aparece como gargalo mensurável no k6 local.
+
+Decisão: rejeitado e revertido. Manter o hot path mais simples com `body = std::string{}`.
