@@ -1025,6 +1025,30 @@ Leitura: o primeiro número parecia excelente, mas o controle sem a alteração 
 
 Decisão: rejeitado e revertido. Manter o código sem `setSilent(true)`. Não abrir nova submissão apenas com essa evidência, porque a implementação efetiva é a mesma da submissão oficial #1314 e o ganho local não veio de mudança sustentável de código.
 
+## Ciclo 06h20: remover `Date` automático do uWebSockets
+
+Hipótese: depois de rejeitar `setSilent(true)`, ainda restava o header `Date`, escrito incondicionalmente por `HttpResponse::writeMark()`. Remover essa escrita aproximaria mais o caminho de resposta dos líderes, que usam respostas HTTP completas pré-montadas.
+
+Alteração experimental vendored:
+
+```cpp
+// removido de HttpResponse::writeMark()
+writeHeader("Date", std::string_view(...));
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Sem `Date`, run 1 | 1.18ms | 0 | 0 | 0 | 5926.78 |
+| Controle reverso com `Date` | 1.32ms | 0 | 0 | 0 | 5879.60 |
+| Sem `Date`, run 2 | 1.33ms | 0 | 0 | 0 | 5876.99 |
+| Controle final com `Date` restaurado | 1.33ms | 0 | 0 | 0 | 5877.22 |
+
+Leitura: a primeira run sem `Date` parecia promissora, mas não reproduziu. A segunda amostra empatou com o controle restaurado. O efeito observado é dominado por variação da janela local, não por remoção sustentável do header.
+
+Decisão: rejeitado e revertido. Manter uWebSockets vendored sem patch de `Date`.
+
 ## Ciclo 04h35: revalidação do split dos líderes (`0.40/0.40/0.20`)
 
 Hipótese: os repositórios líderes usam desenho próximo de `0.40/0.40/0.20`, com LB um pouco mais privilegiado. Como o teste `0.415/0.415/0.17` indicou sensibilidade ao CPU do nginx, valia revalidar a alternativa com mais CPU na borda no Docker Engine correto.
