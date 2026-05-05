@@ -849,6 +849,40 @@ Leitura: o LB próprio do segundo colocado não é um ganho drop-in para nossa s
 
 Decisão: rejeitado e revertido. Manter nginx.
 
+## Síntese comparativa dos dois primeiros colocados
+
+Fontes consultadas:
+
+- `https://github.com/thiagorigonatti/rinha-2026`
+- `https://github.com/jairoblatt/rinha-2026-rust`
+
+Comparação com nossa solução atual:
+
+| Tema | 1º `thiagorigonatti-c` | 2º `jairoblatt-rust` | Nossa solução | Aprendizado |
+|---|---|---|---|---|
+| Servidor API | C manual + `io_uring` | Rust `monoio`/`io_uring` | C++ uWebSockets | o maior gap estrutural parece estar no runtime/HTTP |
+| LB | HAProxy 3.3 HTTP/UDS | LB próprio `so-no-forevis`/UDS | nginx `stream`/UDS | HAProxy e LB do Jairo não foram ganhos drop-in para nós |
+| HTTP response | resposta HTTP completa pré-montada | resposta HTTP completa pré-montada | body JSON constante via uWS | para capturar esse ganho, precisa servidor manual ou controle total de write |
+| Parser HTTP | manual, `Content-Length` direto | manual, pipeline + `writev` | uWS parser | overhead fixo do framework ainda existe |
+| Parser JSON | seletivo/manual | seletivo/manual | `simdjson` seletivo via `parse_payload` | parser não é o gargalo principal nas nossas medições, mas manual ajuda quando servidor inteiro é manual |
+| Índice | IVF 256, `nprobe=1`, bbox repair | IVF 4096, `FAST=8`, `FULL=24`, retry 2/3 | IVF 1280, `nprobe=1`, bbox repair seletivo 1..4 | geometria não transfere diretamente; nossas varreduras preservam 1280 como melhor ponto |
+| SIMD | AVX2/FMA manual | AVX2/FMA manual | AVX2/FMA manual | já estamos na mesma família de instruções |
+| Recursos | API `0.40/0.40`, LB `0.20` | API `0.40/0.40`, LB `0.20` | API `0.41/0.41`, LB `0.18` | splits líderes foram testados e não melhoraram nossa stack |
+| `seccomp`/`ulimits` | usa | usa | não usa | já testado; sem ganho sustentável, exceto requerido para LB do Jairo |
+
+Insights acionáveis:
+
+| Prioridade | Ideia | Tipo | Status |
+|---:|---|---|---|
+| 1 | Reabrir servidor manual, mas agora com respostas HTTP completas pré-montadas, pipeline e `writev` como Jairo | estrutural | candidato futuro |
+| 2 | Implementar parser JSON manual só se acoplado ao servidor manual | estrutural | candidato futuro |
+| 3 | Testar arredondamento da query em 4 casas antes da seleção de centróide | pequeno | candidato barato |
+| 4 | Tentar índice IVF 4096/FAST8/FULL24 no nosso kernel | médio/caro | baixa chance, pois 2048 já falhou/piorou antes |
+| 5 | Trocar LB por HAProxy ou `so-no-forevis` | drop-in | rejeitado |
+| 6 | `seccomp`, `ulimits`, `somaxconn`, splits CPU líderes | drop-in | rejeitado |
+
+Leitura final desta comparação: não há knob simples restante copiado dos líderes que melhore nossa stack atual. O caminho para salto material é aproximar o hot path deles: servidor manual/io_uring ou pelo menos epoll com HTTP completo pré-montado, batch/pipeline e escrita vetorizada. Essa é uma mudança maior que precisa de rodada própria e benchmarkado contra a branch `submission` atual.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
