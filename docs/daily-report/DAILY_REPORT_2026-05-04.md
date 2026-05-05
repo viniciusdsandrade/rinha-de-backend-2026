@@ -1392,3 +1392,25 @@ Resultado:
 Leitura: o split intermediário também piorou. A cauda parece mais sensível à perda de CPU das APIs do que a qualquer ganho marginal no nginx.
 
 Decisão: rejeitado e revertido. Manter `0.41/0.41/0.18`.
+
+## Ciclo 23h30: controle no Docker Engine do sistema + `reuseport`
+
+Hipótese: depois de separar Docker Desktop de Docker Engine do sistema, era necessário recalibrar a janela local antes de novos testes de LB. Como o estado aceito usa `listen 9999 reuseport backlog=4096`, foi testada uma remoção simples do `reuseport` para validar se ele ainda contribuía positivamente no daemon correto.
+
+Ambiente usado:
+
+```bash
+DOCKER_HOST=unix:///run/docker.sock
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Controle aceito com `reuseport` | 1.69ms | 0 | 0 | 0 | 5771.69 |
+| `listen 9999 backlog=4096` sem `reuseport` | 1.61ms | 0 | 0 | 0 | 5792.17 |
+| Controle reverso com `reuseport` restaurado | 1.60ms | 0 | 0 | 0 | 5794.60 |
+
+Leitura: a primeira medição controle estava fria/pior na janela. Quando o controle foi repetido após a variante, `reuseport` empatou ou superou levemente o teste sem `reuseport`. Portanto, não há evidência de ganho sustentável ao remover `reuseport`.
+
+Decisão: rejeitado. Manter `listen 9999 reuseport backlog=4096`.
