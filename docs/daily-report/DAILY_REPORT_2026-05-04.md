@@ -993,6 +993,42 @@ Leitura: a variante Haswell completa ficou numericamente 0,28% melhor que o base
 
 Decisão: rejeitado e revertido. Manter `-mavx2 -mfma -march=x86-64-v3` no CMake.
 
+## Ciclo 23h15: reamostragem de `seccomp=unconfined`
+
+Hipótese: `seccomp=unconfined` apareceu nos dois repositórios líderes e já tinha dado um sinal pequeno em uma janela anterior. Como não foi promovido para `submission`, valia revalidar contra o estado aceito atual antes de descartar definitivamente.
+
+Alteração experimental preparada em `docker-compose.yml`:
+
+```yaml
+security_opt:
+  - seccomp=unconfined
+```
+
+Aplicação planejada em `api1`/`api2` e nginx.
+
+Resultado operacional:
+
+```text
+docker compose config >/tmp/rinha-compose-seccomp.yml
+docker compose up -d --force-recreate --remove-orphans
+Error response from daemon: ports are not available: exposing port TCP 0.0.0.0:9999 ... bind: address already in use
+```
+
+Investigação:
+
+```text
+ss -ltnp 'sport = :9999'
+LISTEN 0 4096 0.0.0.0:9999
+
+ps -ef | rg 'docker-proxy|nginx'
+root ... nginx: master process nginx -g daemon off;
+root ... /usr/bin/docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 9999 ...
+```
+
+Leitura: a porta 9999 está presa por um `docker-proxy`/nginx órfão root de execução anterior, fora dos containers visíveis em `docker ps`. Como não tenho permissão para matar esses PIDs root sem reiniciar o Docker globalmente, e reiniciar Docker no meio do ciclo poderia ser mais disruptivo que o ganho esperado, o teste foi abortado sem resultado de performance.
+
+Decisão: inconclusivo e revertido. O compose voltou ao estado limpo, e os containers parciais desta branch foram removidos com `docker compose down --remove-orphans`.
+
 ## Ciclo 23h20: margem de FD/backlog no nginx
 
 Hipótese: inspirada por configurações de repositórios líderes, aumentar margem de file descriptors e declarar `somaxconn` no container do nginx poderia ajudar a borda em rajadas oficiais.
