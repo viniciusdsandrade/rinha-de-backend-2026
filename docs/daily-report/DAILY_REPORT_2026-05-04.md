@@ -1063,6 +1063,28 @@ Leitura: o ganho potencial no parser é muito pequeno e não sobrevive quando me
 
 Decisão: rejeitado e revertido. O código voltou ao parser atual.
 
+## Ciclo 23h55: A/B de `seccomp=unconfined` em porta local alternativa
+
+Hipótese: como a porta oficial local `9999` ficou presa por processo root órfão, ainda era possível fazer A/B em porta alternativa apenas para laboratório. O compose foi temporariamente alterado para publicar `9998:9999`, e o script k6 foi executado com URL local substituída para `localhost:9998`. Esta alteração nunca seria submissão; serviu apenas para comparação na mesma janela.
+
+Sequência:
+
+1. Baseline atual em `9998`.
+2. Mesma configuração com `security_opt: seccomp=unconfined` em APIs e nginx.
+3. A/B reverso removendo `seccomp=unconfined`.
+
+Resultado:
+
+| Variante local 9998 | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Baseline inicial | 2.76ms | 0 | 0 | 0 | 5559.50 |
+| `seccomp=unconfined` | 2.65ms | 0 | 0 | 0 | 5575.94 |
+| Baseline reverso | 2.66ms | 0 | 0 | 0 | 5575.01 |
+
+Leitura: o baseline reverso ficou praticamente igual ao estado com `seccomp`, então o ganho aparente inicial era ruído/aquecimento da janela. Além disso, todos os resultados em `9998` ficaram muito abaixo do melhor local histórico e do resultado oficial #1314, confirmando degradação do host durante a noite.
+
+Decisão: rejeitado. Não promover `seccomp=unconfined`. O compose foi restaurado para a porta oficial `9999`, e os containers de laboratório foram removidos com `docker compose down --remove-orphans`.
+
 ## Ciclo 23h20: margem de FD/backlog no nginx
 
 Hipótese: inspirada por configurações de repositórios líderes, aumentar margem de file descriptors e declarar `somaxconn` no container do nginx poderia ajudar a borda em rajadas oficiais.
