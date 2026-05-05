@@ -425,3 +425,27 @@ Resultado:
 Leitura: treinar mais não melhorou o índice para o dataset de teste; pelo contrário, introduziu erros e aumentou custo. A versão atual parece melhor calibrada para o conjunto rotulado local.
 
 Decisão: não alterar parâmetros de build do índice.
+
+## Ciclo 21h15: `-mtune=native`
+
+Hipótese: manter `-march=x86-64-v3`, mas adicionar `-mtune=native`, poderia melhorar o agendamento de instruções sem introduzir novas instruções além do requisito AVX2 efetivo.
+
+Alteração experimental:
+
+```cmake
+-mavx2 -mfma -march=x86-64-v3 -mtune=native
+```
+
+Aplicada apenas ao binário principal e ao `benchmark-ivf-cpp` para medição offline.
+
+Resultado:
+
+| Variante | ns/query | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| Build atual, referência offline registrada | 17741.1 | 0 | 0 | manter |
+| `-mtune=native` | 19634.1 | 0 | 0 | rejeitar |
+| Após revert, sanity check | 18356.9 | 0 | 0 | restaurado |
+
+Leitura: não houve ganho; a diferença ficou contra a mudança. Além disso, `-mtune=native` é dependente do host de build, então mesmo um ganho pequeno exigiria muito mais cautela antes de submissão.
+
+Decisão: rejeitado e revertido. Flags continuam em `-mavx2 -mfma -march=x86-64-v3`.
