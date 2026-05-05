@@ -579,3 +579,26 @@ Com a branch `submission` publicada em `4d5bedb` e validada localmente em `p99 1
 - Corpo: `rinha/test andrade-cpp-ivf`
 
 Expectativa: a avaliação oficial deve buscar o repositório público `https://github.com/viniciusdsandrade/rinha-de-backend-2026`, branch `submission`, e registrar no comentário o commit avaliado. O commit esperado é `4d5bedb`.
+
+## Ciclo 21h55: reamostragem de split CPU após nginx 2 workers
+
+Hipótese: depois do ganho com `worker_processes 2` + `multi_accept off`, talvez o nginx precisasse de menos CPU e a API se beneficiasse de voltar para `0.42/0.42/0.16`, que havia sido rejeitado antes no desenho antigo do LB.
+
+Alteração experimental:
+
+```yaml
+api1/api2: cpus "0.42"
+nginx:     cpus "0.16"
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.41/0.41/0.18`, melhor run com nginx novo | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `0.41/0.41/0.18`, validação em `submission` | 1.22ms | 0 | 0 | 0 | 5912.31 |
+| `0.42/0.42/0.16` | 1.22ms | 0 | 0 | 0 | 5913.50 |
+
+Leitura: o split alternativo é competitivo, mas não supera a melhor configuração e reduz a fatia do nginx justamente depois de termos melhorado o comportamento do accept. Como o ganho é inexistente na prática, a versão mais conservadora continua sendo `0.41/0.41/0.18`.
+
+Decisão: rejeitado e revertido. Manter CPU split publicado.
