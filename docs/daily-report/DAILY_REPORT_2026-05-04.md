@@ -1567,3 +1567,31 @@ Leitura: o sinal positivo A/B/A inicial não reproduziu depois da reconstrução
 Decisão final: rejeitado e revertido para o backlog original `512`. Não promover alteração vendored do uSockets.
 
 Fechamento operacional: depois da reversão, a imagem local foi reconstruída explicitamente no Docker Engine do sistema e a pilha foi recriada. O benchmark de limpeza do estado restaurado marcou `p99 1.65ms`, `final_score 5783.32`, 0 FP/FN/HTTP errors. Esse resultado confirma que o ambiente voltou ao comportamento estável da janela, embora ainda abaixo da submissão oficial #1314.
+
+## Ciclo 01h50: remover `res->onAborted`
+
+Hipótese: o handler de `POST /fraud-score` registrava um callback vazio de abort para cada requisição. Como o processamento é síncrono dentro de `onData`, remover essa linha poderia reduzir overhead por request.
+
+Alteração experimental:
+
+```cpp
+- res->onAborted([]() {});
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Sem `res->onAborted` | 1.18ms | 0 | 0 | 54057 | -71.14 |
+
+Log relevante:
+
+```text
+Error: Returning from a request handler without responding or attaching an abort handler is forbidden!
+terminate called without an active exception
+nginx: no live upstreams while connecting to upstream
+```
+
+Leitura: no uWebSockets, quando o handler retorna sem responder imediatamente e delega a resposta para `onData`, é obrigatório anexar abort handler. Sem isso, as APIs abortaram e o nginx ficou sem upstream vivo. O p99 baixo é irrelevante porque a taxa de erro foi 100%.
+
+Decisão: rejeitado e revertido. Manter `res->onAborted([]() {});`.
