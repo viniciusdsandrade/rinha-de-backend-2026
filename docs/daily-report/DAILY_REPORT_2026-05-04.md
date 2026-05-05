@@ -806,6 +806,49 @@ Leitura: a medição offline não se transferiu para o k6. Aumentar `full_nprobe
 
 Decisão: rejeitado e revertido. Manter `IVF_FULL_NPROBE=1`.
 
+## Ciclo 00h25: leitura do 2º colocado e LB `so-no-forevis`
+
+Fonte consultada: `https://github.com/jairoblatt/rinha-2026-rust`.
+
+Achados principais do segundo colocado:
+
+| Área | Achado | Aplicabilidade para nós |
+|---|---|---|
+| Runtime API | Rust + `monoio`/`io_uring` sobre Unix sockets | estrutural; exigiria trocar uWebSockets/runtime |
+| LB | imagem pública `jrblatt/so-no-forevis:v0.0.2`, TCP na porta 9999 e upstreams UDS | testável como drop-in |
+| Segurança | `seccomp=unconfined` é necessário para `io_uring` | necessário para o LB subir localmente |
+| HTTP | parser HTTP manual com buffer por conexão, pipeline e `writev` de respostas pré-montadas | estrutural; nosso uWS não expõe o mesmo hot path |
+| KNN | `K=4096`, `FAST_NPROBE=8`, `FULL_NPROBE=24`, retry quando resultado rápido é 2 ou 3 | arquitetura de índice diferente; não transferiu diretamente aos nossos testes de nprobe |
+| Vetorização | arredondamento em 4 casas antes da busca | nosso IVF já quantiza query em escala 10000 para blocos; impacto provável só na seleção de centróide |
+
+Experimento drop-in do LB:
+
+```yaml
+nginx:
+  image: jrblatt/so-no-forevis:v0.0.2
+  environment:
+    UPSTREAMS: /sockets/api1.sock,/sockets/api2.sock
+    PORT: "9999"
+    BUF_SIZE: "4096"
+    WORKERS: "1"
+  security_opt:
+    - seccomp=unconfined
+```
+
+Sem `seccomp=unconfined`, o LB falhou ao iniciar com `failed to build IoUring runtime: Operation not permitted`.
+
+Resultado k6 com o LB funcionando:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| nginx publicado, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| nginx publicado, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| `jrblatt/so-no-forevis:v0.0.2` | 1.64ms | 0 | 0 | 0 | 5784.67 |
+
+Leitura: o LB próprio do segundo colocado não é um ganho drop-in para nossa stack. Ele provavelmente foi calibrado para o servidor monoio/manual dele; com uWebSockets atrás de UDS, nosso nginx `stream` ajustado segue melhor.
+
+Decisão: rejeitado e revertido. Manter nginx.
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
