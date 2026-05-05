@@ -569,3 +569,13 @@ Validação executada contra o compose da própria branch `submission`, usando a
 Leitura: o resultado reproduz o ganho observado no worktree de investigação e supera a submissão oficial anterior registrada localmente (`p99 1.44ms`, `final_score 5842.99`). A mudança é restrita ao nginx, preserva limites de CPU/memória, `bridge`, duas APIs, LB sem lógica de aplicação e imagem pública.
 
 Decisão: preparar nova issue oficial de submissão usando a branch `submission` atual.
+
+## Ciclo 21h45: nova issue oficial aberta
+
+Com a branch `submission` publicada em `4d5bedb` e validada localmente em `p99 1.22ms` / `final_score 5912.31`, foi aberta uma nova issue oficial para execução no runner da Rinha:
+
+- Issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/1314
+- Título: `andrade-cpp-ivf`
+- Corpo: `rinha/test andrade-cpp-ivf`
+
+Expectativa: a avaliação oficial deve buscar o repositório público `https://github.com/viniciusdsandrade/rinha-de-backend-2026`, branch `submission`, e registrar no comentário o commit avaliado. O commit esperado é `4d5bedb`.
