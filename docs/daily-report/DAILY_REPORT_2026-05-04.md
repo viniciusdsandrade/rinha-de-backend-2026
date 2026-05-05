@@ -930,6 +930,20 @@ Leitura: preservou precisão, mas não deu sinal positivo. O prefetch explícito
 
 Decisão: rejeitado e revertido. Não levar para k6.
 
+## Ciclo 00h55: controle k6 após leitura dos líderes
+
+Objetivo: confirmar a configuração restaurada depois dos testes derivados dos dois primeiros colocados.
+
+Resultado:
+
+| Estado | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Configuração restaurada pós-experimentos | 2.10ms | 0 | 0 | 0 | 5678.32 |
+
+Leitura: a branch estava limpa e restaurada, então esse resultado aponta para degradação/ruído do host local nesta janela, não para uma mudança aceita. Como está abaixo do oficial #1314 e abaixo dos melhores controles locais, não há base para nova submissão.
+
+Decisão: não submeter. Manter a melhor submissão oficial atual (#1314, commit `4d5bedb`, `final_score 5844.41`).
+
 ## Ciclo 22h10: mais CPU para nginx (`0.40/0.40/0.20`)
 
 Hipótese: como o ganho oficial foi pequeno, talvez o runner oficial estivesse mais sensível ao LB do que o ambiente local. Aumentar nginx de `0.18` para `0.20` e reduzir APIs para `0.40/0.40` testaria se a borda precisava de mais fatia de CPU.
