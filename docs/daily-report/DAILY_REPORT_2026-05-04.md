@@ -1689,3 +1689,5 @@ Resultado:
 Leitura: a run antiga não reproduziu. A configuração preserva precisão, mas não entrega ganho sustentável de p99 nesta janela. O resultado atual fica abaixo da submissão oficial e abaixo do estado estável recente.
 
 Decisão: rejeitado e revertido para `IVF_FULL_NPROBE=1`.
+
+Fechamento operacional: depois da reversão, a pilha foi recriada com `IVF_FULL_NPROBE=1`. Benchmark de limpeza: `p99 1.61ms`, `final_score 5793.60`, 0 FP/FN/HTTP errors.
