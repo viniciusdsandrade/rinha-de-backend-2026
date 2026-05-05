@@ -695,6 +695,28 @@ Leitura: não houve ganho mensurável. A configuração aumenta superfície oper
 
 Decisão: rejeitado e revertido. Manter compose simples sem `ulimits`/`sysctls`.
 
+## Ciclo 23h30: nginx `worker_processes auto`
+
+Hipótese: o runner oficial poderia ter topologia de CPU diferente; deixar nginx escolher `worker_processes auto` testaria se mais workers ajudam em ambiente multi-core.
+
+Alteração experimental:
+
+```nginx
+worker_processes auto;
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `worker_processes 2`, melhor run local | 1.18ms | 0 | 0 | 0 | 5927.14 |
+| `worker_processes 2`, oficial #1314 | 1.43ms | 0 | 0 | 0 | 5844.41 |
+| `worker_processes auto` | 1.27ms | 0 | 0 | 0 | 5894.85 |
+
+Leitura: mais workers automáticos pioram sob a cota de `0.18` CPU do nginx. O ponto ótimo local medido segue sendo 2 workers fixos.
+
+Decisão: rejeitado e revertido. Manter `worker_processes 2`.
+
 ## Ciclo 23h10: split CPU intermediário pró-API (`0.415/0.415/0.17`)
 
 Hipótese: como `0.42/0.42/0.16` ficou competitivo, mas não superior, um meio-termo dando um pouco mais de CPU às APIs sem reduzir tanto o nginx poderia melhorar a cauda.
