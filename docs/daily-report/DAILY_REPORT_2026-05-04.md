@@ -1090,6 +1090,36 @@ Leitura: a janela local está oscilando cerca de `20` pontos e `0.08ms` de p99 e
 
 Decisão: manter a submissão atual como melhor versão publicada. O próximo ganho material provavelmente exige mudança estrutural de hot path, especialmente servidor HTTP manual/`io_uring` ou redução real do custo do uWebSockets, e não mais knobs pequenos de nginx/compose/flags.
 
+## Ciclo 05h40: split de memória inspirado nos líderes (`160/160/30`)
+
+Hipótese: os líderes deixam mais memória para o LB. Testar `160MB` por API e `30MB` no nginx avaliaria se a borda sofre com margem apertada de memória, mantendo CPU e comportamento intactos.
+
+Alteração experimental:
+
+```yaml
+api1/api2: memory: "160MB"
+nginx:     memory: "30MB"
+```
+
+Validação do Docker:
+
+```text
+/perf-noon-tuning-api1-1 NanoCpus=410000000 Memory=167772160
+/perf-noon-tuning-api2-1 NanoCpus=410000000 Memory=167772160
+/perf-noon-tuning-nginx-1 NanoCpus=180000000 Memory=31457280
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `160/160/30` | 1.67ms | 0 | 0 | 0 | 5775.99 |
+| Controle reverso `165/165/20` | 1.61ms | 0 | 0 | 0 | 5792.95 |
+
+Leitura: não houve benefício em transferir memória das APIs para o LB. O nginx atual cabe em `20MB`, e reduzir as APIs para `160MB` não ajudou a cauda.
+
+Decisão: rejeitado e revertido. Manter `165/165/20`.
+
 ## Ciclo 23h10: flags Haswell inspiradas nos líderes
 
 Hipótese: os dois primeiros colocados usam alvo Haswell explicitamente. O primeiro colocado em C compila com `-O3 -march=haswell -mtune=haswell -flto -fomit-frame-pointer -DNDEBUG`; o segundo, em Rust, usa `target-cpu=haswell` e `target-feature=+avx2,+fma,+f16c,+bmi2,+popcnt`. Como a CPU oficial descrita pelos participantes líderes é Haswell e o projeto já assumiu AVX2/FMA como requisito efetivo, valia medir se especializar o binário C++ geraria ganho no kernel IVF.
