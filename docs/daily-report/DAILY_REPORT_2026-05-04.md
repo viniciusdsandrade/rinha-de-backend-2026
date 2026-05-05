@@ -1108,6 +1108,24 @@ Leitura: a primeira execução parecia promissora quando comparada com runs degr
 
 Decisão: rejeitado e revertido.
 
+## Ciclo 00h45: especialização `nprobe=1` no loop de centróides
+
+Hipótese: no caminho dominante (`fast_nprobe=1` e `full_nprobe=1`), não é necessário manter um top-N genérico de centróides; basta guardar o único melhor cluster. Isso removeria `insert_probe()` e arrays de distância no caso `MaxNprobe == 1`.
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | parse_errors | Decisão |
+|---|---:|---:|---:|---:|---|
+| Especialização `nprobe=1`, run 1 | 23111.0 | 0 | 0 | 0 | rejeitar |
+| Especialização `nprobe=1`, run 2 | 17056.8 | 0 | 0 | 0 | inconclusivo |
+| Especialização `nprobe=1`, run 3 | 17665.1 | 0 | 0 | 0 | inconclusivo |
+| Baseline restaurado, run 1 | 16856.8 | 0 | 0 | 0 | manter |
+| Baseline restaurado, run 2 | 17605.2 | 0 | 0 | 0 | manter |
+
+Leitura: o melhor resultado da variante foi ruído; o baseline restaurado alcançou resultado igual ou melhor na mesma janela. O compilador já otimiza bem o caminho genérico para `MaxNprobe=1`.
+
+Decisão: rejeitado e revertido.
+
 ## Ciclo 00h30: corte parcial AVX2 após 4 dimensões
 
 Hipótese: além do corte parcial já existente após 8 dimensões, um corte antecipado após 4 dimensões poderia descartar blocos ruins mais cedo e economizar as dimensões `4..13`. A mudança é exata: só pula bloco quando todas as lanes já excedem o pior top-5 parcial.
