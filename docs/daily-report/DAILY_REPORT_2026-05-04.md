@@ -1101,6 +1101,38 @@ Leitura: empate prático. A diferença de `1.72` ponto é menor que a variação
 
 Decisão: rejeitado e revertido. Manter `res->onData(...)`.
 
+## Ciclo 06h55: evitar `body.append()` em chunk único
+
+Hipótese: o `POST /fraud-score` normalmente chega em um único chunk. Como `parse_payload` recebe `std::string_view`, seria possível parsear diretamente o `chunk` quando `is_last == true` e o acumulador local ainda está vazio, evitando uma cópia para `std::string`.
+
+Alteração experimental:
+
+```cpp
+std::string_view request_body = chunk;
+if (!body.empty() || !is_last) {
+    body.append(chunk.data(), chunk.size());
+    if (!is_last) {
+        return;
+    }
+    request_body = body;
+}
+
+if (!rinha::parse_payload(request_body, payload, error)) {
+    // 400
+}
+```
+
+Resultado:
+
+| Variante | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| Bypass de `body.append()` em chunk único | 1.28ms | 0 | 0 | 0 | 5894.38 |
+| Controle recente sem bypass | 1.28ms | 0 | 0 | 0 | 5891.57 |
+
+Leitura: empate prático. A hipótese faz sentido, mas o `parse_payload` ainda cria `simdjson::padded_string`, então a cópia evitada no handler é pequena demais para separar do ruído.
+
+Decisão: rejeitado e revertido. Manter o caminho simples com `body.append()` sempre.
+
 ## Ciclo 04h35: revalidação do split dos líderes (`0.40/0.40/0.20`)
 
 Hipótese: os repositórios líderes usam desenho próximo de `0.40/0.40/0.20`, com LB um pouco mais privilegiado. Como o teste `0.415/0.415/0.17` indicou sensibilidade ao CPU do nginx, valia revalidar a alternativa com mais CPU na borda no Docker Engine correto.
