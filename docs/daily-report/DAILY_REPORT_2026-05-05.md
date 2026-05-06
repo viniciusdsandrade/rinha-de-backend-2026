@@ -554,3 +554,42 @@ Comparação:
 | Melhor local `int32` | 1.23ms | 0% | 5911.06 |
 
 Decisão: **promover para candidata de submissão**. Esta é a primeira melhoria pós-`#1697` com ganho de kernel forte, acurácia preservada e duas runs locais acima da submissão oficial.
+
+## Ciclo 23h30: publicação da candidata `int32`
+
+Publicação da imagem:
+
+- Commit experimental: `df6994a` (`optimize ivf scan accumulator`).
+- Workflow GitHub Actions: `25413132596`.
+- Resultado da workflow: sucesso em `1m24s`.
+- Imagem publicada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-df6994a`.
+- Manifest verificado: contém `linux/amd64`.
+
+Branch oficial de entrega:
+
+- Branch `submission` atualizada para apontar `docker-compose.yml` para `submission-df6994a`.
+- Commit na `submission`: `b7897ee` (`point submission to df6994a image`).
+- Push: `origin/submission`.
+
+Validação da imagem pública na própria stack de submissão:
+
+```bash
+DOCKER_HOST=unix:///run/docker.sock docker compose pull
+DOCKER_HOST=unix:///run/docker.sock docker compose up -d --force-recreate
+DOCKER_HOST=unix:///run/docker.sock ./run-local-k6.sh
+```
+
+Resultado:
+
+| Fonte | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| imagem pública `submission-df6994a` | 1.23ms | 0 | 0 | 0 | 5908.68 |
+
+Issue oficial:
+
+- Issue aberta: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/1714`.
+- Título/body: `rinha/test andrade-cpp-ivf`.
+- Monitoramento por 60 polls: permaneceu `OPEN`, `0` comentários.
+- Havia outras issues abertas na fila no mesmo período (`#1710` a `#1714`), então tratei como fila/engine pendente, não como erro de submissão.
+
+Decisão: **não abrir issue duplicada**. A submissão melhorada está preparada e enviada; resta aguardar a engine processar `#1714`.
