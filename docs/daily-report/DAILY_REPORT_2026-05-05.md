@@ -589,7 +589,39 @@ Issue oficial:
 
 - Issue aberta: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/1714`.
 - Título/body: `rinha/test andrade-cpp-ivf`.
-- Monitoramento por 60 polls: permaneceu `OPEN`, `0` comentários.
+- Primeiro monitoramento por 60 polls: permaneceu `OPEN`, `0` comentários.
 - Havia outras issues abertas na fila no mesmo período (`#1710` a `#1714`), então tratei como fila/engine pendente, não como erro de submissão.
+- Fechamento posterior pela engine: `p99=1.29ms`, `failure_rate=0%`, `final_score=5888.51`.
+- Commit avaliado: `b7897ee`.
+- Imagem avaliada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-df6994a`.
 
-Decisão: **não abrir issue duplicada**. A submissão melhorada está preparada e enviada; resta aguardar a engine processar `#1714`.
+Comparação oficial:
+
+| Issue | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| `#1697` | 1.32ms | 0% | 5878.28 |
+| `#1714` | 1.29ms | 0% | 5888.51 |
+
+Ganho oficial da rodada: `+10.23` pontos, mantendo `0%` falhas. O ranking preview colocou `viniciusdsandrade / andrade-cpp-ivf` em `#3` no momento da checagem, atrás de `thiagorigonatti-c` (`6000`) e `jairoblatt-rust` (`5932.05`).
+
+Decisão: **submissão bem-sucedida, mas com p99 oficial abaixo do melhor local**. Localmente a imagem chegou a `5908.68`; oficialmente caiu para `5888.51`, o que reforça que só devemos ressubmeter com mudança concreta e validação forte.
+
+### Microteste rejeitado: prune final pós-14 dimensões
+
+Após `#1714`, testei uma micro-otimização adicional: depois de acumular as 14 dimensões em `int32`, checar se todas as lanes ainda estavam acima do pior top-5 antes de fazer store/loop escalar.
+
+Resultado offline:
+
+| Config | FP | FN | ns/query |
+|---|---:|---:|---:|
+| `int32` sem prune final | 0 | 0 | 24316.3 |
+| `int32` com prune final | 0 | 0 | 22606.0 |
+
+Resultado k6 local:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| prune final #1 | 1.29ms | 0 | 0 | 0 | 5889.10 |
+| prune final #2 | 1.28ms | 0 | 0 | 0 | 5893.38 |
+
+Decisão: **rejeitado e revertido**. Apesar do ganho sintético, a p99 real ficou pior que a variante `df6994a` validada por imagem pública (`1.23ms / 5908.68`). Este é um caso claro em que o benchmark de kernel não representou o p99 da stack.
