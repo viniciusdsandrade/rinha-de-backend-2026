@@ -439,3 +439,64 @@ Resultado:
 Decisão: **rejeitado e revertido**. No nosso layout atual (`kBlockLanes=8`, acumulador AVX2 em `uint64`) a ordem dos líderes não trouxe o mesmo ganho observado no layout AoSoA16/int32 deles.
 
 Aprendizado da rodada: o caminho de maior potencial continua sendo estrutural, não uma heurística pequena em cima do IVF atual. Os dois líderes honestos que estão à frente usam uma destas vantagens que ainda não temos totalmente: `io_uring`/HTTP próprio com LB customizado, layout AoSoA16 com acumulador mais leve, ou IVF com centróides significativamente melhores (`k=2048`, k-means++/restarts/refino completo) compensado por runtime HTTP mais barato.
+
+## Ciclo 23h15: varrimento estrutural de índice IVF
+
+Hipótese: os líderes honestos gastam mais no build para obter centróides melhores. Testei se uma mudança somente no índice, sem alterar a API, poderia reduzir o custo de runtime ou abrir uma configuração com menos repairs.
+
+### Índice `K=1280`, amostra maior e mais iterações
+
+Comando:
+
+```bash
+nice -n 10 ./cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280-s262k-i10.bin 1280 262144 10
+```
+
+Tempo de geração: `23:12:35` até `23:13:41` (`~66s`).
+
+| Índice/config | FP | FN | ns/query | repairs | blocos primários/query | blocos bbox/query |
+|---|---:|---:|---:|---:|---:|---:|
+| `1280/s65k/i6`, `repair=1..4` | 0 | 0 | ~31402.9 | 2401 | 322.90 | 45.58 |
+| `1280/s262k/i10`, `repair=1..4` | 3 | 2 | 37100.0 | 2398 | 317.33 | 36.68 |
+| `1280/s262k/i10`, `repair=2..3` | 19 | 19 | 37874.8 | 1599 | 313.26 | 24.46 |
+| `1280/s262k/i10`, `full=2 repair=1..4` | 3 | 2 | 38371.0 | 2398 | 328.79 | 27.11 |
+
+Decisão: **rejeitado**. O índice com mais treino reduz blocos de bbox, mas altera a aproximação e perde acurácia (`3 FP / 2 FN`) mesmo no repair amplo.
+
+### Índice `K=1536`
+
+Comando:
+
+```bash
+nice -n 10 ./cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1536-s65k-i6.bin 1536 65536 6
+```
+
+Tempo de geração: `23:14:07` até `23:14:58` (`~51s`).
+
+| Índice/config | FP | FN | ns/query | repairs | blocos primários/query | blocos bbox/query |
+|---|---:|---:|---:|---:|---:|---:|
+| `1536/s65k/i6`, `repair=1..4` | 2 | 0 | 37083.7 | 2407 | 271.39 | 39.89 |
+| `1536/s65k/i6`, `repair=2..3` | 24 | 22 | 35121.4 | 1640 | 268.21 | 27.62 |
+| `1536/s65k/i6`, `full=2 repair=1..4` | 2 | 0 | 36958.2 | 2407 | 281.04 | 30.58 |
+
+Decisão: **rejeitado**. Clusters menores reduzem o scan primário, mas aumentam custo de centroides/bbox e ainda introduzem `2 FP`.
+
+### Índice `K=1024`
+
+Comando:
+
+```bash
+nice -n 10 ./cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1024-s65k-i6.bin 1024 65536 6
+```
+
+Tempo de geração: `23:15:17` até `23:15:52` (`~35s`).
+
+| Índice/config | FP | FN | ns/query | repairs | blocos primários/query | blocos bbox/query |
+|---|---:|---:|---:|---:|---:|---:|
+| `1024/s65k/i6`, `repair=1..4` | 1 | 2 | 36008.9 | 2396 | 408.82 | 50.94 |
+| `1024/s65k/i6`, `repair=2..3` | 20 | 16 | 34792.0 | 1595 | 403.82 | 34.12 |
+| `1024/s65k/i6`, `full=2 repair=1..4` | 1 | 2 | 35956.0 | 2396 | 423.66 | 37.48 |
+
+Decisão: **rejeitado**. Menos clusters reduzem ranking de centroides, mas aumentam scan por cluster e perdem acurácia.
+
+Conclusão do ciclo: o índice atual `K=1280 / sample=65536 / iter=6` segue como melhor ponto local conhecido para esta implementação. Os índices alternativos só seriam interessantes se acompanhados por uma mudança mais profunda de algoritmo de busca, por exemplo top-6/gap ou layout AoSoA16/int32 como no líder C; isoladamente, não melhoram a submissão.
