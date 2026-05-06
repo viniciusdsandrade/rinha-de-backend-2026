@@ -651,3 +651,22 @@ Resultado:
 | `api=0.40 / nginx=0.20` | 1.35ms | 0 | 0 | 0 | 5869.72 |
 
 Decisão: **rejeitado e revertido**. A p99 piorou contra a submissão oficial `#1714` (`1.29ms / 5888.51`) e contra a melhor validação local da imagem pública (`1.23ms / 5908.68`). Isso indica que, nesta fase, tirar CPU das APIs para dar mais margem ao nginx é contraproducente. Se voltarmos a mexer em recursos, o próximo teste deve ser na direção oposta (`api=0.42 / nginx=0.16`) ou em troca estrutural de LB, não em mais CPU para nginx.
+
+### Microteste rejeitado: redistribuição de CPU para APIs
+
+Hipótese simétrica: se mais CPU para nginx piorou, talvez o kernel `int32` ainda estivesse API-bound e ganhasse ao reduzir nginx para `0.16` CPU e elevar as APIs para `0.42` CPU cada.
+
+| Serviço | Baseline | Candidato |
+|---|---:|---:|
+| `api1` | `0.41` CPU | `0.42` CPU |
+| `api2` | `0.41` CPU | `0.42` CPU |
+| `nginx` | `0.18` CPU | `0.16` CPU |
+| Total | `1.00` CPU | `1.00` CPU |
+
+Resultado:
+
+| Config | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `api=0.42 / nginx=0.16` | 1.40ms | 0 | 0 | 0 | 5853.04 |
+
+Decisão: **rejeitado e revertido**. O resultado ficou pior que `api=0.40 / nginx=0.20` e bem abaixo da submissão oficial atual. A leitura prática é que o split `0.41 + 0.41 + 0.18` está em um ponto local razoável; continuar microajustando CPU no compose provavelmente só mede ruído/scheduler. Próximo caminho de ganho material deve ser estrutural: reduzir overhead do LB/API ou melhorar pruning/candidatos sem perder exatidão.
