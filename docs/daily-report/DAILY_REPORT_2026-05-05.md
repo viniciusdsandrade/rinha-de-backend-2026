@@ -670,3 +670,16 @@ Resultado:
 | `api=0.42 / nginx=0.16` | 1.40ms | 0 | 0 | 0 | 5853.04 |
 
 Decisão: **rejeitado e revertido**. O resultado ficou pior que `api=0.40 / nginx=0.20` e bem abaixo da submissão oficial atual. A leitura prática é que o split `0.41 + 0.41 + 0.18` está em um ponto local razoável; continuar microajustando CPU no compose provavelmente só mede ruído/scheduler. Próximo caminho de ganho material deve ser estrutural: reduzir overhead do LB/API ou melhorar pruning/candidatos sem perder exatidão.
+
+### Microteste rejeitado: `nginx worker_processes 1`
+
+Hipótese: com apenas `0.18` CPU alocado ao nginx, dois workers poderiam competir entre si e aumentar jitter de p99. Testei reduzir `worker_processes` de `2` para `1`, mantendo `reuseport` no listener e sem alterar API, algoritmo, recursos ou imagem base.
+
+Resultados:
+
+| Config | Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| `worker_processes 1` | #1 | 1.27ms | 0 | 0 | 0 | 5895.98 |
+| `worker_processes 1` | #2 | 1.37ms | 0 | 0 | 0 | 5864.19 |
+
+Decisão: **rejeitado e revertido**. A primeira run superou a submissão oficial `#1714`, mas a segunda caiu para baixo dela. Como o objetivo agora é subir apenas melhoria sustentável/inquestionável, não faz sentido promover uma configuração que parece aumentar variância. O baseline `worker_processes 2` continua mais defensável.
