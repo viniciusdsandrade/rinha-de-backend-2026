@@ -360,3 +360,13 @@ Issue oficial:
 Observação: no mesmo período havia outras issues recentes abertas sem comentário, então tratei como fila/lentidão da engine e não como erro de submissão. Não abri issue duplicada.
 
 Resultado prático: a nova issue oficial melhorou a submissão anterior de `5844.41` para `5878.28` (+33.87 pontos), mantendo 0 falhas.
+
+Propagação no ranking preview:
+
+| Rank | Participante | Submissão | p99 | Falhas | Score | Issue |
+|---:|---|---|---:|---:|---:|---|
+| 1 | `thiagorigonatti` | `thiagorigonatti-c` | 1.00ms | 0% | 6000.00 | `#911` |
+| 2 | `jairoblatt` | `jairoblatt-rust` | 1.17ms | 0% | 5932.05 | `#878` |
+| 3 | `viniciusdsandrade` | `andrade-cpp-ivf` | 1.32ms | 0% | 5878.28 | `#1697` |
+
+Fechamento da rodada: a submissão deixou o patamar anterior de `#5` observado no início da noite e passou a ocupar `#3` no preview no momento da checagem.
