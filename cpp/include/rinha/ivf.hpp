@@ -24,7 +24,24 @@ struct IvfSearchConfig {
     bool bbox_repair = true;
     std::uint8_t repair_min_frauds = 2;
     std::uint8_t repair_max_frauds = 3;
+#ifdef RINHA_IVF_STATS
+    bool disable_extreme_repair = false;
+#endif
 };
+
+#ifdef RINHA_IVF_STATS
+struct IvfSearchStats {
+    std::uint64_t queries = 0;
+    std::array<std::uint64_t, 6> fast_fraud_counts{};
+    std::uint64_t repaired_queries = 0;
+    std::uint64_t extreme_repair_queries = 0;
+    std::uint64_t primary_scanned_clusters = 0;
+    std::uint64_t primary_scanned_blocks = 0;
+    std::uint64_t bbox_tested_clusters = 0;
+    std::uint64_t bbox_scanned_clusters = 0;
+    std::uint64_t bbox_scanned_blocks = 0;
+};
+#endif
 
 class IvfIndex {
 public:
@@ -42,6 +59,14 @@ public:
         const QueryVector& query,
         const IvfSearchConfig& config = {}
     ) const noexcept;
+
+#ifdef RINHA_IVF_STATS
+    [[nodiscard]] std::uint8_t fraud_count_with_stats(
+        const QueryVector& query,
+        const IvfSearchConfig& config,
+        IvfSearchStats& stats
+    ) const noexcept;
+#endif
 
     [[nodiscard]] std::size_t len() const noexcept;
     [[nodiscard]] std::uint32_t clusters() const noexcept;
@@ -74,6 +99,25 @@ private:
         std::uint32_t nprobe,
         bool bbox_repair
     ) const noexcept;
+
+#ifdef RINHA_IVF_STATS
+    std::uint8_t fraud_count_once_stats(
+        const std::array<std::int16_t, kDimensions>& query_i16,
+        const QueryVector& query_float,
+        std::uint32_t nprobe,
+        bool bbox_repair,
+        IvfSearchStats& stats
+    ) const noexcept;
+
+    template <std::size_t MaxNprobe>
+    std::uint8_t fraud_count_once_fixed_stats(
+        const std::array<std::int16_t, kDimensions>& query_i16,
+        const QueryVector& query_float,
+        std::uint32_t nprobe,
+        bool bbox_repair,
+        IvfSearchStats& stats
+    ) const noexcept;
+#endif
 };
 
 }  // namespace rinha

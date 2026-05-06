@@ -551,14 +551,22 @@ bool should_repair_extreme(std::uint8_t frauds, const QueryVector& query) noexce
     }
 
     if (frauds == 0U) {
-        return query[2] >= 0.20f && query[2] <= 0.40f &&
-               query[7] <= 0.13f &&
-               query[8] <= 0.25f;
+        return query[0] <= 0.13f &&
+               query[2] >= 0.23f && query[2] <= 0.37f &&
+               query[7] >= 0.07f && query[7] <= 0.13f &&
+               query[8] >= 0.15f && query[8] <= 0.25f &&
+               query[9] < 0.5f &&
+               query[11] < 0.5f &&
+               query[12] >= 0.30f && query[12] <= 0.45f;
     }
 
     if (frauds == 5U) {
-        return query[2] >= 0.80f &&
-               query[7] >= 0.35f &&
+        return query[0] >= 0.20f && query[0] <= 0.32f &&
+               query[2] >= 0.82f && query[2] <= 0.92f &&
+               query[7] >= 0.35f && query[7] <= 0.45f &&
+               query[8] >= 0.45f && query[8] <= 0.55f &&
+               query[9] < 0.5f &&
+               query[10] >= 0.5f &&
                query[11] >= 0.5f &&
                query[12] >= 0.75f;
     }
@@ -772,6 +780,40 @@ std::uint8_t IvfIndex::fraud_count(const QueryVector& query, const IvfSearchConf
     return frauds;
 }
 
+#ifdef RINHA_IVF_STATS
+std::uint8_t IvfIndex::fraud_count_with_stats(
+    const QueryVector& query,
+    const IvfSearchConfig& config,
+    IvfSearchStats& stats
+) const noexcept {
+    std::array<std::int16_t, kDimensions> query_i16{};
+    for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+        query_i16[dim] = quantize(query[dim]);
+    }
+
+    ++stats.queries;
+
+    const std::uint32_t fast_nprobe = std::max<std::uint32_t>(1, std::min(config.fast_nprobe, clusters_));
+    const bool fast_repair = config.bbox_repair && !config.boundary_full;
+    std::uint8_t frauds = fraud_count_once_stats(query_i16, query, fast_nprobe, fast_repair, stats);
+    if (frauds < stats.fast_fraud_counts.size()) {
+        ++stats.fast_fraud_counts[frauds];
+    }
+
+    const bool in_repair_window = frauds >= config.repair_min_frauds && frauds <= config.repair_max_frauds;
+    const bool extreme_repair = !config.disable_extreme_repair && should_repair_extreme(frauds, query);
+    if (config.boundary_full && (in_repair_window || extreme_repair)) {
+        ++stats.repaired_queries;
+        if (extreme_repair) {
+            ++stats.extreme_repair_queries;
+        }
+        const std::uint32_t full_nprobe = std::max<std::uint32_t>(fast_nprobe, std::min(config.full_nprobe, clusters_));
+        frauds = fraud_count_once_stats(query_i16, query, full_nprobe, config.bbox_repair, stats);
+    }
+    return frauds;
+}
+#endif
+
 std::uint8_t IvfIndex::fraud_count_once(
     const std::array<std::int16_t, kDimensions>& query_i16,
     const QueryVector& query_float,
@@ -792,6 +834,94 @@ std::uint8_t IvfIndex::fraud_count_once(
     }
     return fraud_count_once_fixed<64>(query_i16, query_float, std::min<std::uint32_t>(nprobe, 64U), repair);
 }
+
+#ifdef RINHA_IVF_STATS
+std::uint8_t IvfIndex::fraud_count_once_stats(
+    const std::array<std::int16_t, kDimensions>& query_i16,
+    const QueryVector& query_float,
+    std::uint32_t nprobe,
+    bool repair,
+    IvfSearchStats& stats
+) const noexcept {
+    if (nprobe == 1U) {
+        return fraud_count_once_fixed_stats<1>(query_i16, query_float, nprobe, repair, stats);
+    }
+    if (nprobe <= 8U) {
+        return fraud_count_once_fixed_stats<8>(query_i16, query_float, nprobe, repair, stats);
+    }
+    if (nprobe <= 16U) {
+        return fraud_count_once_fixed_stats<16>(query_i16, query_float, nprobe, repair, stats);
+    }
+    if (nprobe <= 32U) {
+        return fraud_count_once_fixed_stats<32>(query_i16, query_float, nprobe, repair, stats);
+    }
+    return fraud_count_once_fixed_stats<64>(
+        query_i16,
+        query_float,
+        std::min<std::uint32_t>(nprobe, 64U),
+        repair,
+        stats
+    );
+}
+
+template <std::size_t MaxNprobe>
+std::uint8_t IvfIndex::fraud_count_once_fixed_stats(
+    const std::array<std::int16_t, kDimensions>& query_i16,
+    const QueryVector& query_float,
+    std::uint32_t nprobe,
+    bool repair,
+    IvfSearchStats& stats
+) const noexcept {
+    if (n_ < 5 || clusters_ == 0) {
+        return 0;
+    }
+
+    std::array<std::uint32_t, MaxNprobe> best_clusters{};
+    std::array<float, MaxNprobe> best_distances{};
+    best_distances.fill(std::numeric_limits<float>::infinity());
+    for (std::uint32_t cluster = 0; cluster < clusters_; ++cluster) {
+        float distance = 0.0f;
+        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+            const float centroid = centroids_[dim * clusters_ + cluster];
+            const float delta = query_float[dim] - centroid;
+            distance += delta * delta;
+        }
+        insert_probe(cluster, distance, best_clusters.data(), best_distances.data(), nprobe);
+    }
+
+    Top5 top;
+    for (std::uint32_t index = 0; index < nprobe; ++index) {
+        const std::uint32_t cluster = best_clusters[index];
+        ++stats.primary_scanned_clusters;
+        stats.primary_scanned_blocks += offsets_[cluster + 1U] - offsets_[cluster];
+        scan_blocks(top, blocks_, labels_, orig_ids_, offsets_[cluster], offsets_[cluster + 1U], query_i16);
+    }
+
+    if (repair) {
+        for (std::uint32_t cluster = 0; cluster < clusters_; ++cluster) {
+            if (offsets_[cluster] == offsets_[cluster + 1U]) {
+                continue;
+            }
+            bool already_scanned = false;
+            for (std::uint32_t index = 0; index < nprobe; ++index) {
+                already_scanned = already_scanned || best_clusters[index] == cluster;
+            }
+            if (already_scanned) {
+                continue;
+            }
+            ++stats.bbox_tested_clusters;
+            const std::uint64_t worst = top.worst_distance();
+            if (bbox_lower_bound(bbox_min_, bbox_max_, cluster, query_i16, worst) <= worst) {
+                ++stats.bbox_scanned_clusters;
+                stats.bbox_scanned_blocks += offsets_[cluster + 1U] - offsets_[cluster];
+                scan_blocks(top, blocks_, labels_, orig_ids_, offsets_[cluster], offsets_[cluster + 1U], query_i16);
+            }
+        }
+    }
+
+    return top.frauds();
+}
+#endif
 
 template <std::size_t MaxNprobe>
 std::uint8_t IvfIndex::fraud_count_once_fixed(

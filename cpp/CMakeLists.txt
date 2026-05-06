@@ -277,6 +277,7 @@ target_include_directories(benchmark-ivf-cpp
 target_compile_definitions(benchmark-ivf-cpp
     PRIVATE
         SIMDJSON_EXCEPTIONS=0
+        RINHA_IVF_STATS=1
 )
 target_link_libraries(benchmark-ivf-cpp
     PRIVATE

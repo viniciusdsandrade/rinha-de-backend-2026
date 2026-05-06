@@ -84,10 +84,10 @@ std::uint64_t checksum(bool approved, std::uint8_t fraud_count) noexcept {
 
 int main(int argc, char** argv) {
     try {
-        if (argc < 3 || argc > 10) {
+        if (argc < 3 || argc > 13) {
             std::cerr << "uso: benchmark-ivf-cpp <test-data.json> <index.bin> "
                       << "[repeat=1] [limit=0] [fast_nprobe=1] [full_nprobe=1] "
-                      << "[bbox_repair=1] [repair_min=2] [repair_max=3]\n";
+                      << "[bbox_repair=1] [repair_min=2] [repair_max=3] [stats=0] [disable_extreme=0] [print_errors=0]\n";
             return 1;
         }
 
@@ -115,6 +115,17 @@ int main(int argc, char** argv) {
             config.repair_max_frauds = static_cast<std::uint8_t>(std::stoul(argv[9]));
             config.boundary_full = true;
         }
+#ifdef RINHA_IVF_STATS
+        const bool collect_stats = argc > 10 && std::stoul(argv[10]) != 0;
+        if (argc > 11) {
+            config.disable_extreme_repair = std::stoul(argv[11]) != 0;
+        }
+        const bool print_errors = argc > 12 && std::stoul(argv[12]) != 0;
+        rinha::IvfSearchStats stats{};
+#else
+        const bool collect_stats = false;
+        const bool print_errors = false;
+#endif
 
         const std::vector<Sample> samples = load_samples(test_data_path, limit);
         if (samples.empty()) {
@@ -145,7 +156,11 @@ int main(int argc, char** argv) {
                     ++parse_errors;
                     continue;
                 }
-                const std::uint8_t fraud_count = index.fraud_count(query, config);
+                const std::uint8_t fraud_count =
+#ifdef RINHA_IVF_STATS
+                    collect_stats ? index.fraud_count_with_stats(query, config, stats) :
+#endif
+                    index.fraud_count(query, config);
                 const bool approved = fraud_count < 3;
                 checksum_value += checksum(approved, fraud_count);
                 if (approved != sample.expected_approved) {
@@ -153,6 +168,19 @@ int main(int argc, char** argv) {
                         ++fn;
                     } else {
                         ++fp;
+                    }
+                    if (print_errors && (fp + fn) <= 20U) {
+                        std::cerr << "classification_error expected_approved=" << (sample.expected_approved ? 1 : 0)
+                                  << " approved=" << (approved ? 1 : 0)
+                                  << " fraud_count=" << static_cast<unsigned int>(fraud_count)
+                                  << " query=[";
+                        for (std::size_t dim = 0; dim < query.size(); ++dim) {
+                            if (dim != 0) {
+                                std::cerr << ',';
+                            }
+                            std::cerr << query[dim];
+                        }
+                        std::cerr << "] body=" << sample.body << '\n';
                     }
                 }
             }
@@ -179,6 +207,27 @@ int main(int argc, char** argv) {
                   << " parse_errors=" << parse_errors
                   << " failure_rate_pct=" << (static_cast<double>(fp + fn + parse_errors) * 100.0 / static_cast<double>(total_queries))
                   << '\n';
+#ifdef RINHA_IVF_STATS
+        if (collect_stats) {
+            const double queries = static_cast<double>(stats.queries);
+            std::cout << "stats_queries=" << stats.queries
+                      << " repaired_queries=" << stats.repaired_queries
+                      << " repaired_pct=" << (static_cast<double>(stats.repaired_queries) * 100.0 / queries)
+                      << " extreme_repair_queries=" << stats.extreme_repair_queries
+                      << '\n';
+            std::cout << "fast_fraud_counts";
+            for (std::size_t index = 0; index < stats.fast_fraud_counts.size(); ++index) {
+                std::cout << " f" << index << '=' << stats.fast_fraud_counts[index];
+            }
+            std::cout << '\n';
+            std::cout << "avg_primary_clusters=" << (static_cast<double>(stats.primary_scanned_clusters) / queries)
+                      << " avg_primary_blocks=" << (static_cast<double>(stats.primary_scanned_blocks) / queries)
+                      << " avg_bbox_tested_clusters=" << (static_cast<double>(stats.bbox_tested_clusters) / queries)
+                      << " avg_bbox_scanned_clusters=" << (static_cast<double>(stats.bbox_scanned_clusters) / queries)
+                      << " avg_bbox_scanned_blocks=" << (static_cast<double>(stats.bbox_scanned_blocks) / queries)
+                      << '\n';
+        }
+#endif
     } catch (const std::exception& exception) {
         std::cerr << exception.what() << '\n';
         return 1;

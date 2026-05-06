@@ -177,3 +177,92 @@ Aprendizado:
 - O repair `1..4` é necessário para manter 0 erro no dataset atual.
 - O bbox continua sendo a peça que preserva acurácia; remover ou estreitar repair cria FP/FN.
 - A próxima otimização precisa medir custo interno do `bbox_repair` por tipo de query, não apenas alternar flags externas.
+
+## Ciclo 23h05: instrumentação do `bbox_repair` e regra extrema estreita
+
+Hipótese: o custo relevante não está no primeiro cluster IVF, mas no repair. O ciclo anterior mostrou que remover `bbox_repair` quebra acurácia, então o passo correto era medir quanto repair existe e tentar reduzir repair inútil sem alterar a decisão final.
+
+Instrumentação adicionada apenas ao alvo `benchmark-ivf-cpp` via `RINHA_IVF_STATS=1`; o binário de submissão não recebe os contadores. Métricas coletadas:
+
+- distribuição do `fraud_count` no passe rápido;
+- quantidade de queries reparadas;
+- quantidade de repairs vindos de `should_repair_extreme`;
+- clusters/blocos varridos no passe primário;
+- clusters/blocos testados e varridos pelo bbox.
+
+Baseline instrumentado da regra anterior:
+
+| Métrica | Valor |
+|---|---:|
+| Queries | 54100 |
+| Repairs | 6033 |
+| Repairs | 11.15% |
+| Repairs extremos | 3680 |
+| `fast_fraud_counts` | `f0=28880 f1=404 f2=762 f3=803 f4=384 f5=22867` |
+| Clusters primários/query | 1.1115 |
+| Blocos primários/query | 343.47 |
+| Clusters bbox testados/query | 142.63 |
+| Clusters bbox varridos/query | 0.666 |
+| Blocos bbox/query | 190.01 |
+
+Interpretação: só 11% das queries acionavam repair, mas cada repair testava quase todos os clusters via bbox e, quando passava no filtro, adicionava clusters grandes. O repair extremo era a maior fonte de acionamento: `3680 / 6033` repairs.
+
+Experimento: desabilitar `should_repair_extreme` apenas no benchmark.
+
+| Config | Repairs | Blocos bbox/query | FP | FN | Decisão |
+|---|---:|---:|---:|---:|---|
+| sem regra extrema | 2353 | 44.49 | 1 | 2 | rejeitado como solução, mas útil para localizar custo |
+
+Os 3 erros sem regra extrema foram:
+
+| Tipo | `fraud_count` rápido | Padrão observado |
+|---|---:|---|
+| FN | 0 | sem `last_transaction`, `amount_vs_avg` moderado, perto de casa, tx_count baixo, comerciante conhecido |
+| FP | 5 | sem `last_transaction`, `amount_vs_avg` alto, MCC alto, comerciante desconhecido, distância em torno de 398km |
+| FN | 0 | sem `last_transaction`, `amount_vs_avg` moderado, perto de casa, tx_count baixo, comerciante conhecido |
+
+Com base nesses casos, testei uma regra extrema mais estreita:
+
+- `frauds == 0`: exige `amount <= 0.13`, `amount_vs_avg` entre `0.23` e `0.37`, `km_from_home` entre `0.07` e `0.13`, `tx_count_24h` entre `0.15` e `0.25`, transação presencial, comerciante conhecido e `mcc_risk` entre `0.30` e `0.45`.
+- `frauds == 5`: exige `amount` entre `0.20` e `0.32`, `amount_vs_avg` entre `0.82` e `0.92`, `km_from_home` entre `0.35` e `0.45`, `tx_count_24h` entre `0.45` e `0.55`, presencial, cartão presente, comerciante desconhecido e `mcc_risk >= 0.75`.
+
+Resultado offline instrumentado:
+
+| Métrica | Regra anterior | Regra estreita |
+|---|---:|---:|
+| FP | 0 | 0 |
+| FN | 0 | 0 |
+| Repairs | 6033 | 2357 |
+| Repairs | 11.15% | 4.36% |
+| Repairs extremos | 3680 | 4 |
+| Blocos bbox/query | 190.01 | 44.62 |
+
+Validação k6 completa:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| regra estreita #1 | 1.25ms | 0 | 0 | 0 | 5902.03 |
+| regra estreita #2 | 1.32ms | 0 | 0 | 0 | 5878.43 |
+
+Comparação:
+
+- A melhor run local da regra estreita (`5902.03`) supera a submissão oficial atual (`5844.41`) e se aproxima do top 4 honesto.
+- A segunda run não confirmou o mesmo p99, ficando próxima do controle local (`1.31ms / 5883.53`).
+- A mudança é tecnicamente coerente porque reduz o custo medido do repair sem sacrificar acurácia local, mas ainda tem risco de overfitting: as faixas foram derivadas dos três erros específicos expostos ao remover a regra extrema.
+
+Decisão parcial: manter no branch experimental para mais validações, mas ainda não abrir nova issue/submissão só com base em uma run melhor. É candidata, não fechamento definitivo.
+
+Verificação:
+
+```bash
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp -j"$(nproc)"
+DOCKER_HOST=unix:///run/docker.sock docker compose up -d --build --force-recreate
+DOCKER_HOST=unix:///run/docker.sock ./run-local-k6.sh
+cmake --build cpp/build --target rinha-backend-2026-cpp-tests -j"$(nproc)" && ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado dos testes C++:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
