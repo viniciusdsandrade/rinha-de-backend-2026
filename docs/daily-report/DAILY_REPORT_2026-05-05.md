@@ -500,3 +500,57 @@ Tempo de geração: `23:15:17` até `23:15:52` (`~35s`).
 Decisão: **rejeitado**. Menos clusters reduzem ranking de centroides, mas aumentam scan por cluster e perdem acurácia.
 
 Conclusão do ciclo: o índice atual `K=1280 / sample=65536 / iter=6` segue como melhor ponto local conhecido para esta implementação. Os índices alternativos só seriam interessantes se acompanhados por uma mudança mais profunda de algoritmo de busca, por exemplo top-6/gap ou layout AoSoA16/int32 como no líder C; isoladamente, não melhoram a submissão.
+
+## Ciclo 23h20: acumulador AVX2 `int32`
+
+Hipótese: transpor um insight do líder C para o nosso kernel. O scan AVX2 usava acumuladores `uint64_t` por lane. Pelas regras do desafio, os vetores quantizados ficam em:
+
+- dimensões normais: `0..10000`, diferença máxima `10000`, quadrado máximo `100M`;
+- dimensões sentinela `5/6`: `-10000..10000`, diferença máxima `20000`, quadrado máximo `400M`.
+
+Pior caso teórico: `12 * 100M + 2 * 400M = 2.0B`, abaixo de `INT32_MAX = 2.147B`. Portanto o acumulador `int32` é exato para o domínio real e evita o custo de expandir cada bloco para dois vetores `int64`.
+
+Mudança:
+
+- `scan_blocks_avx2` passou de dois acumuladores `epi64` (`lo/hi`) para um acumulador `epi32` com 8 lanes.
+- O resultado final é armazenado em `uint32_t[8]` e inserido no `Top5` como `uint64_t`.
+- Nenhuma regra de classificação foi alterada.
+
+Validação offline:
+
+```bash
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests -j2
+nice -n 10 ./cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280.bin 1 0 1 1 1 1 4 1 0 0
+nice -n 10 ./cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280.bin 3 0 1 1 1 1 4 0 0 0
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultados:
+
+| Teste | FP | FN | parse errors | ns/query |
+|---|---:|---:|---:|---:|
+| offline com stats | 0 | 0 | 0 | 25730.9 |
+| offline `repeat=3` sem stats | 0 | 0 | 0 | 24316.3 |
+
+Teste C++:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Validação k6 local com imagem reconstruída via `docker compose up -d --build --force-recreate`:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `int32` local #1 | 1.25ms | 0 | 0 | 0 | 5903.78 |
+| `int32` local #2 | 1.23ms | 0 | 0 | 0 | 5911.06 |
+
+Comparação:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Submissão oficial `#1697` | 1.32ms | 0% | 5878.28 |
+| Melhor local `int32` | 1.23ms | 0% | 5911.06 |
+
+Decisão: **promover para candidata de submissão**. Esta é a primeira melhoria pós-`#1697` com ganho de kernel forte, acurácia preservada e duas runs locais acima da submissão oficial.

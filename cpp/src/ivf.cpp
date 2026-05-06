@@ -432,9 +432,8 @@ void scan_blocks_scalar(
 }
 
 #if defined(__x86_64__) || defined(_M_X64)
-void acc_dim_i64(
-    __m256i& lo,
-    __m256i& hi,
+__m256i acc_dim_i32(
+    __m256i acc,
     __m256i q32,
     const std::int16_t* ptr
 ) noexcept {
@@ -442,10 +441,7 @@ void acc_dim_i64(
     const __m256i value = _mm256_cvtepi16_epi32(raw);
     const __m256i diff = _mm256_sub_epi32(value, q32);
     const __m256i square32 = _mm256_mullo_epi32(diff, diff);
-    const __m128i square_lo = _mm256_castsi256_si128(square32);
-    const __m128i square_hi = _mm256_extracti128_si256(square32, 1);
-    lo = _mm256_add_epi64(lo, _mm256_cvtepi32_epi64(square_lo));
-    hi = _mm256_add_epi64(hi, _mm256_cvtepi32_epi64(square_hi));
+    return _mm256_add_epi32(acc, square32);
 }
 
 __attribute__((target("avx2")))
@@ -467,46 +463,36 @@ void scan_blocks_avx2(
         q[dim] = _mm256_set1_epi32(static_cast<int>(query[dim]));
     }
 
-    alignas(32) std::array<std::uint64_t, 4> lo_values{};
-    alignas(32) std::array<std::uint64_t, 4> hi_values{};
+    alignas(32) std::array<std::uint32_t, kBlockLanes> values{};
 
     for (std::uint32_t block = start_block; block < end_block; ++block) {
         const std::size_t block_base = static_cast<std::size_t>(block) * kDimensions * kBlockLanes;
-        __m256i lo = _mm256_setzero_si256();
-        __m256i hi = _mm256_setzero_si256();
+        __m256i acc = _mm256_setzero_si256();
         for (std::size_t dim = 0; dim < 8; ++dim) {
-            acc_dim_i64(lo, hi, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
+            acc = acc_dim_i32(acc, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
         }
 
         const std::uint64_t worst = top.worst_distance();
-        if (worst <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-            const auto threshold = _mm256_set1_epi64x(static_cast<long long>(worst));
-            const auto lo_gt = _mm256_cmpgt_epi64(lo, threshold);
-            const auto hi_gt = _mm256_cmpgt_epi64(hi, threshold);
+        if (worst <= static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
+            const auto threshold = _mm256_set1_epi32(static_cast<int>(worst));
+            const auto gt = _mm256_cmpgt_epi32(acc, threshold);
             constexpr int kAllLanesMask = -1;
-            if (_mm256_movemask_epi8(lo_gt) == kAllLanesMask && _mm256_movemask_epi8(hi_gt) == kAllLanesMask) {
+            if (_mm256_movemask_epi8(gt) == kAllLanesMask) {
                 continue;
             }
         }
 
         for (std::size_t dim = 8; dim < kDimensions; ++dim) {
-            acc_dim_i64(lo, hi, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
+            acc = acc_dim_i32(acc, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
         }
 
-        _mm256_store_si256(reinterpret_cast<__m256i*>(lo_values.data()), lo);
-        _mm256_store_si256(reinterpret_cast<__m256i*>(hi_values.data()), hi);
+        _mm256_store_si256(reinterpret_cast<__m256i*>(values.data()), acc);
 
         const std::size_t label_base = static_cast<std::size_t>(block) * kBlockLanes;
-        for (std::size_t lane = 0; lane < 4; ++lane) {
+        for (std::size_t lane = 0; lane < kBlockLanes; ++lane) {
             const std::uint32_t id = ids_ptr[label_base + lane];
             if (id != std::numeric_limits<std::uint32_t>::max()) {
-                top.insert(lo_values[lane], labels_ptr[label_base + lane], id);
-            }
-        }
-        for (std::size_t lane = 0; lane < 4; ++lane) {
-            const std::uint32_t id = ids_ptr[label_base + 4U + lane];
-            if (id != std::numeric_limits<std::uint32_t>::max()) {
-                top.insert(hi_values[lane], labels_ptr[label_base + 4U + lane], id);
+                top.insert(values[lane], labels_ptr[label_base + lane], id);
             }
         }
     }
