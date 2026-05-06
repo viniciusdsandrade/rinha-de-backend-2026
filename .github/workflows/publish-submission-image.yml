@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - perf/ivf-index
+      - perf/noon-tuning
 
 permissions:
   contents: read
@@ -35,6 +36,7 @@ jobs:
           platforms: linux/amd64
           tags: |
             ghcr.io/${{ github.repository }}:submission
+            ghcr.io/${{ github.repository }}:submission-4260b14
             ghcr.io/${{ github.repository }}:submission-a9e49db
             ghcr.io/${{ github.repository }}:submission-1273343
             ghcr.io/${{ github.repository }}:submission-322cc1d
