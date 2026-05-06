@@ -305,3 +305,42 @@ Comparação com a submissão oficial atual:
 Decisão: vale preparar nova submissão/issue com esta rodada.
 
 Ressalva técnica: a melhoria é sustentada por redução concreta do repair medido, não por troca cosmética de flag. Ainda existe risco de diferença no harness oficial, mas a regra média é menos frágil que a versão ultraestreita e preservou 0 erro local.
+
+## Ciclo 23h40: publicação da imagem e validação da branch `submission`
+
+Publicação:
+
+- Adicionada workflow `Publish GHCR image` na `main` do fork para publicar imagens a partir de um ref informado.
+- Workflow executada com `ref=perf/noon-tuning` e `tag=submission-4260b14`.
+- Run GitHub Actions: `25411738634`.
+- Resultado: sucesso em `1m21s`.
+- Imagem publicada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-4260b14`.
+
+Validação da imagem pública:
+
+```bash
+DOCKER_HOST=unix:///run/docker.sock docker manifest inspect ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-4260b14
+```
+
+Resultado: `linux/amd64`.
+
+Atualização da branch oficial de entrega:
+
+- Branch `submission` atualizada para apontar `docker-compose.yml` para `submission-4260b14`.
+- Commit: `462c729` (`point submission to 4260b14 image`).
+- Push: `origin/submission`.
+
+Benchmark final usando a própria branch `submission` e a imagem recém-puxada do GHCR:
+
+| Fonte | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `submission` + `submission-4260b14` | 0.93ms | 0 | 0 | 0 | 6000.00 |
+
+Comparação com submissão oficial anterior:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Issue anterior `#1314` | 1.43ms | 0% | 5844.41 |
+| Nova candidata local validada na branch `submission` | 0.93ms | 0% | 6000.00 |
+
+Decisão: abrir nova issue oficial com a branch `submission` atualizada.
