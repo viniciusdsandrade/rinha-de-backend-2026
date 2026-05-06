@@ -370,3 +370,72 @@ Propagação no ranking preview:
 | 3 | `viniciusdsandrade` | `andrade-cpp-ivf` | 1.32ms | 0% | 5878.28 | `#1697` |
 
 Fechamento da rodada: a submissão deixou o patamar anterior de `#5` observado no início da noite e passou a ocupar `#3` no preview no momento da checagem.
+
+## Ciclo 23h05: pós-submissão, reparo `f1/f4` e translação dos líderes
+
+Contexto: após a issue oficial `#1697`, a meta voltou a ser experimental. A submissão boa foi preservada na branch `submission`; os testes abaixo ficaram na branch `perf/noon-tuning`.
+
+Baseline offline refeito com índice `1280` gerado pela branch atual:
+
+```bash
+nice -n 10 ./cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280.bin 1280 65536 6
+nice -n 10 ./cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280.bin 1 0 1 1 1 1 4 1 0 0
+```
+
+Resultado:
+
+| Config | FP | FN | ns/query | repairs | repairs extremos | blocos bbox/query |
+|---|---:|---:|---:|---:|---:|---:|
+| `fast=1 full=1 repair=1..4` | 0 | 0 | 31402.9 | 2401 / 4.44% | 48 | 45.58 |
+
+### Hipótese A: filtrar os reparos `fast_count=1` e `fast_count=4`
+
+Motivo: a configuração atual repara todos os casos rápidos com `fraud_count` de `1` a `4`. Os casos `2/3` são fronteira natural. Os casos `1/4` pareciam candidatos a filtro seletivo, pois representam 788 repairs extras (`404` de `f1` + `384` de `f4`).
+
+Probes:
+
+| Config | FP | FN | ns/query | repairs | Interpretação |
+|---|---:|---:|---:|---:|---|
+| `repair=2..3` | 22 | 28 | 35725.8 | 1613 | rejeitado, perde os dois lados |
+| `repair=1..3` | 22 | 0 | 36395.5 | 2017 | rejeitado, `f4` precisa de reparo |
+| `repair=2..4` | 0 | 28 | 35221.0 | 1997 | rejeitado, `f1` precisa de reparo |
+
+Instrumentei o `benchmark-ivf-cpp` para imprimir candidatos de fronteira (`print_errors=2`) e separar os candidatos que realmente precisavam de repair:
+
+| Grupo | Total de candidatos | Precisam repair | Podem pular |
+|---|---:|---:|---:|
+| `fast_count=1` | 404 | 28 | 376 |
+| `fast_count=4` | 384 | 22 | 362 |
+
+Achado: os candidatos que precisam repair e os que podem pular são muito sobrepostos em praticamente todas as dimensões. O menor retângulo simples que cobre todos os `f1` necessários ainda seleciona pelo menos `336/404` candidatos; para `f4`, pelo menos `318/384`. Ou seja, a seletividade economizaria pouco ou viraria regra frágil/overfit.
+
+Decisão: **não implementar filtro seletivo `f1/f4` na submissão**. Manter `repair=1..4` continua mais sustentável.
+
+### Hipótese B: aumentar `fast_nprobe`/`full_nprobe`
+
+Motivo: `jairoblatt-rust` e `thiagorigonatti-c` usam mais probes primários (`8`) e reparo apenas em `2/3`. A hipótese era que um `fast_nprobe=2` pequeno reduziria necessidade de reparo extremo sem custo excessivo.
+
+Resultados offline:
+
+| Config | FP | FN | ns/query | repairs | blocos primários/query | blocos bbox/query |
+|---|---:|---:|---:|---:|---:|---:|
+| `fast=2 full=2 repair=2..3` | 3 | 1 | 43979.9 | 1618 | 629.57 | 23.94 |
+| `fast=2 full=2 repair=1..4` | 0 | 0 | 45291.4 | 2400 | 636.85 | 35.02 |
+| `fast=1 full=2 repair=1..4` | 0 | 0 | 37299.9 | 2401 | 333.87 | 35.05 |
+
+Decisão: **rejeitado**. A troca reduz bbox em alguns casos, mas dobra o custo primário ou adiciona custo de segunda fase. O microbenchmark fica pior que o baseline.
+
+### Hipótese C: ordem de dimensões dos líderes no acumulador de distância
+
+Motivo: `thiagorigonatti-c` acumula distância na ordem `5,6,2,0,7,8,11,12,9,10,1,13,3,4`, podando mais cedo por dimensões discriminativas. Testei transpor essa ordem para o nosso `bbox_lower_bound`, fallback escalar e scan AVX2.
+
+Resultado:
+
+| Config | FP | FN | ns/query |
+|---|---:|---:|---:|
+| ordem original | 0 | 0 | ~31402.9 |
+| ordem dos líderes | 0 | 0 | 32603.4 em `repeat=3` |
+
+Decisão: **rejeitado e revertido**. No nosso layout atual (`kBlockLanes=8`, acumulador AVX2 em `uint64`) a ordem dos líderes não trouxe o mesmo ganho observado no layout AoSoA16/int32 deles.
+
+Aprendizado da rodada: o caminho de maior potencial continua sendo estrutural, não uma heurística pequena em cima do IVF atual. Os dois líderes honestos que estão à frente usam uma destas vantagens que ainda não temos totalmente: `io_uring`/HTTP próprio com LB customizado, layout AoSoA16 com acumulador mais leve, ou IVF com centróides significativamente melhores (`k=2048`, k-means++/restarts/refino completo) compensado por runtime HTTP mais barato.

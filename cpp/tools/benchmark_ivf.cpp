@@ -84,10 +84,12 @@ std::uint64_t checksum(bool approved, std::uint8_t fraud_count) noexcept {
 
 int main(int argc, char** argv) {
     try {
-        if (argc < 3 || argc > 13) {
+        if (argc < 3 || argc > 14) {
             std::cerr << "uso: benchmark-ivf-cpp <test-data.json> <index.bin> "
                       << "[repeat=1] [limit=0] [fast_nprobe=1] [full_nprobe=1] "
-                      << "[bbox_repair=1] [repair_min=2] [repair_max=3] [stats=0] [disable_extreme=0] [print_errors=0]\n";
+                      << "[bbox_repair=1] [repair_min=2] [repair_max=3] [stats=0] [disable_extreme=0] "
+                      << "[print_errors=0] [print_error_limit=20]\n"
+                      << "print_errors=2 imprime todos os candidatos finais com fraud_count 1 ou 4.\n";
             return 1;
         }
 
@@ -120,11 +122,16 @@ int main(int argc, char** argv) {
         if (argc > 11) {
             config.disable_extreme_repair = std::stoul(argv[11]) != 0;
         }
-        const bool print_errors = argc > 12 && std::stoul(argv[12]) != 0;
+        const unsigned int print_mode = argc > 12 ? static_cast<unsigned int>(std::stoul(argv[12])) : 0U;
+        const bool print_errors = print_mode != 0U;
+        const bool print_boundary_candidates = print_mode == 2U;
+        const std::uint64_t print_error_limit = argc > 13 ? std::stoull(argv[13]) : 20U;
         rinha::IvfSearchStats stats{};
 #else
         const bool collect_stats = false;
         const bool print_errors = false;
+        const bool print_boundary_candidates = false;
+        const std::uint64_t print_error_limit = 20U;
 #endif
 
         const std::vector<Sample> samples = load_samples(test_data_path, limit);
@@ -137,6 +144,13 @@ int main(int argc, char** argv) {
         if (!index.load_binary(index_path, error)) {
             throw std::runtime_error(error);
         }
+
+#ifdef RINHA_IVF_STATS
+        rinha::IvfSearchConfig fast_config = config;
+        fast_config.full_nprobe = fast_config.fast_nprobe;
+        fast_config.boundary_full = false;
+        fast_config.bbox_repair = false;
+#endif
 
         std::uint64_t checksum_value = 0;
         std::uint64_t fp = 0;
@@ -156,6 +170,11 @@ int main(int argc, char** argv) {
                     ++parse_errors;
                     continue;
                 }
+                const std::uint8_t fast_count =
+#ifdef RINHA_IVF_STATS
+                    print_boundary_candidates ? index.fraud_count(query, fast_config) :
+#endif
+                    255U;
                 const std::uint8_t fraud_count =
 #ifdef RINHA_IVF_STATS
                     collect_stats ? index.fraud_count_with_stats(query, config, stats) :
@@ -163,13 +182,27 @@ int main(int argc, char** argv) {
                     index.fraud_count(query, config);
                 const bool approved = fraud_count < 3;
                 checksum_value += checksum(approved, fraud_count);
+                if (print_boundary_candidates && (fast_count == 1U || fast_count == 4U)) {
+                    std::cerr << "boundary_candidate expected_approved=" << (sample.expected_approved ? 1 : 0)
+                              << " approved=" << (approved ? 1 : 0)
+                              << " fast_count=" << static_cast<unsigned int>(fast_count)
+                              << " fraud_count=" << static_cast<unsigned int>(fraud_count)
+                              << " query=[";
+                    for (std::size_t dim = 0; dim < query.size(); ++dim) {
+                        if (dim != 0) {
+                            std::cerr << ',';
+                        }
+                        std::cerr << query[dim];
+                    }
+                    std::cerr << "] body=" << sample.body << '\n';
+                }
                 if (approved != sample.expected_approved) {
                     if (approved) {
                         ++fn;
                     } else {
                         ++fp;
                     }
-                    if (print_errors && (fp + fn) <= 20U) {
+                    if (print_errors && (print_error_limit == 0U || (fp + fn) <= print_error_limit)) {
                         std::cerr << "classification_error expected_approved=" << (sample.expected_approved ? 1 : 0)
                                   << " approved=" << (approved ? 1 : 0)
                                   << " fraud_count=" << static_cast<unsigned int>(fraud_count)
