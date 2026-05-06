@@ -625,3 +625,29 @@ Resultado k6 local:
 | prune final #2 | 1.28ms | 0 | 0 | 0 | 5893.38 |
 
 Decisão: **rejeitado e revertido**. Apesar do ganho sintético, a p99 real ficou pior que a variante `df6994a` validada por imagem pública (`1.23ms / 5908.68`). Este é um caso claro em que o benchmark de kernel não representou o p99 da stack.
+
+### Microteste rejeitado: redistribuição de CPU para nginx
+
+Hipótese: depois do ganho do acumulador `int32`, o gargalo poderia ter se deslocado parcialmente do kernel IVF para a borda `nginx stream`. Para testar sem alterar algoritmo nem contrato, rodei uma redistribuição pequena de CPU:
+
+| Serviço | Baseline | Candidato |
+|---|---:|---:|
+| `api1` | `0.41` CPU | `0.40` CPU |
+| `api2` | `0.41` CPU | `0.40` CPU |
+| `nginx` | `0.18` CPU | `0.20` CPU |
+| Total | `1.00` CPU | `1.00` CPU |
+
+Comando:
+
+```bash
+DOCKER_HOST=unix:///run/docker.sock docker compose up -d --force-recreate
+DOCKER_HOST=unix:///run/docker.sock ./run-local-k6.sh
+```
+
+Resultado:
+
+| Config | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `api=0.40 / nginx=0.20` | 1.35ms | 0 | 0 | 0 | 5869.72 |
+
+Decisão: **rejeitado e revertido**. A p99 piorou contra a submissão oficial `#1714` (`1.29ms / 5888.51`) e contra a melhor validação local da imagem pública (`1.23ms / 5908.68`). Isso indica que, nesta fase, tirar CPU das APIs para dar mais margem ao nginx é contraproducente. Se voltarmos a mexer em recursos, o próximo teste deve ser na direção oposta (`api=0.42 / nginx=0.16`) ou em troca estrutural de LB, não em mais CPU para nginx.
