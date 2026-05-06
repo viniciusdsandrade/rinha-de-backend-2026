@@ -335,6 +335,7 @@ Benchmark final usando a própria branch `submission` e a imagem recém-puxada d
 | Fonte | p99 | FP | FN | HTTP errors | final_score |
 |---|---:|---:|---:|---:|---:|
 | `submission` + `submission-4260b14` | 0.93ms | 0 | 0 | 0 | 6000.00 |
+| repetição `submission` + `submission-4260b14` | 1.30ms | 0 | 0 | 0 | 5884.66 |
 
 Comparação com submissão oficial anterior:
 
@@ -342,6 +343,7 @@ Comparação com submissão oficial anterior:
 |---|---:|---:|---:|
 | Issue anterior `#1314` | 1.43ms | 0% | 5844.41 |
 | Nova candidata local validada na branch `submission` | 0.93ms | 0% | 6000.00 |
+| Repetição da nova candidata | 1.30ms | 0% | 5884.66 |
 
 Decisão: abrir nova issue oficial com a branch `submission` atualizada.
 
