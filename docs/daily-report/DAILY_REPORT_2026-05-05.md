@@ -113,3 +113,67 @@ Próximas hipóteses derivadas:
 - Instrumentar o nosso IVF para contar quantos clusters e blocos o `bbox_repair` realmente escaneia por query; sem isso estamos otimizando às cegas.
 - Avaliar port de AoSoA16 no nosso `ivf.cpp`, pois tanto `thiagorigonatti` quanto `jairo` convergem em blocos SIMD mais eficientes que a nossa varredura de 8 lanes.
 - Avaliar um `io_uring`/LB custom apenas depois de reduzir custo do classificador, porque no nosso stack atual parser/HTTP não apareceu como gargalo dominante.
+
+## Ciclo 22h45: janelas de repair e `full_nprobe=2`
+
+Hipótese: a configuração atual (`fast=1`, `full=1`, `bbox_repair=on`, `repair=1..4`) poderia estar fazendo repair amplo demais. Como os líderes honestos usam retry seletivo em fronteira, testei primeiro se uma janela menor (`2..3`) ou um `full_nprobe` intermediário reduziria custo sem perder acurácia.
+
+Validação offline no índice atual `1280`:
+
+```bash
+./cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-2026-ivf-experiments/index-1280.bin 2 0 <fast> <full> <bbox> <repair_min> <repair_max>
+```
+
+Matriz de janela de repair:
+
+| Config | ns/query | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| `fast=1 full=1 bbox=1 repair=1..4` | 22553.3 | 0 | 0 | controle |
+| `fast=1 full=1 bbox=1 repair=2..3` | 17290.3 | 44 | 56 | rejeitado: quebra acurácia |
+| `fast=1 full=1 bbox=1 repair=1..3` | 19844.8 | 44 | 0 | rejeitado: FP |
+| `fast=1 full=1 bbox=1 repair=2..4` | 16513.3 | 0 | 56 | rejeitado: FN |
+| `fast=1 full=1 bbox=1 repair=0..5` | 69200.1 | 0 | 0 | rejeitado: caro demais |
+| `fast=1 full=1 bbox=1 repair=0..2` | 38171.2 | 252 | 0 | rejeitado: FP |
+| `fast=1 full=1 bbox=1 repair=3..5` | 46593.3 | 0 | 258 | rejeitado: FN |
+
+Interpretação: a janela `1..4` não é excesso arbitrário. Ela é justamente a faixa que corrige os casos em que o primeiro passe sem bbox ainda não tem margem suficiente. Apertar para `2..3` reduz custo offline, mas introduz erro real.
+
+Teste de `full_nprobe` intermediário:
+
+| Config | ns/query | FP | FN | Decisão |
+|---|---:|---:|---:|---|
+| `fast=1 full=2 bbox=1 repair=2..3` | 16372.0 | 22 | 28 | rejeitado: quebra acurácia |
+| `fast=1 full=2 bbox=1 repair=1..4` | 17244.0 | 0 | 0 | candidato |
+| `fast=1 full=2 bbox=0 repair=1..4` | 14235.8 | 40 | 38 | rejeitado: sem bbox perde acurácia |
+| `fast=1 full=4 bbox=1 repair=2..3` | 16611.5 | 22 | 28 | rejeitado: quebra acurácia |
+| `fast=1 full=4 bbox=1 repair=1..4` | 19167.0 | 0 | 0 | pior que `full=2` |
+| `fast=1 full=4 bbox=0 repair=1..4` | 15094.1 | 11 | 10 | rejeitado: erro residual |
+
+Repetição controle vs. candidato:
+
+| Config | ns/query | FP | FN |
+|---|---:|---:|---:|
+| `fast=1 full=1 bbox=1 repair=1..4` | 19553.8 | 0 | 0 |
+| `fast=1 full=2 bbox=1 repair=1..4` | 17898.5 | 0 | 0 |
+| `fast=1 full=4 bbox=1 repair=1..4` | 18927.0 | 0 | 0 |
+
+O `full_nprobe=2` parecia promissor no microbench e foi validado no k6 completo.
+
+Observação de higiene experimental: uma primeira rodada k6 com `full=2` gerou `p99=1.26ms`, `3 FP`, `3 FN`, `score=5565.42`, mas foi invalidada. A imagem ainda carregava o índice `2048` do experimento anterior porque os containers tinham sido recriados sem `--build` após o revert do Dockerfile. Refiz a rodada com `docker compose up -d --build --force-recreate`, confirmando no log de build `prepare-ivf-cpp ... 1280 65536 6`.
+
+Validação k6 limpa:
+
+| Config | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `fast=1 full=2 bbox=1 repair=1..4` | 1.31ms | 0 | 0 | 0 | 5882.79 |
+| controle `fast=1 full=1 bbox=1 repair=1..4` | 1.31ms | 0 | 0 | 0 | 5883.53 |
+
+Decisão: rejeitado e revertido.
+
+Motivo: o microbench indicou ganho, mas o k6 limpo empatou em p99 e o controle atual ficou ligeiramente melhor em score. Como a meta é melhora sustentável e inquestionável, `full_nprobe=2` não deve substituir a configuração atual.
+
+Aprendizado:
+
+- O repair `1..4` é necessário para manter 0 erro no dataset atual.
+- O bbox continua sendo a peça que preserva acurácia; remover ou estreitar repair cria FP/FN.
+- A próxima otimização precisa medir custo interno do `bbox_repair` por tipo de query, não apenas alternar flags externas.
