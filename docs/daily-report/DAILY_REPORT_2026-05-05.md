@@ -683,3 +683,15 @@ Resultados:
 | `worker_processes 1` | #2 | 1.37ms | 0 | 0 | 0 | 5864.19 |
 
 Decisão: **rejeitado e revertido**. A primeira run superou a submissão oficial `#1714`, mas a segunda caiu para baixo dela. Como o objetivo agora é subir apenas melhoria sustentável/inquestionável, não faz sentido promover uma configuração que parece aumentar variância. O baseline `worker_processes 2` continua mais defensável.
+
+### Microteste neutro/rejeitado: nginx sem `reuseport`
+
+Hipótese: com `worker_processes 2`, `reuseport` poderia introduzir distribuição menos previsível no listener. Testei remover `reuseport`, mantendo `backlog=4096`, `worker_processes 2`, UDS para as APIs e o mesmo orçamento de recursos.
+
+Resultado:
+
+| Config | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| nginx sem `reuseport` | 1.29ms | 0 | 0 | 0 | 5888.52 |
+
+Decisão: **neutro e revertido**. O resultado empatou praticamente com a submissão oficial `#1714` (`1.29ms / 5888.51`), mas ficou abaixo da melhor validação local da imagem atual (`1.23ms / 5908.68`) e não justifica nova submissão. O `reuseport` permanece por ser a configuração já validada oficialmente.
