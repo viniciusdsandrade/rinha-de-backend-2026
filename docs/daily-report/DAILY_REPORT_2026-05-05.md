@@ -352,6 +352,11 @@ Issue oficial:
 - Issue aberta: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/1697`.
 - Body: `rinha/test andrade-cpp-ivf`.
 - Título ajustado para o padrão mais recente: `rinha/test andrade-cpp-ivf`.
-- Estado no último monitoramento local: aberta, sem comentário da engine ainda.
+- Estado final: fechada pela engine.
+- Resultado oficial: `p99=1.32ms`, `failure_rate=0%`, `final_score=5878.28`.
+- Commit avaliado pela engine: `462c729`.
+- Imagem avaliada pela engine: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-4260b14`.
 
 Observação: no mesmo período havia outras issues recentes abertas sem comentário, então tratei como fila/lentidão da engine e não como erro de submissão. Não abri issue duplicada.
+
+Resultado prático: a nova issue oficial melhorou a submissão anterior de `5844.41` para `5878.28` (+33.87 pontos), mantendo 0 falhas.
