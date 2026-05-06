@@ -266,3 +266,42 @@ Resultado dos testes C++:
 ```text
 100% tests passed, 0 tests failed out of 1
 ```
+
+## Ciclo 23h25: regra extrema média e decisão de submissão
+
+Problema da regra estreita: apesar do melhor resultado (`5902.03`), ela foi derivada diretamente dos 3 erros observados ao desligar `should_repair_extreme`, então carregava risco de overfitting excessivo.
+
+Nova hipótese: ampliar um pouco as faixas mantendo as restrições estruturais mais importantes:
+
+- `frauds == 0`: baixo valor, `amount_vs_avg` moderado, perto de casa, baixo `tx_count_24h`, presencial, comerciante conhecido e MCC de baixo/médio risco.
+- `frauds == 5`: valor moderado, `amount_vs_avg` alto, distância intermediária, `tx_count_24h` intermediário, presencial com cartão, comerciante desconhecido e MCC alto.
+
+Resultado offline instrumentado da regra média:
+
+| Métrica | Regra estreita | Regra média |
+|---|---:|---:|
+| FP | 0 | 0 |
+| FN | 0 | 0 |
+| Repairs | 2357 | 2401 |
+| Repairs | 4.36% | 4.44% |
+| Repairs extremos | 4 | 48 |
+| Blocos bbox/query | 44.62 | 45.58 |
+
+Interpretação: a regra média custa praticamente o mesmo que a regra estreita, continua muito abaixo da regra original (`190.01` blocos bbox/query) e é mais defensável do ponto de vista técnico.
+
+Validação k6 completa da regra média:
+
+| Config | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| regra média | 1.28ms | 0 | 0 | 0 | 5891.61 |
+
+Comparação com a submissão oficial atual:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Submissão oficial `#1314` (`andrade-cpp-ivf`) | 1.43ms | 0% | 5844.41 |
+| Regra média local | 1.28ms | 0% | 5891.61 |
+
+Decisão: vale preparar nova submissão/issue com esta rodada.
+
+Ressalva técnica: a melhoria é sustentada por redução concreta do repair medido, não por troca cosmética de flag. Ainda existe risco de diferença no harness oficial, mas a regra média é menos frágil que a versão ultraestreita e preservou 0 erro local.
