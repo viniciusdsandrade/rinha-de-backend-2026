@@ -344,3 +344,12 @@ Comparação com submissão oficial anterior:
 | Nova candidata local validada na branch `submission` | 0.93ms | 0% | 6000.00 |
 
 Decisão: abrir nova issue oficial com a branch `submission` atualizada.
+
+Issue oficial:
+
+- Issue aberta: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/1697`.
+- Body: `rinha/test andrade-cpp-ivf`.
+- Título ajustado para o padrão mais recente: `rinha/test andrade-cpp-ivf`.
+- Estado no último monitoramento local: aberta, sem comentário da engine ainda.
+
+Observação: no mesmo período havia outras issues recentes abertas sem comentário, então tratei como fila/lentidão da engine e não como erro de submissão. Não abri issue duplicada.
