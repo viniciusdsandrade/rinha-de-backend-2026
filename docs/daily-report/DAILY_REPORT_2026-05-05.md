@@ -695,3 +695,32 @@ Resultado:
 | nginx sem `reuseport` | 1.29ms | 0 | 0 | 0 | 5888.52 |
 
 Decisão: **neutro e revertido**. O resultado empatou praticamente com a submissão oficial `#1714` (`1.29ms / 5888.51`), mas ficou abaixo da melhor validação local da imagem atual (`1.23ms / 5908.68`) e não justifica nova submissão. O `reuseport` permanece por ser a configuração já validada oficialmente.
+
+### Candidato experimental: fast path para payload em chunk único
+
+Hipótese: no hot path HTTP, cada `POST /fraud-score` copiava o chunk recebido para uma `std::string` e em seguida o `parse_payload` copiava novamente para `simdjson::padded_string`. Como os payloads da Rinha são pequenos e tendem a chegar em chunk único, adicionei um fast path para chamar `parse_payload` diretamente sobre o último chunk quando não houve fragmentação anterior.
+
+Mudança:
+
+- Se `is_last == true` e o acumulador `body` ainda está vazio, parseia `chunk` diretamente.
+- Se houve fragmentação, mantém o comportamento anterior: acumula em `body` e parseia o corpo completo.
+- Sem alteração de contrato, classificador, resposta ou acurácia.
+
+Validação:
+
+```bash
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+DOCKER_HOST=unix:///run/docker.sock docker compose up -d --build --force-recreate
+DOCKER_HOST=unix:///run/docker.sock ./run-local-k6.sh
+```
+
+Resultados:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| fast path #1 | 1.29ms | 0 | 0 | 0 | 5889.30 |
+| fast path #2 | 1.24ms | 0 | 0 | 0 | 5905.08 |
+| fast path #3 | 1.29ms | 0 | 0 | 0 | 5889.27 |
+
+Decisão: **manter como candidato experimental na branch `perf/noon-tuning`, sem submissão oficial ainda**. A mudança reduz trabalho de forma determinística e preserva `0%` falhas, mas o ganho de p99 local ainda é misto. Para virar submissão, precisa de validação por imagem pública com repetição acima da issue oficial `#1714` (`1.29ms / 5888.51`) e, idealmente, próxima do melhor local já observado (`1.23ms / 5908.68`).

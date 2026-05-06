@@ -226,14 +226,20 @@ int run_server(const ListenerConfig& config, const std::shared_ptr<AppState>& st
     app.post("/fraud-score", [state](auto* res, auto*) {
         res->onAborted([]() {});
         res->onData([res, state, body = std::string{}](std::string_view chunk, bool is_last) mutable {
-            body.append(chunk.data(), chunk.size());
             if (!is_last) {
+                body.append(chunk.data(), chunk.size());
                 return;
             }
 
+            const bool single_chunk = body.empty();
+            if (!single_chunk) {
+                body.append(chunk.data(), chunk.size());
+            }
+            const std::string_view request_body = single_chunk ? chunk : std::string_view(body);
+
             rinha::Payload payload;
             std::string error;
-            if (!rinha::parse_payload(body, payload, error)) {
+            if (!rinha::parse_payload(request_body, payload, error)) {
                 res->writeStatus("400 Bad Request");
                 res->endWithoutBody();
                 return;
