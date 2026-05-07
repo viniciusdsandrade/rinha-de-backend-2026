@@ -2619,3 +2619,25 @@ Comparação:
 | buffer fixo, mediana | 5920.14 |
 
 Decisão: **aceito**. O ganho é pequeno, mas ataca hot path real, manteve 0% falhas, melhorou média e mediana em relação ao servidor manual base e não altera algoritmo, topologia ou contrato HTTP.
+
+## Ciclo 19h31: remover `unordered_map` das conexões epoll
+
+Hipótese: o epoll já armazena `Connection*` em `event.data.ptr`, então o `unordered_map<int, unique_ptr<Connection>>` poderia ser substituído por `new/delete` direto para remover hash/lookup/erase no ciclo de conexão.
+
+Patch temporário:
+
+```text
+remove unordered_map e unique_ptr
+epoll data.ptr = Connection*
+close_connection(): epoll_ctl DEL + close + delete
+```
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| raw pointer 1 | 1.20ms | 0% | 5919.92 |
+| raw pointer 2 | 1.24ms | 0% | 5905.14 |
+| **média** | **1.22ms** | **0%** | **5912.53** |
+
+Decisão: **rejeitado e revertido**. A segunda run degradou muito o p99, e a média ficou bem abaixo do buffer fixo aceito. O `unordered_map` não aparece como gargalo sustentado, e a versão com ownership explícito por `unique_ptr` é mais segura sem custo mensurável relevante.
