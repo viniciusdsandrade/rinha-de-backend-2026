@@ -599,3 +599,25 @@ Comparação:
 | Melhor run local fixed `known_merchants` | 1.12ms | 0% | 5949.50 |
 
 Decisão: **promover para candidato público**. Diferente de algumas flags de compilação, esta remove trabalho real do hot path de parse, preserva correção e sustentou três runs locais acima da validação final da branch `submission`. Próximo passo: publicar imagem pública e validar com GHCR antes de mexer novamente na branch `submission`.
+
+### Validação pública e decisão final do `known_merchants`
+
+Commit candidato:
+
+- `0ea2767` (`optimize known merchants parsing`).
+
+Workflow de publicação da imagem pública mutável:
+
+- Run: `25477227618`.
+- Resultado: sucesso.
+- Duração: `1m31s`.
+- Imagem publicada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission`.
+
+Resultados públicos:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| imagem pública `known_merchants` #1 | 1.15ms | 0 | 0 | 0 | 5940.03 |
+| imagem pública `known_merchants` #2 | 1.14ms | 0 | 0 | 0 | 5944.55 |
+
+Decisão: **rejeitado e revertido no branch experimental**. Apesar do sinal local forte, a validação pública não superou `submission-cd3e915` de forma convincente. A hipótese segue tecnicamente interessante, mas, pelo critério de ganho sustentável, não deve substituir a submissão atual. A branch `submission` permanece em `submission-cd3e915`.
