@@ -418,3 +418,31 @@ Resultado: OK
 ```
 
 Decisão: **aceito como correção de conformidade**, sem alteração de performance. A imagem da submissão continua `submission-cd3e915`; somente a licença foi adicionada ao branch.
+
+## Ciclo 10h19: `AppState` IVF direto sem `std::variant`
+
+Hipótese: como a submissão real usa sempre `IVF_INDEX_PATH`, remover o fallback exato do binário principal e trocar o `std::variant<Classifier, IvfIndex>` por um `IvfIndex` direto poderia eliminar um desvio no hot path e reduzir tamanho/complexidade do binário.
+
+A alteração temporária removeu `refs.cpp`/`classifier.cpp` do target principal e deixou `AppState` com `rinha::IvfIndex index` direto. Os testes legados foram mantidos inalterados.
+
+Validação de build/teste:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+Resultado: 100% tests passed
+```
+
+Primeira tentativa k6 foi inválida:
+
+| Condição | p99 | HTTP errors | final_score | Observação |
+|---|---:|---:|---:|---|
+| k6 sem stack ativo | 0.00ms | 54059 | -3000.00 | `run-local-k6.sh` não sobe compose; não é dado de performance |
+
+Ao subir o compose com a imagem local já disponível (`docker compose up -d --no-build`) e confirmar `/ready`, a medição válida ficou:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `AppState` IVF direto | 1.30ms | 0% | 5886.90 |
+
+Decisão: **rejeitado e revertido**. A hipótese é tecnicamente plausível, mas não gerou ganho mensurável; pelo contrário, caiu abaixo do envelope da submissão atual (`~5944-5950`). O custo do `std::get_if`/`variant` não aparece como gargalo real diante do restante do stack e do ruído do k6 local.
