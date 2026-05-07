@@ -1029,3 +1029,19 @@ Resultado:
 | k6 repetição #2 | 1.24ms | 0% | 5907.40 |
 
 Decisão: **mantém branch experimental, sem promoção ainda**. A repetição confirma ganho local contra o envelope ruidoso recente, mas não supera a `submission` publicada historicamente (`~5944-5950`). Não há base para abrir nova issue/submissão neste momento.
+
+## Ciclo 12h55: comparação apples-to-apples contra `submission`
+
+Para separar ruído local de ganho real, rodei a imagem atualmente publicada na branch `submission` (`ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-cd3e915`) no mesmo host e na mesma janela da branch experimental.
+
+Primeira tentativa: inválida, porque executei no checkout `/home/andrade/Desktop/rinha-de-backend-2026-rust`, que não possui `run-local-k6.sh`. O stack foi derrubado sem usar resultado. Segunda tentativa: válida, subindo o compose da `submission` e executando o k6 pelo script do worktree experimental contra `localhost:9999`.
+
+Resultado comparativo local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `submission` atual `submission-cd3e915` | 1.27ms | 0% | 5896.08 |
+| experimental centróide AVX2 #1 | 1.23ms | 0% | 5908.42 |
+| experimental centróide AVX2 #2 | 1.24ms | 0% | 5907.40 |
+
+Decisão: **a branch experimental virou candidata real de promoção**, mas ainda não vou abrir nova issue oficial. Motivo: ela supera a `submission` atual no mesmo regime local por `~11-12` pontos, porém a melhor evidência histórica da `submission` segue mais alta (`~5944-5950`) e a issue oficial `#2026` continua aberta sem comentário, indicando runner/submissão ainda bloqueados. Próximo passo prudente: mais uma validação em janela menos ruidosa ou preparar imagem candidata sem acionar issue enquanto `#2026` estiver aberta.
