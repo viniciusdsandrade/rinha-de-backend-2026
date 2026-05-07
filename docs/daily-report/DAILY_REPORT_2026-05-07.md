@@ -318,3 +318,22 @@ origin/submission permanece mínima, sem LICENSE
 ```
 
 Decisão: **aceito como correção de conformidade**, não como experimento de performance. A branch `submission` permanece enxuta com `docker-compose.yml`, `info.json` e `nginx.conf`; a exigência de licença fica coberta pela branch padrão pública `main`.
+
+## Ciclo 10h12: índice intermediário `1280/s98304/i6`
+
+Hipótese: o índice atual `1280/s65536/i6` é o melhor ponto conhecido, e o índice `1280/s262144/i10` já havia sido rejeitado por perder acurácia. Faltava medir um ponto intermediário de amostra de treino (`98304`) que talvez preservasse acurácia e melhorasse centróides sem aumentar demais o custo.
+
+Comandos:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280-s98304-i6.bin 1280 98304 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280-s98304-i6.bin 3 0 1 1 1 1 4 1 0
+```
+
+Resultado offline:
+
+| Índice | ns/query | FP | FN | parse errors | repaired_pct |
+|---|---:|---:|---:|---:|---:|
+| `1280/s98304/i6` | 14741.6 | 3 | 6 | 0 | 4.45287 |
+
+Decisão: **rejeitado sem k6**. O índice intermediário perdeu acurácia mesmo com `bbox_repair=true` e `repair=1..4`, além de ficar mais lento que o índice atual em microbenchmark. A escolha de centróides é sensível; mais amostra de treino não é monotonicamente melhor para o nosso repair/top-5. Manter `1280/s65536/i6`.
