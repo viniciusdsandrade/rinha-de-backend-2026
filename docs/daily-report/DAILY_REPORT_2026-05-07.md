@@ -789,3 +789,25 @@ Resultados offline:
 | ordem manual #2 | 12564.2 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A acurácia foi preservada, mas a ordem natural continua melhor no benchmark. A provável explicação é que o custo indireto/menos linear da ordem manual supera qualquer early-abort adicional, e as bboxes por cluster já são largas em muitas dimensões.
+
+## Ciclo 11h25: unroll manual do `bbox_lower_bound`
+
+Hipótese: como o `bbox_lower_bound` tem early return, o compilador poderia não desenrolar o loop natural de 14 dimensões. Escrever as 14 dimensões explicitamente em macro local poderia reduzir overhead de loop no repair sem mudar a ordem nem a acurácia.
+
+Patch temporário:
+
+```cpp
+RINHA_BBOX_DIM(0);
+RINHA_BBOX_DIM(1);
+...
+RINHA_BBOX_DIM(13);
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| unroll manual #1 | 12512.8 | 0 | 0 |
+| unroll manual #2 | 12575.7 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A macro preserva resultado, mas piora o custo. O loop natural segue melhor; provável combinação de código menor, melhor cache de instruções e otimização suficiente do compilador.
