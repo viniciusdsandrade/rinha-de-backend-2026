@@ -2282,3 +2282,33 @@ Resultado k6:
 | nginx HTTP/UDS | 1.34ms | 0% | 5873.19 |
 
 Decisão: **rejeitado e revertido**. O modo HTTP adicionou parse/proxy overhead no LB e piorou a cauda. O nginx `stream` L4 continua a escolha correta para este stack.
+
+## Ciclo 14h36: `ulimits nofile` alto e `seccomp=unconfined`
+
+Hipótese: submissões rápidas em Rust usam `nofile=65535` e, em alguns casos, `seccomp=unconfined`. Isso poderia reduzir overhead/limites de runtime em conexões sob carga. O teste aplicou ambos às APIs e ao LB, mantendo os mesmos limites de CPU/memória.
+
+Patch temporário:
+
+```yaml
+ulimits:
+  nofile:
+    soft: 65535
+    hard: 65535
+security_opt:
+  - seccomp=unconfined
+```
+
+Verificação:
+
+```text
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `nofile=65535` + `seccomp=unconfined` | 1.25ms | 0% | 5901.77 |
+
+Decisão: **rejeitado e revertido**. Não houve ganho e a alteração ainda aumentaria a superfície de risco/ambiguidade regulatória sem necessidade. O compose atual sem `security_opt` permanece melhor.
