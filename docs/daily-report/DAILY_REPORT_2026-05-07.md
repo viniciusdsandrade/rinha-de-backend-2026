@@ -1670,3 +1670,28 @@ Resultado k6:
 | `worker_connections 1024` | 1.25ms | 0% | 5902.66 |
 
 Decisão: **rejeitado e revertido**. A redução piorou a cauda. Para o perfil atual, manter `4096` é mais seguro.
+
+## Ciclo 12h48: nginx `backlog=1024`
+
+Hipótese: reduzir o backlog do `listen 9999` de `4096` para `1024` poderia diminuir filas internas e estabilizar a cauda sem limitar o cenário local.
+
+Patch temporário:
+
+```nginx
+listen 9999 reuseport backlog=1024;
+```
+
+Verificação:
+
+```text
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `backlog=1024` | 1.24ms | 0% | 5907.68 |
+
+Decisão: **rejeitado e revertido**. A run foi boa, mas ainda abaixo do melhor estado aceito (`5909.24`) e abaixo da melhor run experimental rejeitada por não reproduzir. Sem ganho sustentável.
