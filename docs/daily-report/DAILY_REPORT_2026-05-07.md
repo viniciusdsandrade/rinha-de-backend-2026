@@ -1160,3 +1160,21 @@ Resultado:
 Interpretação: o custo real de parser/vetorização está baixo demais para explicar o gap restante contra o ranking parcial. A métrica `parse_classify` usa o classificador exato antigo do benchmark de request, não o caminho IVF atual da API, então não deve orientar otimização da submissão vigente.
 
 Decisão: **sem mudança de código**. O próximo foco continua sendo IVF/infra/proxy/scheduling ou experimentos de scoring com evidência k6, não micro-otimização de parser.
+
+## Ciclo 11h36: nginx `worker_processes 1`
+
+Hipótese: como o nginx atua apenas como load balancer L4 (`stream`) entre porta 9999 e dois unix sockets, reduzir de 2 workers para 1 poderia diminuir contenção dentro do limite pequeno de CPU do próprio nginx.
+
+Patch temporário:
+
+```nginx
+worker_processes 1;
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| nginx 1 worker | 1.25ms | 0% | 5903.39 |
+
+Decisão: **rejeitado e revertido**. O resultado ficou abaixo das duas medições válidas do estado atual (`5908.42` e `5907.40`). O nginx com 2 workers continua melhor no envelope local, provavelmente por absorver melhor conexões simultâneas do k6 mesmo sendo apenas L4.
