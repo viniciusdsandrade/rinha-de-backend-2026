@@ -932,3 +932,22 @@ Validação k6 válida:
 | centróide AVX2 com melhor por lane | 1.23ms | 0% | 5908.42 |
 
 Decisão: **aceito na branch experimental; ainda não promovido para `submission`**. O refinamento é sustentável no offline e gera pequeno avanço no k6 local válido, mas a pontuação segue abaixo da submissão histórica publicada. Próximo passo: buscar combinação adicional ou validar em janela menos ruidosa antes de qualquer nova imagem oficial.
+
+## Ciclo 12h16: FMA explícito no nearest centroid AVX2
+
+Hipótese: trocar `mul + add` por `_mm256_fmadd_ps` no cálculo de distância dos centróides poderia reduzir uma instrução por dimensão/lane no caminho AVX2. Como FMA pode alterar arredondamento, a regra era aceitar apenas com `0 FP / 0 FN`.
+
+Patch temporário:
+
+```cpp
+acc = _mm256_fmadd_ps(delta, delta, acc);
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| FMA explícito #1 | 7705.01 | 0 | 0 |
+| FMA explícito #2 | 7900.34 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A acurácia se manteve, mas o custo ficou pior/empatado contra a versão `mul + add` (`~7522-7695 ns/query`). Interpretação: o compilador/CPU já lida bem com as duas instruções, e o FMA não trouxe redução prática no loop.
