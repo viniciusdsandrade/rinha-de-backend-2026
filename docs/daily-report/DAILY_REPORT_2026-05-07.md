@@ -3078,3 +3078,45 @@ Correção aplicada:
 ```
 
 Decisão: **aceito**. A metadata agora descreve a stack real da melhor implementação: C++20 com servidor HTTP manual baseado em `epoll`, comunicação API-LB por Unix socket, `simdjson`, nginx e AVX2/FMA.
+
+## Ciclo 03h10: auditoria de conformidade do compose atual
+
+Objetivo: validar o estado atual contra os requisitos de submissão antes de qualquer promoção para `submission`.
+
+Comandos:
+
+```text
+python3 - <<'PY'
+# soma recursos e imprime flags principais do compose
+PY
+docker compose -p perf-noon-tuning config --quiet
+```
+
+Resultado:
+
+```text
+api1: cpu=0.41 mem=165MB image=rinha-backend-2026-cpp-api:local ports=None privileged=None network_mode=None
+api2: cpu=0.41 mem=165MB image=rinha-backend-2026-cpp-api:local ports=None privileged=None network_mode=None
+nginx: cpu=0.18 mem=20MB image=nginx:1.27-alpine ports=['9999:9999'] privileged=None network_mode=None
+TOTAL cpu=1.00 mem=350MB
+networks {'backend': {'driver': 'bridge'}}
+volumes {'sockets': None}
+info.stack= c++20,epoll,unix-socket,simdjson,nginx,avx2,fma
+COMPOSE_CONFIG_OK
+```
+
+Checklist:
+
+| Requisito | Evidência | Status |
+|---|---|---|
+| LB + 2 APIs | `nginx`, `api1`, `api2` | OK |
+| Porta externa 9999 | `nginx ports=['9999:9999']` | OK |
+| APIs sem exposição externa | `ports=None` em `api1/api2` | OK |
+| CPU total <= 1 | `1.00` | OK |
+| Memória total <= 350MB | `350MB` | OK |
+| Rede bridge | `backend.driver=bridge` | OK |
+| Sem `network_mode: host` | `network_mode=None` | OK |
+| Sem `privileged` | `privileged=None` | OK |
+| Metadata atualizada | `info.stack` sem uWebSockets | OK |
+
+Decisão: **conforme** para a estrutura de execução. Observação: a branch experimental contém código fonte e reports; para submissão oficial, ainda é necessário promover apenas os arquivos de execução para a branch literal `submission`, conforme `docs/br/SUBMISSAO.md`.
