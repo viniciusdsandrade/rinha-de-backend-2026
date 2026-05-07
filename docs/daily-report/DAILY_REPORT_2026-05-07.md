@@ -494,3 +494,26 @@ Resultados offline:
 | `1024/s65536/i6` | 13528.3 | 3 | 6 | 4.42884 | 408.823 | 50.9443 |
 
 Decisão: **rejeitado sem k6**. `1536` reduz blocos primários, mas introduz falso positivo; `1024` piora custo e também introduz falso negativo. O ponto `1280/s65536/i6` segue sendo o único da família testada com 0 FP/FN e custo competitivo.
+
+## Ciclo 10h35: refinamento intermediário de clusters IVF
+
+Hipótese: como `1536` foi mais rápido mas errou, e `1024` errou e ficou mais lento, valores intermediários ao redor de `1280` talvez preservassem acurácia com custo menor.
+
+Comandos:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1408-s65536-i6.bin 1408 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1408-s65536-i6.bin 3 0 1 1 1 1 4 1 0
+
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1216-s65536-i6.bin 1216 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1216-s65536-i6.bin 3 0 1 1 1 1 4 1 0
+```
+
+Resultados offline:
+
+| Índice | ns/query | FP | FN | repaired_pct | avg_primary_blocks | avg_bbox_scanned_blocks |
+|---|---:|---:|---:|---:|---:|---:|
+| `1408/s65536/i6` | 12582.5 | 9 | 3 | 4.44917 | 304.26 | 45.4231 |
+| `1216/s65536/i6` | 13458.3 | 12 | 9 | 4.42884 | 339.522 | 47.1551 |
+
+Decisão: **rejeitado sem k6**. O `1408` até reduz tempo offline, mas já nasce com erro de detecção; `1216` perde nos dois eixos. Com `sample=65536`, `iterations=6`, `nprobe=1` e repair `1..4`, o `1280` continua sendo o ponto dominante.
