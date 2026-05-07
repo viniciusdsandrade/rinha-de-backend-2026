@@ -1393,3 +1393,37 @@ Resultado k6:
 | probe1 especializado | 1.25ms | 0% | 5904.43 |
 
 Decisão: **rejeitado e revertido**. O benchmark offline ficou estável e correto, mas o k6 não mostrou ganho material contra o estado atual. Como o objetivo primário é score local, não vale manter duplicação de código sem impacto claro no p99.
+
+## Ciclo 12h07: remover header `uWebSockets`
+
+Hipótese: o uWebSockets escreve o header informativo `uWebSockets: 20` por padrão em cada resposta. A macro nativa `UWS_HTTPRESPONSE_NO_WRITEMARK` remove esse header sem alterar contrato, body, status, roteamento ou lógica de negócio.
+
+Patch aplicado:
+
+```cmake
+target_compile_definitions(rinha-backend-2026-cpp
+    PRIVATE
+        LIBUS_NO_SSL
+        UWS_NO_ZLIB
+        UWS_HTTPRESPONSE_NO_WRITEMARK
+        SIMDJSON_EXCEPTIONS=0
+)
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado: testes passaram (`1/1`).
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| sem `uWebSockets` header #1 | 1.23ms | 0% | 5908.38 |
+| sem `uWebSockets` header #2 | 1.23ms | 0% | 5909.24 |
+
+Decisão: **aceito**. A mudança é pequena, usa macro suportada pelo próprio uWebSockets, preserva o contrato da API e sustentou duas runs no topo do envelope local recente. Melhor resultado desta rodada: `final_score=5909.24`, ainda abaixo do melhor histórico publicado, mas acima do estado experimental recente repetido (`5908.42`/`5907.40`) por pequena margem.

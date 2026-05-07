@@ -61,6 +61,7 @@ target_compile_definitions(rinha-backend-2026-cpp
     PRIVATE
         LIBUS_NO_SSL
         UWS_NO_ZLIB
+        UWS_HTTPRESPONSE_NO_WRITEMARK
         SIMDJSON_EXCEPTIONS=0
 )
 target_link_libraries(rinha-backend-2026-cpp
