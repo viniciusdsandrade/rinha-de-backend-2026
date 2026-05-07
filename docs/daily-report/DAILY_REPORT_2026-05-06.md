@@ -647,3 +647,15 @@ Resultados locais:
 | mcc risk no parse #2 | 1.13ms | 0 | 0 | 0 | 5946.26 |
 
 Decisão: **rejeitado e revertido sem publicação pública**. A mudança é correta, mas o ganho local ficou marginal e abaixo do nível mínimo para justificar nova imagem/submissão. A melhor submissão preparada continua `submission-cd3e915`.
+
+## Ciclo 04h30: busca web por código dos líderes
+
+Hipótese: os três primeiros colocados do ranking parcial poderiam ter repositórios públicos já indexados com insights diretos de estrutura, índice ou runtime.
+
+Busca realizada:
+
+- `thiagorigonatti-c rinha de backend 2026 github`.
+- `jairoblatt-rust rinha de backend 2026 github`.
+- `joojf rinha de backend 2026 github`.
+
+Resultado: **sem achado acionável**. Os resultados retornaram ruído de busca, páginas genéricas e repositórios não relacionados aos três líderes consultados. A página pública do ranking confirma a existência do preview da edição 2026, mas não entrega código-fonte dos participantes. Decisão: não gastar nova rodada nessa trilha sem URL direta de repositório; o melhor uso da janela restante é preservar a submissão `submission-cd3e915` e só testar hipóteses locais com retorno técnico claro.
