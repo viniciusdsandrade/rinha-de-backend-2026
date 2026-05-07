@@ -1491,3 +1491,32 @@ Resultado k6:
 | `multi_accept on` | 1.25ms | 0% | 5902.29 |
 
 Decisão: **rejeitado e revertido**. A alteração piorou o p99 no envelope local. Para esse perfil, `multi_accept off` permanece melhor, provavelmente por evitar rajadas que aumentam latência de cauda.
+
+## Ciclo 12h27: `res->cork` no envio de resposta
+
+Hipótese: envolver o `res->end(response_body)` em `res->cork(...)` poderia reduzir flushes no uWebSockets no endpoint `/fraud-score`.
+
+Patch temporário:
+
+```cpp
+res->cork([res, response_body]() {
+    res->end(response_body);
+});
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado: testes passaram (`1/1`).
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `res->cork` | 1.25ms | 0% | 5904.47 |
+
+Decisão: **rejeitado e revertido**. O endpoint já envia uma resposta pequena em uma única chamada, então o `cork` adicionou wrapper sem reduzir a cauda. Manter `res->end(response_body)` direto.
