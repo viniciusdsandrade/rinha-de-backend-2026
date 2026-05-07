@@ -2862,3 +2862,34 @@ Resultado k6:
 | `api0.42/nginx0.16` | 1.23ms | 0% | 5910.35 |
 
 Decisão: **rejeitado e revertido**. O nginx precisa da fatia de `0.18 CPU`; tanto aumentar quanto reduzir o orçamento do LB piorou o score. A distribuição `api=0.41 + 0.41`, `nginx=0.18` segue como melhor ponto medido.
+
+## Ciclo 23h58: remover build/cópia do binário uWebSockets antigo
+
+Hipótese técnica: após aceitar o servidor HTTP manual, o Dockerfile ainda compilava e copiava `rinha-backend-2026-cpp` (uWebSockets), embora o `ENTRYPOINT` use apenas `rinha-backend-2026-cpp-manual`. Remover esse alvo morto reduz build, imagem e superfície sem alterar runtime.
+
+Patch aceito:
+
+```dockerfile
+cmake --build ... --target rinha-backend-2026-cpp-manual prepare-ivf-cpp
+# remove COPY do binário rinha-backend-2026-cpp antigo
+```
+
+Verificação:
+
+```text
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+docker compose -p perf-noon-tuning up -d --no-build
+curl http://localhost:9999/ready
+curl POST /fraud-score com .entries[0].request
+docker compose -p perf-noon-tuning down --remove-orphans
+```
+
+Resultado:
+
+```text
+BUILD_OK
+READY
+{"approved":false,"fraud_score":1.0}
+```
+
+Decisão: **aceito**. Não é melhoria de p99, mas é uma limpeza técnica sustentável da submissão: menos build, menos artefato morto e nenhum impacto no contrato ou no binário efetivamente executado.

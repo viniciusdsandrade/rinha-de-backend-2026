@@ -21,7 +21,7 @@ RUN curl -fsSL \
         -o /app/resources/references.json.gz
 
 RUN cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-manual prepare-ivf-cpp -j"$(nproc)"
+    && cmake --build cpp/build --target rinha-backend-2026-cpp-manual prepare-ivf-cpp -j"$(nproc)"
 RUN mkdir -p /app/out \
     && /app/cpp/build/prepare-ivf-cpp \
         /app/resources/references.json.gz \
@@ -38,7 +38,6 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=builder /app/cpp/build/rinha-backend-2026-cpp /app/rinha-backend-2026-cpp
 COPY --from=builder /app/cpp/build/rinha-backend-2026-cpp-manual /app/rinha-backend-2026-cpp-manual
 COPY --from=builder /app/out/index.bin /app/data/index.bin
 
