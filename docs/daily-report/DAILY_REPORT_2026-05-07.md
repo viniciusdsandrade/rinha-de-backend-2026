@@ -1550,3 +1550,32 @@ Resultados offline:
 | flags math #2 | 7794.50 | 0 | 0 | 246463184 |
 
 Decisão: **rejeitado e revertido sem k6**. A mudança preservou corretude, mas não melhorou o microbenchmark do kernel IVF. Como o gargalo restante é cauda muito estreita e a evidência local ficou abaixo do estado aceito, não justifica custo de uma rodada Docker/k6.
+
+## Ciclo 12h36: `-fomit-frame-pointer`
+
+Hipótese: forçar omissão de frame pointer no binário C++ e no benchmark IVF poderia reduzir pressão de registradores no hot path e melhorar marginalmente o kernel.
+
+Patch temporário:
+
+```text
+-fomit-frame-pointer
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 0 0
+```
+
+Resultado: testes passaram (`1/1`).
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN | checksum |
+|---|---:|---:|---:|---:|
+| `-fomit-frame-pointer` #1 | 8120.67 | 0 | 0 | 246463184 |
+| `-fomit-frame-pointer` #2 | 7800.07 | 0 | 0 | 246463184 |
+
+Decisão: **rejeitado e revertido sem k6**. A flag não trouxe ganho no benchmark local e provavelmente já é redundante no perfil Release ou irrelevante para o gargalo atual.
