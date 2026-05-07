@@ -621,3 +621,29 @@ Resultados públicos:
 | imagem pública `known_merchants` #2 | 1.14ms | 0 | 0 | 0 | 5944.55 |
 
 Decisão: **rejeitado e revertido no branch experimental**. Apesar do sinal local forte, a validação pública não superou `submission-cd3e915` de forma convincente. A hipótese segue tecnicamente interessante, mas, pelo critério de ganho sustentável, não deve substituir a submissão atual. A branch `submission` permanece em `submission-cd3e915`.
+
+## Ciclo 04h15: pré-cálculo de `mcc_risk` no parse
+
+Hipótese: calcular `merchant_mcc_risk` uma vez durante o parse e carregar esse float no `Payload` evitaria a cadeia de comparações de string em `vectorize`.
+
+Escopo testado:
+
+- Adicionar `merchant_mcc_risk` ao `Payload`.
+- Calcular o risco no parse de `merchant.mcc`.
+- Trocar `mcc_risk(payload.merchant_mcc)` por `payload.merchant_mcc_risk` no `vectorize`.
+- Sem alteração de contrato, algoritmo, compose, índice IVF, resposta ou dados.
+
+Validação funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados locais:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| mcc risk no parse #1 | 1.13ms | 0 | 0 | 0 | 5945.39 |
+| mcc risk no parse #2 | 1.13ms | 0 | 0 | 0 | 5946.26 |
+
+Decisão: **rejeitado e revertido sem publicação pública**. A mudança é correta, mas o ganho local ficou marginal e abaixo do nível mínimo para justificar nova imagem/submissão. A melhor submissão preparada continua `submission-cd3e915`.
