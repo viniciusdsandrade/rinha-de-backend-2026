@@ -496,3 +496,34 @@ Comparação:
 | Melhor run local raw `AppState*` | 1.13ms | 0% | 5946.23 |
 
 Decisão: **promover para candidato público**. O ganho ainda é estreito e pode ser ruído, mas duas das três runs locais superaram a melhor validação pública da submissão atual e a mudança é pequena, sustentável e de baixo risco de correção. Próximo passo: publicar a imagem mutável, validar via artefato público e só então decidir se deve substituir `submission-a5ef277`.
+
+### Validação pública do candidato raw `AppState*`
+
+Commit candidato:
+
+- `cd3e915` (`test raw app state capture`).
+
+Workflow de publicação da imagem pública mutável:
+
+- Run: `25476354724`.
+- Resultado: sucesso.
+- Duração: `1m24s`.
+- Imagem publicada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission`.
+
+Resultados públicos:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| imagem pública `submission`/raw `AppState*` #1 | 1.15ms | 0 | 0 | 0 | 5940.19 |
+| imagem pública `submission`/raw `AppState*` #2 | 1.14ms | 0 | 0 | 0 | 5943.45 |
+| imagem pública `submission`/raw `AppState*` #3 | 1.12ms | 0 | 0 | 0 | 5950.45 |
+
+Comparação contra a submissão atual:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Branch `submission` / `submission-a5ef277` | 1.15ms | 0% | 5939.70 |
+| Melhor pública sem raw `AppState*` (`submission-a5ef277`) | 1.14ms | 0% | 5943.36 |
+| Melhor pública raw `AppState*` | 1.12ms | 0% | 5950.45 |
+
+Decisão: **promover para tag imutável e branch `submission`**. A primeira pública ficou abaixo do melhor `a5ef277`, mas a segunda empatou/superou marginalmente e a terceira abriu ganho material. Como a alteração é pequena, sem impacto de contrato e com zero falhas em todas as runs, vale preparar `submission-cd3e915` e validar o compose final da branch `submission`.
