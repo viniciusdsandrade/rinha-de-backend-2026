@@ -1347,3 +1347,49 @@ Resultados offline:
 | arredondamento manual #2 | 8325.97 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A acurácia foi preservada, mas a performance não melhorou. O custo dominante não parece ser `std::lround`, e a troca manual ainda deixou a medição mais instável.
+
+## Ciclo 12h02: especialização explícita para `nprobe=1`
+
+Hipótese: o compose atual usa `IVF_FAST_NPROBE=1` e `IVF_FULL_NPROBE=1`. Criar um caminho explícito para `nprobe=1` poderia remover array de probes e o loop genérico de `already_scanned`, preservando a mesma seleção de centróide, scan primário e repair por bbox.
+
+Patch temporário:
+
+```cpp
+std::uint8_t IvfIndex::fraud_count_once_probe1(...) const noexcept {
+    const std::uint32_t best_cluster = nearest_centroid_probe1(...);
+    scan_blocks(... best_cluster ...);
+    if (repair) {
+        for (std::uint32_t cluster = 0; cluster < clusters_; ++cluster) {
+            if (cluster == best_cluster || offsets_[cluster] == offsets_[cluster + 1U]) {
+                continue;
+            }
+            ...
+        }
+    }
+    return top.frauds();
+}
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado: testes passaram (`1/1`).
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| probe1 especializado #1 | 7537.78 | 0 | 0 |
+| probe1 especializado #2 | 7565.76 | 0 | 0 |
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| probe1 especializado | 1.25ms | 0% | 5904.43 |
+
+Decisão: **rejeitado e revertido**. O benchmark offline ficou estável e correto, mas o k6 não mostrou ganho material contra o estado atual. Como o objetivo primário é score local, não vale manter duplicação de código sem impacto claro no p99.
