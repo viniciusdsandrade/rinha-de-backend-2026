@@ -285,3 +285,36 @@ Decisões:
 - Não testar `access_log off`/`error_log off` isolado no `nginx stream`: o modo atual não tem access log de stream configurado, e os runs bons não indicam emissão de erros. A versão com `http { access_log off; error_log /dev/null; }` já foi rejeitada em 2026-05-02.
 
 Leitura: o espaço de micro-otimizações seguras está quase saturado. A melhor submissão preparada continua `submission-cd3e915`; as próximas tentativas com chance real precisam ser estruturais, mas devem ser pequenas o suficiente para não arriscar a máquina: protótipo de servidor HTTP manual/epoll em branch separada, ou nova geração de índice/layout AoSoA16 com benchmark offline antes de qualquer k6.
+
+## Ciclo 10h25: correção de conformidade MIT na branch padrão
+
+Hipótese/risco: o upstream atualizado passou a exigir que repositórios de participantes estejam sob licença MIT. O branch experimental já tinha `LICENSE`, mas a branch padrão pública do fork (`main`) ainda não.
+
+Verificação:
+
+```text
+gh repo view viniciusdsandrade/rinha-de-backend-2026 --json defaultBranchRef,isPrivate,url
+defaultBranch=main
+isPrivate=false
+
+origin/main: sem LICENSE antes da correção
+origin/submission: sem LICENSE
+HEAD experimental: LICENSE
+```
+
+Ação executada:
+
+- Criado worktree temporário a partir de `origin/main`.
+- Adicionado `LICENSE` MIT com copyright `2026 Vinicius Andrade`.
+- Primeiro push foi rejeitado por fast-forward porque `origin/main` havia avançado com merge do upstream.
+- Feito `git fetch origin main`, rebase do commit de licença sobre `origin/main` atualizado e push sem force.
+
+Resultado:
+
+```text
+origin/main: c422143 add mit license
+origin/main contém LICENSE
+origin/submission permanece mínima, sem LICENSE
+```
+
+Decisão: **aceito como correção de conformidade**, não como experimento de performance. A branch `submission` permanece enxuta com `docker-compose.yml`, `info.json` e `nginx.conf`; a exigência de licença fica coberta pela branch padrão pública `main`.
