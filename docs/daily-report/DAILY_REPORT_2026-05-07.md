@@ -1068,3 +1068,27 @@ Resultados offline:
 | bloco 16 #2 | 7581.96 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A acurácia se manteve, mas o resultado não melhorou a versão aceita e adicionou complexidade/pressão de registradores. O bloco de 8 com melhor por lane continua sendo o melhor formato medido.
+
+## Ciclo 13h10: prune parcial no nearest centroid AVX2
+
+Hipótese: calcular as primeiras 7 dimensões do centróide e descartar o bloco se todas as lanes já estivessem piores ou empatadas com o melhor daquela lane poderia evitar as 7 dimensões restantes sem alterar o resultado. A regra é exata porque distâncias só aumentam com as dimensões restantes, e empate posterior não vence clusters anteriores.
+
+Patch temporário:
+
+```cpp
+for (std::size_t dim = 0; dim < 7; ++dim) { ... }
+const __m256 partial_ge = _mm256_cmp_ps(acc, best_distances, _CMP_GE_OQ);
+if (_mm256_movemask_ps(partial_ge) == 0xFF) {
+    continue;
+}
+for (std::size_t dim = 7; dim < kDimensions; ++dim) { ... }
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| prune centróide 7 dims #1 | 8426.62 | 0 | 0 |
+| prune centróide 7 dims #2 | 8536.30 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A acurácia foi preservada, mas a checagem parcial é cara demais. O melhor por lane demora a ficar apertado e o branch prejudica o pipeline; calcular as 14 dimensões direto segue melhor.
