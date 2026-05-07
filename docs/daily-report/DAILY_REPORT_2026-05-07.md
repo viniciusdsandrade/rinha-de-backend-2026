@@ -1841,3 +1841,23 @@ Resultados offline:
 | `boundary_full=false`, sem bbox | 6335.06 | 508 | 524 | rápido, mas detecção inviável |
 
 Decisão: **sem mudança**. O desenho atual de reparo seletivo continua sendo o melhor compromisso: preserva detecção perfeita sem pagar bbox global em todas as queries.
+
+## Ciclo 13h06: índice IVF com 1024 clusters
+
+Hipótese: reduzir clusters de `1280` para `1024` poderia diminuir custo de centroid probe e bbox, compensando clusters um pouco maiores.
+
+Verificação:
+
+```text
+cmake --build cpp/build --target prepare-ivf-cpp benchmark-ivf-cpp -j2
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz cpp/build/perf-data/index-1024.bin 1024 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1024.bin 4 0 1 1 1 1 4 0 0
+```
+
+Resultado offline:
+
+| Índice | ns/query | FP | FN | Memória |
+|---|---:|---:|---:|---:|
+| `1024` clusters | 8702.64 | 4 | 8 | 94.64 MB |
+
+Decisão: **rejeitado**. Além de mais lento que o índice `1280`, o índice de `1024` clusters perde correção perfeita. O arquivo gerado ficou apenas em `cpp/build/perf-data/index-1024.bin`, ignorado pelo git.
