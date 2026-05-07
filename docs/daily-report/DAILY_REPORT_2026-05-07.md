@@ -2934,3 +2934,41 @@ Resultados k6:
 | controle pós-nginx 2 | 1.27ms | 0% | 5897.80 |
 
 Leitura: ambas as runs mantiveram 0% falhas, mas vieram abaixo do patamar `~5920` visto no baseline limpo anterior. Como não havia patch de runtime pendente após os reverts, a hipótese mais provável é contenção/aquecimento da máquina após muitas execuções consecutivas de Docker/k6. Essas duas runs foram registradas como controle de ambiente e **não** como regressão de código.
+
+## Ciclo 01h18: triagem offline de parâmetros IVF
+
+Objetivo: como o ambiente Docker/k6 começou a apresentar degradação de p99 sem mudança de código, usar `benchmark-ivf-cpp` para filtrar hipóteses de classificação antes de gastar novas rodadas completas.
+
+Preparação:
+
+```text
+cmake --build cpp/build --target prepare-ivf-cpp benchmark-ivf-cpp -j2
+cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-current.bin 1280 65536 6
+```
+
+Índice local:
+
+```text
+refs=3000000 padded=3004384 clusters=1280 memory_mb=94.6933
+```
+
+Triagem inicial (`repeat=2`):
+
+| fast | full | bbox | repair | ns/query | FP | FN | decisão |
+|---:|---:|---:|---|---:|---:|---:|---|
+| 1 | 1 | 1 | 1..4 | 7844.61 | 0 | 0 | baseline |
+| 1 | 2 | 1 | 1..4 | 9886.32 | 0 | 0 | lento |
+| 1 | 3 | 1 | 1..4 | 8131.26 | 0 | 0 | retestar |
+| 2 | 2 | 1 | 1..4 | 14984.50 | 0 | 0 | lento |
+| 2 | 3 | 1 | 1..4 | 15110.60 | 0 | 0 | lento |
+| 2 | 4 | 1 | 1..4 | 14533.50 | 0 | 0 | lento |
+| 1 | 1 | 0 | 1..4 | 7412.27 | 254 | 262 | inválido |
+
+Reteste com `repeat=5`:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| `fast=1/full=1/bbox=1/repair=1..4` | 7262.28 | 0 | 0 |
+| `fast=1/full=3/bbox=1/repair=1..4` | 7841.97 | 0 | 0 |
+
+Decisão: **sem mudança**. O estado atual (`fast=1/full=1/bbox=1/repair=1..4`) continua sendo o melhor ponto medido que preserva FP/FN zero. Acurácia zero-falha depende do bbox repair, e aumentar probes só adiciona custo.
