@@ -1820,3 +1820,24 @@ Resultados offline:
 | reparo i16 #4 | 7607.79 | 0 | 0 |
 
 Decisão: **rejeitado e revertido sem k6**. A mudança preserva correção, mas os resultados alternam entre bom e ruim no mesmo envelope de ruído. Além disso, introduziu warning de função float não usada no binário normal. Sem ganho sustentável.
+
+## Ciclo 13h06: reparo seletivo vs. bbox global
+
+Hipótese: simplificar o controle `boundary_full` poderia ser útil se o bbox global ou o caminho sem bbox tivesse uma relação melhor de latência/correção.
+
+Verificação:
+
+```text
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 4 0 1 1 1
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 4 0 1 1 0
+```
+
+Resultados offline:
+
+| Configuração | ns/query | FP | FN | Interpretação |
+|---|---:|---:|---:|---|
+| atual, reparo seletivo `1..4` | 7621.45 | 0 | 0 | referência da rodada |
+| `boundary_full=false`, bbox em toda query | 49253.30 | 0 | 0 | correto, mas muito lento |
+| `boundary_full=false`, sem bbox | 6335.06 | 508 | 524 | rápido, mas detecção inviável |
+
+Decisão: **sem mudança**. O desenho atual de reparo seletivo continua sendo o melhor compromisso: preserva detecção perfeita sem pagar bbox global em todas as queries.
