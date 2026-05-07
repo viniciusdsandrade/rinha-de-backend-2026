@@ -1473,3 +1473,21 @@ Resultado k6:
 Interpretação: a run ficou abaixo do par aceito de `NO_WRITEMARK` (`5908.38`/`5909.24`) e também abaixo de runs anteriores do mesmo estado. Como não houve mudança de código além da reversão já registrada, o resultado reforça ruído local forte nesta janela.
 
 Decisão: **sem mudança adicional**. Manter `UWS_HTTPRESPONSE_NO_WRITEMARK` como única mudança aceita no eixo de headers e exigir repetição para qualquer nova promoção.
+
+## Ciclo 12h22: nginx `multi_accept on`
+
+Hipótese: aceitar múltiplas conexões por wake-up no nginx poderia reduzir overhead de accept no proxy L4.
+
+Patch temporário:
+
+```nginx
+multi_accept on;
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `multi_accept on` | 1.25ms | 0% | 5902.29 |
+
+Decisão: **rejeitado e revertido**. A alteração piorou o p99 no envelope local. Para esse perfil, `multi_accept off` permanece melhor, provavelmente por evitar rajadas que aumentam latência de cauda.
