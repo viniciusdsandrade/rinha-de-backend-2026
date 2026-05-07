@@ -543,3 +543,22 @@ Resultado offline:
 | `1280/midpoint-s65536/i6` | 13241.5 | 9 | 6 | 4.44362 | 328.591 | 52.6158 |
 
 Decisão: **rejeitado e revertido**. A ideia era sustentável porque só afetaria build/preprocessamento, mas a amostragem por ponto médio degradou os centróides para este dataset e introduziu erros de detecção. A amostragem original continua superior.
+
+## Ciclo 10h44: `train_sample=32768`
+
+Hipótese: já havíamos rejeitado `49152`, `98304` e `262144`. Um `train_sample` ainda menor (`32768`) poderia acelerar/regularizar o K-means por amostrar menos linhas, caso a amostra atual estivesse superajustando centróides.
+
+Comando:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280-s32768-i6.bin 1280 32768 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280-s32768-i6.bin 3 0 1 1 1 1 4 1 0
+```
+
+Resultado offline:
+
+| Índice | ns/query | FP | FN | repaired_pct | avg_primary_blocks | avg_bbox_scanned_blocks |
+|---|---:|---:|---:|---:|---:|---:|
+| `1280/s32768/i6` | 13629.9 | 6 | 3 | 4.44732 | 334.411 | 53.0566 |
+
+Decisão: **rejeitado sem k6**. A amostra menor piorou custo e acurácia. Com os pontos `32768`, `49152`, `65536`, `98304` e `262144` já avaliados, `65536` continua sendo o único ponto limpo e competitivo desta dimensão.
