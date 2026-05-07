@@ -689,3 +689,30 @@ Resultado k6:
 | baseline recalibrada no mesmo regime | 1.28ms | 0% | 5892.01 |
 
 Decisão: **aceito apenas na branch experimental; não promovido para `submission` ainda**. A mudança é exata, preserva acurácia e reduz custo offline. No k6 ruidoso atual há pequeno ganho contra a baseline recalibrada, mas ainda não supera a submissão estável (`~5944-5950`). Próximo passo: combinar/validar em janela de host menos ruidosa antes de publicar imagem oficial.
+
+## Ciclo 10h55: `-funroll-loops` no binário da API e benchmark IVF
+
+Hipótese: com o kernel AVX2 agora fazendo o prune só depois das 14 dimensões, deixar o compilador desenrolar loops poderia reduzir branches/overhead no hot path do IVF sem tocar no algoritmo nem na acurácia.
+
+Patch temporário:
+
+```cmake
+target_compile_options(rinha-backend-2026-cpp PRIVATE ... -funroll-loops)
+target_compile_options(benchmark-ivf-cpp PRIVATE ... -funroll-loops)
+```
+
+Validação offline:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp benchmark-ivf-cpp -j2
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 1 0
+```
+
+Resultado:
+
+| Variante | ns/query | FP | FN | repaired_pct |
+|---|---:|---:|---:|---:|
+| prune 14 dims, sem `-funroll-loops` | 12270.4 | 0 | 0 | 4.43808 |
+| prune 14 dims, com `-funroll-loops` | 12788.7 | 0 | 0 | 4.43808 |
+
+Decisão: **rejeitado e revertido**. A flag preserva acurácia, mas piora o custo offline em aproximadamente `+4.2%`. Interpretação: o hot path já está suficientemente explícito/vetorizado, e o desenrolamento automático provavelmente aumentou pressão de código/cache sem reduzir trabalho real. Não vale k6 nem promoção.
