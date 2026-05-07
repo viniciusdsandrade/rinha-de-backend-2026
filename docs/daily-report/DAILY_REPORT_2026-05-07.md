@@ -951,3 +951,24 @@ Resultados offline:
 | FMA explícito #2 | 7900.34 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A acurácia se manteve, mas o custo ficou pior/empatado contra a versão `mul + add` (`~7522-7695 ns/query`). Interpretação: o compilador/CPU já lida bem com as duas instruções, e o FMA não trouxe redução prática no loop.
+
+## Ciclo 12h23: comparação direta de cluster já escaneado no repair
+
+Hipótese: como o perfil atual usa `nprobe=1`, o repair não precisaria percorrer genericamente `best_clusters[0..nprobe)` para saber se um cluster já foi escaneado; uma comparação direta com `best_clusters[0]` deveria reduzir um pequeno custo em todas as queries reparadas.
+
+Patch temporário:
+
+```cpp
+bool already_scanned = cluster == best_clusters[0];
+for (std::uint32_t index = 1; index < nprobe; ++index) { ... }
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| comparação direta #1 | 7537.98 | 0 | 0 |
+| comparação direta #2 | 8337.15 | 0 | 0 |
+| comparação direta #3 | 7531.10 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. Apesar de duas runs próximas do melhor estado, o resultado não superou claramente a versão aceita do nearest centroid (`7522.45`, `7585.52`, `7695.19`) e teve um outlier ruim. Como a regra da rodada é performance sustentável e inquestionável, não vale manter.
