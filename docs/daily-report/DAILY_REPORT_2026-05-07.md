@@ -1427,3 +1427,35 @@ Resultados k6:
 | sem `uWebSockets` header #2 | 1.23ms | 0% | 5909.24 |
 
 Decisão: **aceito**. A mudança é pequena, usa macro suportada pelo próprio uWebSockets, preserva o contrato da API e sustentou duas runs no topo do envelope local recente. Melhor resultado desta rodada: `final_score=5909.24`, ainda abaixo do melhor histórico publicado, mas acima do estado experimental recente repetido (`5908.42`/`5907.40`) por pequena margem.
+
+## Ciclo 12h13: remover header `Date`
+
+Hipótese: depois de remover o header `uWebSockets`, remover também `Date` poderia reduzir bytes e escrita por resposta. Essa mudança exige patch no vendor, então a barra de aceitação é mais alta.
+
+Patch temporário:
+
+```cpp
+#ifndef UWS_HTTPRESPONSE_NO_DATE
+writeHeader("Date", ...);
+#endif
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado: testes passaram (`1/1`).
+
+Observação metodológica: a primeira tentativa de k6 foi descartada porque o build Docker falhou por DNS/OAuth contra `auth.docker.io` e o compose subiria imagem antiga. A run abortada por `terminated signal` também foi descartada.
+
+Resultados k6 válidos:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| sem `Date` #1 | 1.23ms | 0% | 5908.88 |
+| sem `Date` #2 | 1.25ms | 0% | 5903.47 |
+
+Decisão: **rejeitado e revertido**. A primeira run ficou competitiva, mas a repetição caiu para o mesmo envelope de ruído baixo. Como a mudança toca código vendorizado e não supera a macro nativa `UWS_HTTPRESPONSE_NO_WRITEMARK`, não vale manter.
