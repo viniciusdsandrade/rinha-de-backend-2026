@@ -280,3 +280,43 @@ Comparação:
 | Melhor run local unwind tables off | 1.14ms | 0% | 5944.66 |
 
 Decisão: **promover para candidato público**. A mudança é pequena, compila, preserva acurácia perfeita e as três runs locais ficaram acima da submissão atual. Próximo passo: publicar a imagem via workflow da branch experimental, validar a imagem pública e só então decidir se vira nova tag imutável para `submission`.
+
+### Validação pública do candidato sem unwind tables
+
+Commit candidato:
+
+- `a5ef277` (`test no unwind tables app build`).
+
+Workflow de publicação da imagem pública mutável:
+
+- Run: `25475005868`.
+- Resultado: sucesso.
+- Duração: `1m49s`.
+- Imagem publicada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission`.
+
+Validação da imagem pública:
+
+```bash
+DOCKER_HOST=unix:///run/docker.sock docker compose -f docker-compose.yml -f /tmp/rinha-public-override.yml -p perf-public-unwind pull
+DOCKER_HOST=unix:///run/docker.sock docker compose -f docker-compose.yml -f /tmp/rinha-public-override.yml -p perf-public-unwind up -d --force-recreate
+DOCKER_HOST=unix:///run/docker.sock ./run-local-k6.sh
+```
+
+Observação operacional: o primeiro `curl /ready` recebeu `connection reset` por bater durante o startup. O retry posterior respondeu `ready`, e o k6 rodou sem erros HTTP.
+
+Resultados públicos:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| imagem pública `submission`/unwind #1 | 1.14ms | 0 | 0 | 0 | 5943.01 |
+| imagem pública `submission`/unwind #2 | 1.14ms | 0 | 0 | 0 | 5943.36 |
+
+Comparação contra a submissão anterior:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Issue oficial `#1714` | 1.29ms | 0% | 5888.51 |
+| Validação final `submission-9ddccaf` | 1.28ms | 0% | 5891.27 |
+| Pior run pública sem unwind tables | 1.14ms | 0% | 5943.01 |
+
+Decisão: **promover para tag imutável e branch `submission`**. O candidato tem sinal melhor que `submission-9ddccaf` tanto em runs locais quanto em runs públicas, sem regressão de acurácia. Próximo passo: publicar `submission-a5ef277`, atualizar `docker-compose.yml` da branch `submission` e reaproveitar a issue oficial aberta se ela ainda não tiver sido processada.
