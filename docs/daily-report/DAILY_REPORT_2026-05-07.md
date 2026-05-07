@@ -356,3 +356,26 @@ Resultado offline:
 | `1280/s49152/i6` | 13515.6 | 0 | 9 | 0 | 4.44547 |
 
 Decisão: **rejeitado sem k6**. A amostra menor preservou FP, mas introduziu `9 FN` no repeat 3 e aumentou blocos primários/bbox. Isso encerra a varredura leve de `train_sample` por hoje: `49152` e `98304` são piores que `65536`, e o `262144/i10` já havia sido rejeitado anteriormente.
+
+## Ciclo 10h20: iterações do índice `1280/s65536`
+
+Hipótese: mantendo o `train_sample=65536`, talvez `i5` ou `i7` fossem melhores que `i6`. Menos iteração poderia preservar clusters mais próximos da amostra inicial; mais iteração poderia reduzir blocos/bbox. O teste foi offline, pois qualquer FP/FN já rejeita a hipótese.
+
+Comandos:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280-s65536-i5.bin 1280 65536 5
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280-s65536-i5.bin 3 0 1 1 1 1 4 1 0
+
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280-s65536-i7.bin 1280 65536 7
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280-s65536-i7.bin 3 0 1 1 1 1 4 1 0
+```
+
+Resultados offline:
+
+| Índice | ns/query | FP | FN | parse errors | repaired_pct |
+|---|---:|---:|---:|---:|---:|
+| `1280/s65536/i5` | 12663.7 | 3 | 3 | 0 | 4.43438 |
+| `1280/s65536/i7` | 12469.1 | 0 | 6 | 0 | 4.43068 |
+
+Decisão: **rejeitado sem k6**. `i7` reduziu um pouco o custo offline, mas introduziu `FN`, que é exatamente o erro mais caro depois de HTTP error. `i5` também perde acurácia. O ponto `1280/s65536/i6` continua sendo o único desta família com `0 FP/FN` no benchmark local.
