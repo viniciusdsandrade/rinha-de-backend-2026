@@ -1729,3 +1729,27 @@ Resultados k6:
 | headers 16 #3 | 1.25ms | 0% | 5903.51 |
 
 Decisão: **rejeitado e revertido**. A primeira run foi excelente, mas a terceira caiu para o envelope comum de ruído. A média não supera de forma clara o estado aceito anterior, e a redução do limite de headers adiciona risco de compatibilidade com harness oficial caso ele envie mais headers do que o teste local.
+
+## Ciclo 13h00: varredura offline da janela de reparo IVF
+
+Hipótese: a janela atual de reparo `repair_min=1` / `repair_max=4` pode estar escaneando mais clusters do que o necessário; reduzir a janela poderia melhorar latência, desde que a penalidade de detecção não destrua o score.
+
+Verificação:
+
+```text
+for cfg in '1 4' '2 3' '2 4' '1 3' '0 5'; do
+  nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 4 0 1 1 1 "$min" "$max" 0 0
+done
+```
+
+Resultados offline:
+
+| `repair_min..max` | ns/query | FP | FN | Observação |
+|---|---:|---:|---:|---|
+| `1..4` | 8042.64 | 0 | 0 | configuração atual |
+| `2..3` | 7408.23 | 88 | 112 | mais rápido, mas perde detecção |
+| `2..4` | 7465.36 | 0 | 112 | mais rápido, mas deixa fraude passar |
+| `1..3` | 7936.19 | 88 | 0 | quase igual e cria FP |
+| `0..5` | 53630.40 | 0 | 0 | correto, mas muito mais lento |
+
+Decisão: **sem mudança**. As variantes mais rápidas criam FP/FN e perderiam muito mais no `detection_score` do que ganhariam em p99; a variante mais ampla mantém corretude mas é inviável em latência. Manter `1..4`.
