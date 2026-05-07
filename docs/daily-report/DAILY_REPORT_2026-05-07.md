@@ -811,3 +811,24 @@ Resultados offline:
 | unroll manual #2 | 12575.7 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A macro preserva resultado, mas piora o custo. O loop natural segue melhor; provável combinação de código menor, melhor cache de instruções e otimização suficiente do compilador.
+
+## Ciclo 11h38: alinhar `benchmark-ivf-cpp` com IPO/LTO da API
+
+Hipótese: a API `rinha-backend-2026-cpp` já compila com `INTERPROCEDURAL_OPTIMIZATION`, mas o alvo `benchmark-ivf-cpp` não. Isso faz o filtro offline medir um binário ligeiramente diferente do hot path real da API. A mudança não otimiza a submissão diretamente; ela melhora a fidelidade do instrumento usado para aceitar/rejeitar próximos experimentos.
+
+Patch mantido:
+
+```cmake
+if(RINHA_IPO_SUPPORTED)
+    set_property(TARGET benchmark-ivf-cpp PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+```
+
+Resultados offline após reconstruir o benchmark:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| benchmark IVF com IPO #1 | 12348.7 | 0 | 0 |
+| benchmark IVF com IPO #2 | 12016.9 | 0 | 0 |
+
+Decisão: **mantido como ajuste de metodologia na branch experimental**. Não é uma promoção de performance para `submission`, mas reduz um desvio entre benchmark e API, já que a API final já usa IPO. As próximas decisões offline devem considerar que a faixa ainda tem ruído, mas agora mede um binário mais parecido com o real.

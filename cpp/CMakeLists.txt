@@ -302,6 +302,10 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
     target_compile_options(benchmark-ivf-cpp PRIVATE -mavx2 -mfma -march=x86-64-v3)
 endif()
 
+if(RINHA_IPO_SUPPORTED)
+    set_property(TARGET benchmark-ivf-cpp PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+
 add_executable(benchmark-kernel-cpp EXCLUDE_FROM_ALL
     tools/benchmark_kernel.cpp
     src/refs.cpp
