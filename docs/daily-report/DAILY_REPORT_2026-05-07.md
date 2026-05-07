@@ -623,3 +623,29 @@ processos mais ativos: Docker Desktop/QEMU e shell de benchmark
 ```
 
 Leitura: não há container concorrente óbvio, mas o ambiente Docker Desktop está com VM/QEMU ativa e swap já usada. Isso explica por que duas runs consecutivas (`baseline` e `-ffast-math`) ficaram no patamar `~5892-5896`, abaixo do melhor envelope histórico. Para as próximas microdecisões, vou privilegiar rejeição por acurácia offline e só usar k6 quando o sinal for forte o suficiente.
+
+## Ciclo 10h47: prune AVX2 após 6 dimensões
+
+Hipótese: o kernel AVX2 atualmente calcula as 8 primeiras dimensões antes de verificar se todas as lanes já passaram da pior distância do top-5. Antecipar esse prune para 6 dimensões poderia descartar blocos ruins com menos operações, mantendo resultado exato porque a distância só cresce com as dimensões restantes.
+
+Patch temporário:
+
+```cpp
+for (std::size_t dim = 0; dim < 6; ++dim) { ... prune ... }
+for (std::size_t dim = 6; dim < kDimensions; ++dim) { ... }
+```
+
+Comando:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp -j2
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 1 0
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | repaired_pct |
+|---|---:|---:|---:|---:|
+| prune após 6 dims | 13209.2 | 0 | 0 | 4.43808 |
+
+Decisão: **rejeitado e revertido**. A mudança é exata, mas piora o custo offline. O prune após 6 dimensões provavelmente roda a checagem cedo demais, antes de acumular distância suficiente para descartar muitos blocos; o ponto atual em 8 dimensões permanece melhor.
