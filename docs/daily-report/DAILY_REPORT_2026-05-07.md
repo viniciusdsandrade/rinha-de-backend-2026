@@ -2010,3 +2010,35 @@ Resultados k6:
 | `thread_local error` #3 | 1.25ms | 0% | 5902.65 |
 
 Decisão: **rejeitado**. A primeira run foi forte, mas a terceira caiu abaixo do patamar aceito do buffer lazy e a média (`5908.61`) não melhora o estado atual (`5910.68`). O patch foi revertido para evitar complexidade global/thread-local sem ganho sustentável.
+
+## Ciclo 00h20: `known_merchants` com `string_view` e buffer inline
+
+Hipótese: o parser copiava `known_merchants` para `std::vector<std::string>` e copiava `merchant.id` apenas para calcular `unknown_merchant`. Como a decisão acontece dentro do próprio `parse_payload`, trocar para `std::string_view` com buffer inline poderia remover alocações/cópias mantendo compatibilidade com listas maiores via fallback dinâmico.
+
+Observação do dataset local:
+
+```text
+jq '[.entries[].payload.customer.known_merchants | length] | {max:max, counts: group_by(.) | map({len:.[0], n:length})}' test/test-data.json
+```
+
+Resultado: todas as `54.100` requisições locais têm `known_merchants` vazio (`max=0`). Mesmo assim o patch manteve suporte genérico para os exemplos oficiais com listas preenchidas.
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+DOCKER_BUILDKIT=0 docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado: testes unitários passaram (`1/1`). A imagem Docker foi reconstruída antes do k6.
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `known_merchants string_view` #1 | 1.26ms | 0% | 5900.26 |
+
+Decisão: **rejeitado cedo**. O resultado ficou abaixo do estado aceito por margem suficiente para não gastar mais duas runs. A hipótese provável é que, no dataset local, a lista vazia torna as cópias quase irrelevantes, enquanto o wrapper inline/fallback adiciona custo de stack/código no hot path. Patch revertido.
