@@ -337,3 +337,22 @@ Resultado offline:
 | `1280/s98304/i6` | 14741.6 | 3 | 6 | 0 | 4.45287 |
 
 Decisão: **rejeitado sem k6**. O índice intermediário perdeu acurácia mesmo com `bbox_repair=true` e `repair=1..4`, além de ficar mais lento que o índice atual em microbenchmark. A escolha de centróides é sensível; mais amostra de treino não é monotonicamente melhor para o nosso repair/top-5. Manter `1280/s65536/i6`.
+
+## Ciclo 10h18: índice menor `1280/s49152/i6`
+
+Hipótese: se aumentar a amostra de treino piorou, talvez uma amostra menor que `65536` pudesse gerar centróides mais favoráveis para o conjunto de teste, ou pelo menos reduzir blocos escaneados sem perder acurácia.
+
+Comandos:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280-s49152-i6.bin 1280 49152 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280-s49152-i6.bin 3 0 1 1 1 1 4 1 0
+```
+
+Resultado offline:
+
+| Índice | ns/query | FP | FN | parse errors | repaired_pct |
+|---|---:|---:|---:|---:|---:|
+| `1280/s49152/i6` | 13515.6 | 0 | 9 | 0 | 4.44547 |
+
+Decisão: **rejeitado sem k6**. A amostra menor preservou FP, mas introduziu `9 FN` no repeat 3 e aumentou blocos primários/bbox. Isso encerra a varredura leve de `train_sample` por hoje: `49152` e `98304` são piores que `65536`, e o `262144/i10` já havia sido rejeitado anteriormente.
