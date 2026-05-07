@@ -73,3 +73,36 @@ Próxima linha mais promissora:
 
 - Evitar micro-otimizações de parser que não removam a cópia principal para `simdjson::padded_string`.
 - Priorizar mudanças estruturais de maior impacto: parser manual seletivo integrado à vetorização, ou reduzir overhead de LB/API inspirado nos líderes `io_uring`/LB custom.
+
+## Ciclo 00h20: `-march=x86-64-v3` em libs locais
+
+Hipótese: o binário principal já compila com `-mavx2 -mfma -march=x86-64-v3`, mas as bibliotecas estáticas locais `usockets` e `simdjson_singleheader` não recebiam explicitamente `-march=x86-64-v3`. Como ambas participam do hot path de rede/JSON, testar o mesmo requisito de CPU nelas poderia reduzir overhead.
+
+Escopo testado:
+
+- `target_compile_options(usockets PRIVATE -march=x86-64-v3)`.
+- `target_compile_options(simdjson_singleheader PRIVATE -march=x86-64-v3)`.
+- Nenhuma alteração de algoritmo, dados, compose ou API.
+
+Validação:
+
+```bash
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+DOCKER_HOST=unix:///run/docker.sock docker compose up -d --build --force-recreate
+DOCKER_HOST=unix:///run/docker.sock ./run-local-k6.sh
+```
+
+Resultado funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Config | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `-march=x86-64-v3` em `usockets` + `simdjson_singleheader` | 2.76ms | 0 | 0 | 0 | 5558.95 |
+
+Decisão: **rejeitado e revertido**. A acurácia permaneceu perfeita, mas a p99 degradou fortemente. Provável causa: a otimização explícita nas libs interfere mal com o perfil real de código/dispatch ou aumenta pressão de código/cache sem reduzir o gargalo dominante. Manter `-march=x86-64-v3` apenas no binário principal continua sendo o ponto validado.
