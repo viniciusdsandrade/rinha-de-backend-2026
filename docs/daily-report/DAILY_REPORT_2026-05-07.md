@@ -1883,3 +1883,25 @@ Resultados offline:
 | `1536`, reparo `0..5` | 50113.80 | 0 | 0 |
 
 Decisão: **rejeitado**. O índice de `1536` melhora latência só enquanto aceita falsos positivos. As janelas que recuperam correção perfeita ficam muito mais lentas que o índice atual `1280`.
+
+## Ciclo 13h09: índices IVF intermediários 1152 e 1408
+
+Hipótese: pontos intermediários ao redor de `1280` clusters poderiam encontrar equilíbrio melhor sem a perda grande observada em `1024` e `1536`.
+
+Verificação:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz cpp/build/perf-data/index-1408.bin 1408 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1408.bin 4 0 1 1 1 1 4 0 0
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz cpp/build/perf-data/index-1152.bin 1152 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1152.bin 4 0 1 1 1 1 4 0 0
+```
+
+Resultados offline:
+
+| Índice | ns/query | FP | FN | Memória |
+|---|---:|---:|---:|---:|
+| `1408` clusters | 7779.99 | 12 | 4 | 94.72 MB |
+| `1152` clusters | 8327.30 | 8 | 4 | 94.66 MB |
+
+Decisão: **rejeitados**. Ambos perdem correção perfeita e não oferecem ganho claro de latência. A evidência acumulada (`1024`, `1152`, `1408`, `1536`) reforça `1280` como ponto local robusto.
