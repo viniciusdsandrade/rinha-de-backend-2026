@@ -1114,3 +1114,23 @@ Resultados válidos:
 | `stats=1` #1 | 7734.14 | 0 | 0 |
 
 Decisão: **sem mudança de código**. A diferença entre os modos é pequena e está dentro do ruído local, então `stats=1` continua útil para diagnósticos de repair/cluster. Mas, para decisões de promoção, o k6 segue obrigatório e qualquer comparação offline deve reconstruir o benchmark depois de reverter hipóteses.
+
+## Ciclo 13h24: ponteiro local para centróides no nearest centroid AVX2
+
+Hipótese: trocar chamadas repetidas de `centroids.data()`/`operator[]` por um ponteiro local `const float* centroids_ptr` poderia remover overhead no loop quente do centróide.
+
+Patch temporário:
+
+```cpp
+const float* centroids_ptr = centroids.data();
+const __m256 centroid = _mm256_loadu_ps(centroids_ptr + (dim * clusters) + cluster);
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| ponteiro local #1 | 7600.74 | 0 | 0 |
+| ponteiro local #2 | 8019.76 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. O primeiro número ficou na faixa normal do melhor estado, mas a segunda run piorou. O compilador provavelmente já otimiza `data()`/`operator[]` bem; a alteração não trouxe ganho sustentável.
