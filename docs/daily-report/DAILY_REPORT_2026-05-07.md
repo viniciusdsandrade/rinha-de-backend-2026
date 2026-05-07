@@ -2698,3 +2698,23 @@ Resultado k6:
 | `kMaxPending=2KB` | 1.21ms | 0% | 5917.90 |
 
 Decisão: **rejeitado e revertido**. A redução não gerou erro, mas ficou abaixo da média do buffer fixo aceito (`5918.99`). A versão de `16KB` permanece mais segura contra variação de headers/payloads e mais rápida no benchmark medido.
+
+## Checagem operacional de submissão
+
+Após encontrar o ganho sustentado do servidor manual + buffer fixo, foi checado o estado do runner oficial antes de abrir nova issue de submissão.
+
+Comando:
+
+```text
+gh issue view 2026 --repo zanfranceschi/rinha-de-backend-2026 --json state,title,url
+gh issue list --repo zanfranceschi/rinha-de-backend-2026 --state open --search 'viniciusdsandrade'
+```
+
+Resultado:
+
+```text
+#2026 OPEN - Runner broken: stale submission directory since #2019
+Issues abertas buscando viniciusdsandrade: []
+```
+
+Decisão operacional: **não abrir nova issue enquanto #2026 estiver aberta**, para evitar uma medição oficial potencialmente contaminada por checkout/submission directory stale. A branch `perf/noon-tuning` já contém resultado local melhor que a submissão oficial anterior; quando o runner voltar ao normal, o próximo passo é promover o melhor estado para `submission` e abrir issue oficial.
