@@ -1520,3 +1520,33 @@ Resultado k6:
 | `res->cork` | 1.25ms | 0% | 5904.47 |
 
 Decisão: **rejeitado e revertido**. O endpoint já envia uma resposta pequena em uma única chamada, então o `cork` adicionou wrapper sem reduzir a cauda. Manter `res->end(response_body)` direto.
+
+## Ciclo 12h30: flags matemáticas conservadoras
+
+Hipótese: adicionar `-fno-math-errno` e `-fno-trapping-math` ao binário C++ e ao benchmark IVF poderia liberar otimizações seguras em cálculos de distância sem alterar o resultado funcional.
+
+Patch temporário:
+
+```text
+-fno-math-errno
+-fno-trapping-math
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 0 0
+```
+
+Resultado: testes passaram (`1/1`).
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN | checksum |
+|---|---:|---:|---:|---:|
+| flags math #1 | 7633.86 | 0 | 0 | 246463184 |
+| flags math #2 | 7794.50 | 0 | 0 | 246463184 |
+
+Decisão: **rejeitado e revertido sem k6**. A mudança preservou corretude, mas não melhorou o microbenchmark do kernel IVF. Como o gargalo restante é cauda muito estreita e a evidência local ficou abaixo do estado aceito, não justifica custo de uma rodada Docker/k6.
