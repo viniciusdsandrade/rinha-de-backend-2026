@@ -2842,3 +2842,23 @@ Resultado k6:
 | `kReadChunk=1024` | 1.20ms | 0% | 5919.33 |
 
 Decisão: **rejeitado e revertido**. O resultado é bom, mas não supera o baseline aceito limpo (`5920.04`) nem a melhor run do buffer fixo (`5921.67`). Manter `4096` evita risco de fragmentação em cenários com headers maiores.
+
+## Ciclo 23h36: redistribuir CPU para as APIs
+
+Hipótese: como dar mais CPU ao nginx (`api0.40/nginx0.20`) não ajudou, o oposto poderia ser verdadeiro: o servidor manual + IVF talvez preferisse mais CPU nas APIs. Foi testado deslocar `0.02 CPU` do nginx para as APIs.
+
+Patch temporário:
+
+```yaml
+api1/api2: 0.41 CPU -> 0.42 CPU
+nginx:     0.18 CPU -> 0.16 CPU
+total:     1.00 CPU
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `api0.42/nginx0.16` | 1.23ms | 0% | 5910.35 |
+
+Decisão: **rejeitado e revertido**. O nginx precisa da fatia de `0.18 CPU`; tanto aumentar quanto reduzir o orçamento do LB piorou o score. A distribuição `api=0.41 + 0.41`, `nginx=0.18` segue como melhor ponto medido.
