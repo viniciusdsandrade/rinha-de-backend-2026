@@ -146,3 +146,21 @@ Microbenchmark comparativo no mesmo índice/dataset:
 | Clang 18 | 13600.6 | 0 | 0 | 0 | 0% |
 
 Decisão: **Clang rejeitado** para a próxima imagem. O binário Clang ficou cerca de `7.7%` pior no microbenchmark offline, então não há base para pagar o custo de adaptar Dockerfile e rodar k6 completo. O pequeno rename de compatibilidade fica no branch experimental como higiene de portabilidade, mas não altera a submissão atual.
+
+## Ciclo 10h00: desligar `extreme_repair`
+
+Hipótese: o reparo extremo roda em poucos casos (`384` consultas reparadas no repeat 8) e talvez pudesse ser desligado para reduzir custo de cauda sem impacto material de acurácia.
+
+Experimento sem alteração de código, usando o flag de benchmark para desabilitar `extreme_repair`:
+
+```text
+cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 1 1
+
+samples=54100 repeat=8 refs=3000000 clusters=1280
+ns_per_query=12283.2
+fp=8 fn=16 parse_errors=0 failure_rate_pct=0.00554529
+repaired_pct=4.34935
+extreme_repair_queries=0
+```
+
+Decisão: **rejeitado sem k6**. O tempo offline ficou dentro do ruído positivo da rodada, mas a mudança introduziu erros reais de detecção. No dataset base isso equivale a aproximadamente `1 FP / 2 FN` por passada, o suficiente para reduzir drasticamente o `detection_score` frente à submissão atual com `0%` falhas. Nesta faixa de ranking, acurácia perfeita vale mais que remover algumas centenas de repairs.
