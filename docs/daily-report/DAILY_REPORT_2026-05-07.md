@@ -1905,3 +1905,25 @@ Resultados offline:
 | `1152` clusters | 8327.30 | 8 | 4 | 94.66 MB |
 
 Decisão: **rejeitados**. Ambos perdem correção perfeita e não oferecem ganho claro de latência. A evidência acumulada (`1024`, `1152`, `1408`, `1536`) reforça `1280` como ponto local robusto.
+
+## Ciclo 13h11: qualidade de treino do índice 1280
+
+Hipótese: manter `1280` clusters, mas alterar o treino do k-means, poderia gerar clusters mais bem separados e reduzir reparos ou scans.
+
+Verificação:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz cpp/build/perf-data/index-1280-it8.bin 1280 65536 8
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280-it8.bin 4 0 1 1 1 1 4 0 0
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz cpp/build/perf-data/index-1280-s131k.bin 1280 131072 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280-s131k.bin 4 0 1 1 1 1 4 0 0
+```
+
+Resultados offline:
+
+| Índice | ns/query | FP | FN |
+|---|---:|---:|---:|
+| `1280`, sample `65536`, `8` iterações | 7630.59 | 0 | 4 |
+| `1280`, sample `131072`, `6` iterações | 7796.11 | 8 | 8 |
+
+Decisão: **rejeitados**. Ambos perdem correção perfeita. O índice atual `1280 / sample 65536 / 6 iterações` permanece melhor para o dataset local.
