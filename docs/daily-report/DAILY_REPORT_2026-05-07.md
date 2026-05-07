@@ -767,3 +767,25 @@ Resultados offline:
 | baseline revertido no mesmo momento | 12317.6 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. O melhor ponto isolado foi bom, mas a sequência não mostrou ganho sustentável; a média do patch ficou praticamente empatada com o baseline imediato e abaixo do critério de melhoria inquestionável. Não vale k6 nem promoção.
+
+## Ciclo 11h18: ordem manual no `bbox_lower_bound`
+
+Hipótese: no repair IVF, o `bbox_lower_bound` testa em média `~56.8` clusters por query. Reordenar as dimensões para começar pelas mais discriminativas/sentinel (`minutes_since_last_tx`, `km_from_last_tx`, `km_from_home`, `amount_vs_avg`, flags) poderia antecipar o `sum > stop_after` e reduzir CPU sem alterar o conjunto escaneado.
+
+Patch temporário:
+
+```cpp
+constexpr std::array<std::size_t, kDimensions> kBboxDimensionOrder{
+    5, 6, 7, 2, 0, 8, 11, 12, 3, 4, 9, 10, 1, 13
+};
+for (const std::size_t dim : kBboxDimensionOrder) { ... }
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| ordem manual #1 | 12670.4 | 0 | 0 |
+| ordem manual #2 | 12564.2 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A acurácia foi preservada, mas a ordem natural continua melhor no benchmark. A provável explicação é que o custo indireto/menos linear da ordem manual supera qualquer early-abort adicional, e as bboxes por cluster já são largas em muitas dimensões.
