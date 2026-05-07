@@ -562,3 +562,29 @@ Resultado offline:
 | `1280/s32768/i6` | 13629.9 | 6 | 3 | 4.44732 | 334.411 | 53.0566 |
 
 Decisão: **rejeitado sem k6**. A amostra menor piorou custo e acurácia. Com os pontos `32768`, `49152`, `65536`, `98304` e `262144` já avaliados, `65536` continua sendo o único ponto limpo e competitivo desta dimensão.
+
+## Ciclo 10h36: `-ffast-math` no C++/IVF
+
+Hipótese: como os vetores são finitos e normalizados, `-ffast-math` poderia acelerar os cálculos de distância no IVF e no pré-processamento sem alterar a ordenação prática dos vizinhos. O teste foi feito nos targets `rinha-backend-2026-cpp`, `prepare-ivf-cpp` e `benchmark-ivf-cpp`.
+
+Validações:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp prepare-ivf-cpp benchmark-ivf-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+Resultado: 100% tests passed
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | repaired_pct | avg_primary_blocks | avg_bbox_scanned_blocks |
+|---|---:|---:|---:|---:|---:|---:|
+| `-ffast-math` | 12037.3 | 0 | 0 | 4.43808 | 322.897 | 45.5807 |
+
+Resultado k6 válido:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `-ffast-math` | 1.27ms | 0% | 5895.59 |
+
+Decisão: **rejeitado e revertido**. O benchmark offline melhorou e preservou acurácia, mas o stack oficial local não confirmou ganho de ponta a ponta. Como a pontuação ficou abaixo do envelope estável da submissão atual (`~5944-5950`), não há ganho sustentável suficiente para promover a flag.
