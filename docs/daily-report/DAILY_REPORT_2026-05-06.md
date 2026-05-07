@@ -106,3 +106,44 @@ Resultado k6 local:
 | `-march=x86-64-v3` em `usockets` + `simdjson_singleheader` | 2.76ms | 0 | 0 | 0 | 5558.95 |
 
 Decisão: **rejeitado e revertido**. A acurácia permaneceu perfeita, mas a p99 degradou fortemente. Provável causa: a otimização explícita nas libs interfere mal com o perfil real de código/dispatch ou aumenta pressão de código/cache sem reduzir o gargalo dominante. Manter `-march=x86-64-v3` apenas no binário principal continua sendo o ponto validado.
+
+## Ciclo 00h45: `-fno-rtti` no binário principal
+
+Hipótese: o binário principal não usa `dynamic_cast` nem `typeid`; remover RTTI poderia reduzir metadado/código e, em cenário de p99 muito apertada, talvez aliviar levemente cache/instruções sem alterar semântica.
+
+Escopo testado:
+
+- Adicionado `-fno-rtti` apenas em `target_compile_options(rinha-backend-2026-cpp ...)`.
+- `usockets`, `simdjson_singleheader`, tools e testes ficaram sem essa flag.
+- Sem alteração de algoritmo, API, compose, recursos ou dados.
+
+Validação funcional:
+
+```bash
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais com imagem reconstruída:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `-fno-rtti` #1 | 1.19ms | 0 | 0 | 0 | 5924.00 |
+| `-fno-rtti` #2 | 1.29ms | 0 | 0 | 0 | 5888.42 |
+| `-fno-rtti` #3 | 1.24ms | 0 | 0 | 0 | 5907.94 |
+
+Comparação:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Issue oficial `#1714` | 1.29ms | 0% | 5888.51 |
+| Melhor local pré-`-fno-rtti` conhecido | 1.23ms | 0% | 5908.68 |
+| Melhor local com `-fno-rtti` | 1.19ms | 0% | 5924.00 |
+
+Decisão: **manter como candidato experimental, ainda sem submissão oficial**. O sinal é melhor do que os experimentos anteriores e preserva `0%` falhas, mas a sequência também mostra variância (`1.19 -> 1.29 -> 1.24`). Para virar nova submissão, precisa de validação por imagem pública e repetição acima da issue `#1714`; uma única run `1.19ms` não é suficiente para declarar ganho sustentável.
