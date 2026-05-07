@@ -320,3 +320,36 @@ Comparação contra a submissão anterior:
 | Pior run pública sem unwind tables | 1.14ms | 0% | 5943.01 |
 
 Decisão: **promover para tag imutável e branch `submission`**. O candidato tem sinal melhor que `submission-9ddccaf` tanto em runs locais quanto em runs públicas, sem regressão de acurácia. Próximo passo: publicar `submission-a5ef277`, atualizar `docker-compose.yml` da branch `submission` e reaproveitar a issue oficial aberta se ela ainda não tiver sido processada.
+
+### Publicação oficial do candidato sem unwind tables
+
+Tag imutável:
+
+- Tag: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a5ef277`.
+- Commit que adicionou a tag ao workflow e registrou a promoção: `e7bab71`.
+- Workflow: `25475215641`.
+- Resultado: sucesso.
+- Duração: `1m29s`.
+- Manifest verificado: `linux/amd64` presente.
+
+Branch oficial de entrega:
+
+- Branch: `submission`.
+- Commit: `a2c45b9` (`point submission to no unwind image`).
+- `docker-compose.yml` atualizado de `submission-9ddccaf` para `submission-a5ef277`.
+- `docker compose config --quiet`: OK.
+- Push para `origin/submission`: OK.
+
+Validação final da branch `submission`:
+
+| Fonte | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| branch `submission` / `submission-a5ef277` | 1.15ms | 0 | 0 | 0 | 5939.70 |
+
+Estado da issue oficial:
+
+- Issue: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2009`.
+- Estado no momento da troca: `OPEN`.
+- Comentários no momento da troca: nenhum.
+
+Decisão: **submissão efetiva atualizada antes do processamento da issue**. Como a issue `#2009` ainda estava aberta e sem resultado, a branch `submission` agora aponta para a melhor imagem disponível. Se a engine clonar o estado atual do fork quando processar a issue, deve testar `submission-a5ef277`.
