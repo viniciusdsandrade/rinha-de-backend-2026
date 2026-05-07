@@ -1789,3 +1789,34 @@ Resultados offline após a promoção real do flag:
 | `disable_extreme_repair=true` #2 | 8137.56 | 8 | 16 | 246457048 |
 
 Decisão: **rejeitado e revertido sem k6**. O reparo extremo é necessário para correção perfeita no dataset local. A leitura anterior era enganosa porque o argumento `disable_extreme` do benchmark só tinha efeito no caminho com stats; ao torná-lo efetivo no caminho normal, surgiram FP/FN. Perder detecção por esse ganho de latência não compensa.
+
+## Ciclo 13h04: reparo extremo com comparações quantizadas
+
+Hipótese: trocar as comparações float de `should_repair_extreme` por comparações no vetor já quantizado (`query_i16`) poderia reduzir custo por query sem alterar o conjunto reparado.
+
+Patch temporário:
+
+```cpp
+bool should_repair_extreme_i16(std::uint8_t frauds, const std::array<std::int16_t, kDimensions>& query) noexcept;
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 0 0
+```
+
+Resultado: testes unitários passaram (`1/1`) e a classificação permaneceu correta (`FP=0`, `FN=0`, checksum `246463184`).
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| reparo i16 #1 | 8048.76 | 0 | 0 |
+| reparo i16 #2 | 7689.77 | 0 | 0 |
+| reparo i16 #3 | 8187.26 | 0 | 0 |
+| reparo i16 #4 | 7607.79 | 0 | 0 |
+
+Decisão: **rejeitado e revertido sem k6**. A mudança preserva correção, mas os resultados alternam entre bom e ruim no mesmo envelope de ruído. Além disso, introduziu warning de função float não usada no binário normal. Sem ganho sustentável.
