@@ -1319,3 +1319,31 @@ Resultado:
 | Última atualização | `2026-05-07T11:00:57Z` |
 
 Decisão: **não abrir nova submissão agora**. O runner oficial segue com issue aberto, então o ciclo continua em branch experimental com foco em evidência local e não em novo issue oficial duplicado.
+
+## Ciclo 11h58: arredondamento manual em `quantize`
+
+Hipótese: `quantize()` chama `std::lround` para 14 dimensões por request. Como os valores já são clampados em `[-1, 1]`, um arredondamento manual equivalente poderia evitar chamada de libm e reduzir custo no caminho quente.
+
+Patch temporário:
+
+```cpp
+const long rounded = static_cast<long>(scaled >= 0.0f ? scaled + 0.5f : scaled - 0.5f);
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado: testes passaram (`1/1`).
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| arredondamento manual #1 | 7633.38 | 0 | 0 |
+| arredondamento manual #2 | 8325.97 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A acurácia foi preservada, mas a performance não melhorou. O custo dominante não parece ser `std::lround`, e a troca manual ainda deixou a medição mais instável.
