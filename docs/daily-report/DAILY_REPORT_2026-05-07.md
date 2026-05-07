@@ -1579,3 +1579,33 @@ Resultados offline:
 | `-fomit-frame-pointer` #2 | 7800.07 | 0 | 0 | 246463184 |
 
 Decisão: **rejeitado e revertido sem k6**. A flag não trouxe ganho no benchmark local e provavelmente já é redundante no perfil Release ou irrelevante para o gargalo atual.
+
+## Ciclo 12h34: remover `onAborted` vazio
+
+Hipótese: remover o callback vazio `res->onAborted([]() {})` do endpoint `/fraud-score` poderia reduzir uma pequena alocação/registro por request no uWebSockets.
+
+Patch temporário:
+
+```cpp
+- res->onAborted([]() {});
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose -p perf-noon-tuning build --pull=false api1 api2
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado: build Docker válido, serviço respondeu `/ready`, testes unitários passaram (`1/1`).
+
+Resultado k6:
+
+| Variante | p99 | Falhas | HTTP errors | final_score |
+|---|---:|---:|---:|---:|
+| sem `onAborted` | 0.89ms | 100% | 54059 | 0 |
+
+Decisão: **rejeitado e revertido imediatamente**. Embora a latência aparente tenha caído, a remoção quebrou o comportamento sob carga e causou erro HTTP massivo. O callback vazio é necessário como proteção prática no ciclo de vida do `HttpResponse` capturado pelo `onData`.
