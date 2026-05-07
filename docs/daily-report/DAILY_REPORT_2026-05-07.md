@@ -1092,3 +1092,25 @@ Resultados offline:
 | prune centróide 7 dims #2 | 8536.30 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A acurácia foi preservada, mas a checagem parcial é cara demais. O melhor por lane demora a ficar apertado e o branch prejudica o pipeline; calcular as 14 dimensões direto segue melhor.
+
+## Ciclo 13h18: calibração `stats=0` vs `stats=1` no benchmark IVF
+
+Percebi que os benchmarks offline vinham usando `stats=1`, enquanto a API real usa o caminho sem stats. Fiz uma primeira medição, mas descartei porque o binário ainda estava compilado com a hipótese anterior de prune parcial antes da reversão. Depois reconstruí o benchmark limpo e medi os dois modos.
+
+Comando válido:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp -j2
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 0 0
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 1 0
+```
+
+Resultados válidos:
+
+| Modo | ns/query | FP | FN |
+|---|---:|---:|---:|
+| `stats=0` #1 | 7749.57 | 0 | 0 |
+| `stats=0` #2 | 7810.13 | 0 | 0 |
+| `stats=1` #1 | 7734.14 | 0 | 0 |
+
+Decisão: **sem mudança de código**. A diferença entre os modos é pequena e está dentro do ruído local, então `stats=1` continua útil para diagnósticos de repair/cluster. Mas, para decisões de promoção, o k6 segue obrigatório e qualquer comparação offline deve reconstruir o benchmark depois de reverter hipóteses.
