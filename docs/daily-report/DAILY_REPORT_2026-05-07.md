@@ -972,3 +972,25 @@ Resultados offline:
 | comparação direta #3 | 7531.10 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. Apesar de duas runs próximas do melhor estado, o resultado não superou claramente a versão aceita do nearest centroid (`7522.45`, `7585.52`, `7695.19`) e teve um outlier ruim. Como a regra da rodada é performance sustentável e inquestionável, não vale manter.
+
+## Ciclo 12h29: pré-carregar query lanes no nearest centroid AVX2
+
+Hipótese: `_mm256_set1_ps(query[dim])` estava dentro do loop de blocos de centróides. Pré-carregar as 14 lanes da query uma vez fora do loop poderia reduzir trabalho repetido.
+
+Patch temporário:
+
+```cpp
+__m256 q[kDimensions];
+for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+    q[dim] = _mm256_set1_ps(query[dim]);
+}
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| query lanes pré-carregadas #1 | 8314.78 | 0 | 0 |
+| query lanes pré-carregadas #2 | 8006.27 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A acurácia se manteve, mas o custo piorou. A hipótese provavelmente aumentou pressão de registradores ou spills; manter o `set1` local dentro do loop deixa o compilador gerar código melhor.
