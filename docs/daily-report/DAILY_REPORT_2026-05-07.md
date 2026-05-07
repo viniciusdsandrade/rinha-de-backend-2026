@@ -1197,3 +1197,22 @@ Resultado k6:
 | api 0.43 / nginx 0.14 | 1.25ms | 0% | 5903.48 |
 
 Decisão: **rejeitado e revertido**. O resultado ficou no mesmo patamar ruim do teste com 1 worker no nginx. A evidência local indica que reduzir a fatia do nginx prejudica o envelope de p99 mais do que a API ganha com CPU extra.
+
+## Ciclo 11h42: redistribuição de CPU para nginx
+
+Hipótese: como reduzir CPU do nginx piorou, talvez aumentar sua fatia pudesse reduzir p99 de proxy/conexão. A soma continuou em 1.00 CPU.
+
+Patch temporário:
+
+```yaml
+api1/api2:  cpus: "0.39"
+nginx:      cpus: "0.22"
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| api 0.39 / nginx 0.22 | 1.27ms | 0% | 5895.39 |
+
+Decisão: **rejeitado e revertido**. Dar mais CPU ao nginx tirou capacidade demais das APIs e piorou o score. A família de redistribuição testada (`0.43/0.14`, `0.41/0.18`, `0.39/0.22`) favorece manter o estado atual `api=0.41`, `nginx=0.18`.
