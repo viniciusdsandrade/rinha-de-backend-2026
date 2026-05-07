@@ -517,3 +517,29 @@ Resultados offline:
 | `1216/s65536/i6` | 13458.3 | 12 | 9 | 4.42884 | 339.522 | 47.1551 |
 
 Decisão: **rejeitado sem k6**. O `1408` até reduz tempo offline, mas já nasce com erro de detecção; `1216` perde nos dois eixos. Com `sample=65536`, `iterations=6`, `nprobe=1` e repair `1..4`, o `1280` continua sendo o ponto dominante.
+
+## Ciclo 10h40: amostragem K-means por ponto médio
+
+Hipótese: o treino K-means do IVF escolhe linhas uniformes começando no início de cada intervalo (`index * rows / sample`). Trocar para o ponto médio de cada intervalo poderia produzir centróides mais representativos sem custo no runtime, pois só muda o pré-processamento do índice.
+
+Patch temporário:
+
+```cpp
+sample_rows[index] = (((index * 2 + 1) * rows) / (sample * 2));
+```
+
+Comando:
+
+```text
+cmake --build cpp/build --target prepare-ivf-cpp benchmark-ivf-cpp -j2
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280-midpoint-s65536-i6.bin 1280 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280-midpoint-s65536-i6.bin 3 0 1 1 1 1 4 1 0
+```
+
+Resultado offline:
+
+| Índice | ns/query | FP | FN | repaired_pct | avg_primary_blocks | avg_bbox_scanned_blocks |
+|---|---:|---:|---:|---:|---:|---:|
+| `1280/midpoint-s65536/i6` | 13241.5 | 9 | 6 | 4.44362 | 328.591 | 52.6158 |
+
+Decisão: **rejeitado e revertido**. A ideia era sustentável porque só afetaria build/preprocessamento, mas a amostragem por ponto médio degradou os centróides para este dataset e introduziu erros de detecção. A amostragem original continua superior.
