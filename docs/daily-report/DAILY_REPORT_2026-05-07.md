@@ -2164,3 +2164,26 @@ Resultados offline:
 | prefetch `block+8` #2 | 8007.09 | 0 | 0 |
 
 Decisão: **rejeitado sem k6**. A ideia é válida nos líderes, mas no nosso kernel atual o sinal offline ficou abaixo da faixa boa recente e não justificou uma rodada de compose. Provável causa: o scan com bbox/cluster pequeno já é suficientemente cache-local, e o prefetch adiciona instruções em consultas onde não há distância longa o bastante para esconder latência. Patch revertido.
+
+## Ciclo 14h08: nprobe maior inspirado nos líderes
+
+Investigação externa: `jairoblatt/rinha-2026-rust` usa `FAST_NPROBE=8` e `FULL_NPROBE=24`; `joojf/rinha-2026` usa `FAST_NPROBE=12` e `FULL_NPROBE=24`. A hipótese era reduzir dependência do reparo por bbox usando mais centróides primários, possivelmente ganhando robustez e reduzindo casos de borda.
+
+Importante metodológico: uma primeira rodada foi feita antes de rebuildar o binário após o revert do prefetch. Para evitar contaminar a decisão, o `benchmark-ivf-cpp` foi recompilado e só os resultados limpos abaixo foram usados.
+
+Verificação limpa:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp -j2
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 3 0 4 16 1 2 3 1 0 0
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 3 0 8 24 1 2 3 1 0 0
+```
+
+Resultados offline:
+
+| Configuração | ns/query | FP | FN | Observação |
+|---|---:|---:|---:|---|
+| `fast=4`, `full=16`, bbox, janela `2..3` | 25669.90 | 0 | 0 | correta, mas ~3x mais lenta que o estado atual |
+| `fast=8`, `full=24`, bbox, janela `2..3` | 42254.00 | 3 | 0 | mais lenta e perde correção perfeita |
+
+Decisão: **rejeitado sem k6**. A estratégia de múltiplos probes funciona nos líderes porque o kernel e o índice deles foram desenhados para esse regime. No nosso índice `1280` com bbox repair, aumentar `nprobe` multiplica blocos escaneados (`avg_primary_blocks` sobe para `1343.71` em `4/16` e `2613.12` em `8/24`) e elimina qualquer chance de melhorar p99.
