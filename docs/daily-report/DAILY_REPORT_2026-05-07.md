@@ -1927,3 +1927,49 @@ Resultados offline:
 | `1280`, sample `131072`, `6` iterações | 7796.11 | 8 | 8 |
 
 Decisão: **rejeitados**. Ambos perdem correção perfeita. O índice atual `1280 / sample 65536 / 6 iterações` permanece melhor para o dataset local.
+
+## Ciclo 13h26: buffer lazy para body multi-chunk
+
+Hipótese: o callback `onData` carregava um `std::string` dentro da lambda para toda request, mesmo quando o body chega em chunk único. Trocar por `std::unique_ptr<std::string>` lazy reduz o estado capturado no hot path e só aloca buffer quando houver chunk parcial.
+
+Patch aceito:
+
+```cpp
+res->onData([res, state, body = std::unique_ptr<std::string>{}](std::string_view chunk, bool is_last) mutable {
+    if (!is_last) {
+        if (!body) {
+            body = std::make_unique<std::string>();
+        }
+        body->append(chunk.data(), chunk.size());
+        return;
+    }
+
+    if (body) {
+        body->append(chunk.data(), chunk.size());
+    }
+    const std::string_view request_body = body ? std::string_view(*body) : chunk;
+    // ...
+});
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+DOCKER_BUILDKIT=0 docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado: testes unitários passaram (`1/1`). A imagem Docker foi reconstruída com sucesso em build único.
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| buffer lazy #1 | 1.23ms | 0% | 5911.55 |
+| buffer lazy #2 | 1.24ms | 0% | 5906.96 |
+| buffer lazy #3 | 1.22ms | 0% | 5913.54 |
+
+Decisão: **aceito**. A média das três runs (`5910.68`) supera o par aceito anterior de `NO_WRITEMARK` (`5908.38` / `5909.24`), sem erro HTTP e sem alterar semântica da API. Ganho pequeno, mas a mudança é localizada, sustentável e reduz trabalho no caso comum de body em chunk único.

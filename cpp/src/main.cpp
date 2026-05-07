@@ -226,17 +226,19 @@ int run_server(const ListenerConfig& config, const std::shared_ptr<AppState>& st
 
     app.post("/fraud-score", [state](auto* res, auto*) {
         res->onAborted([]() {});
-        res->onData([res, state, body = std::string{}](std::string_view chunk, bool is_last) mutable {
+        res->onData([res, state, body = std::unique_ptr<std::string>{}](std::string_view chunk, bool is_last) mutable {
             if (!is_last) {
-                body.append(chunk.data(), chunk.size());
+                if (!body) {
+                    body = std::make_unique<std::string>();
+                }
+                body->append(chunk.data(), chunk.size());
                 return;
             }
 
-            const bool single_chunk = body.empty();
-            if (!single_chunk) {
-                body.append(chunk.data(), chunk.size());
+            if (body) {
+                body->append(chunk.data(), chunk.size());
             }
-            const std::string_view request_body = single_chunk ? chunk : std::string_view(body);
+            const std::string_view request_body = body ? std::string_view(*body) : chunk;
 
             rinha::Payload payload;
             std::string error;
