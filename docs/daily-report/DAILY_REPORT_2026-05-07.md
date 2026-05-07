@@ -218,3 +218,39 @@ Resultado k6 local com `mimalloc`:
 | `mimalloc` #1 | 1.27ms | 0 | 0 | 0 | 5894.89 |
 
 Decisão: **rejeitado e revertido**. A correção de detecção permaneceu perfeita, mas a p99 ficou muito abaixo da submissão preparada (`submission-cd3e915`, validações finais `5944-5950`). O custo/risco de adicionar biblioteca runtime e `LD_PRELOAD` não se justifica; glibc malloc segue melhor para este hot path.
+
+## Ciclo 10h10: `-fno-stack-protector`
+
+Hipótese: o binário exportava referência a `__stack_chk_fail`, então poderia haver stack protector/hardening residual no caminho de funções com buffers locais. Remover stack protector do binário principal poderia reduzir prólogo/epílogo de funções quentes.
+
+Verificação inicial:
+
+```text
+readelf -s cpp/build/rinha-backend-2026-cpp | rg '__stack_chk|chk_fail'
+__stack_chk_fail presente
+```
+
+Escopo testado:
+
+- Adicionar `-fno-stack-protector` somente ao target `rinha-backend-2026-cpp`.
+- Sem alteração de código, compose, índice, parser ou algoritmo.
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-ivf-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado:
+
+```text
+readelf após patch: __stack_chk_fail ainda presente
+benchmark-ivf-cpp repeat=8:
+ns_per_query=12818.1
+fp=0 fn=0 parse_errors=0 failure_rate_pct=0
+```
+
+Decisão: **rejeitado e revertido sem k6**. A flag no target principal não removeu a dependência final de `__stack_chk_fail`, provavelmente por objetos de bibliotecas linkadas, e o microbenchmark ficou pior que o controle recente GCC (`12629.4 ns/query`). Não há evidência para ampliar a flag para dependências ou publicar imagem.
