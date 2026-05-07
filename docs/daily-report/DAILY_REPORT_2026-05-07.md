@@ -1861,3 +1861,25 @@ Resultado offline:
 | `1024` clusters | 8702.64 | 4 | 8 | 94.64 MB |
 
 Decisão: **rejeitado**. Além de mais lento que o índice `1280`, o índice de `1024` clusters perde correção perfeita. O arquivo gerado ficou apenas em `cpp/build/perf-data/index-1024.bin`, ignorado pelo git.
+
+## Ciclo 13h08: índice IVF com 1536 clusters
+
+Hipótese: aumentar clusters de `1280` para `1536` poderia reduzir o tamanho médio dos clusters escaneados, compensando o centroid probe maior.
+
+Verificação:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz cpp/build/perf-data/index-1536.bin 1536 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1536.bin 4 0 1 1 1 1 4 0 0
+```
+
+Resultados offline:
+
+| Índice/configuração | ns/query | FP | FN |
+|---|---:|---:|---:|
+| `1536`, reparo `1..4` | 7438.93 | 8 | 0 |
+| `1536`, reparo `1..5` | 36365.90 | 0 | 0 |
+| `1536`, reparo `0..4` | 22771.10 | 8 | 0 |
+| `1536`, reparo `0..5` | 50113.80 | 0 | 0 |
+
+Decisão: **rejeitado**. O índice de `1536` melhora latência só enquanto aceita falsos positivos. As janelas que recuperam correção perfeita ficam muito mais lentas que o índice atual `1280`.
