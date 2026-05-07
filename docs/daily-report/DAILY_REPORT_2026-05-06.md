@@ -147,3 +147,39 @@ Comparação:
 | Melhor local com `-fno-rtti` | 1.19ms | 0% | 5924.00 |
 
 Decisão: **manter como candidato experimental, ainda sem submissão oficial**. O sinal é melhor do que os experimentos anteriores e preserva `0%` falhas, mas a sequência também mostra variância (`1.19 -> 1.29 -> 1.24`). Para virar nova submissão, precisa de validação por imagem pública e repetição acima da issue `#1714`; uma única run `1.19ms` não é suficiente para declarar ganho sustentável.
+
+### Validação pública do candidato `-fno-rtti`
+
+Após o push do commit `9ddccaf`, a workflow `Publish submission image` publicou a imagem pública `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission`.
+
+Workflow:
+
+- Run: `25474242896`.
+- Resultado: sucesso.
+- Duração: `1m20s`.
+
+Validei a imagem pública por compose override temporário, sem alterar arquivos versionados:
+
+```bash
+DOCKER_HOST=unix:///run/docker.sock docker compose -f docker-compose.yml -f /tmp/rinha-public-override.yml -p perf-public-fno-rtti pull
+DOCKER_HOST=unix:///run/docker.sock docker compose -f docker-compose.yml -f /tmp/rinha-public-override.yml -p perf-public-fno-rtti up -d --force-recreate
+DOCKER_HOST=unix:///run/docker.sock ./run-local-k6.sh
+```
+
+Resultados públicos:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| imagem pública `submission` #1 | 1.15ms | 0 | 0 | 0 | 5940.80 |
+| imagem pública `submission` #2 | 1.27ms | 0 | 0 | 0 | 5895.40 |
+| imagem pública `submission` #3 | 1.28ms | 0 | 0 | 0 | 5894.23 |
+
+Comparação contra a melhor submissão oficial atual:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Issue oficial `#1714` | 1.29ms | 0% | 5888.51 |
+| Pior run pública `-fno-rtti` | 1.28ms | 0% | 5894.23 |
+| Melhor run pública `-fno-rtti` | 1.15ms | 0% | 5940.80 |
+
+Decisão: **promover para submissão oficial**. Diferente das runs locais isoladas, a imagem pública repetiu três vezes acima da issue oficial `#1714`, sempre com `0%` falhas. Próximo passo: publicar tag imutável `submission-9ddccaf`, atualizar a branch `submission` para essa imagem e abrir issue oficial na Rinha.
