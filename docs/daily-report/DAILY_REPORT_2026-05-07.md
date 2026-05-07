@@ -2235,3 +2235,50 @@ Resultado k6:
 | HAProxy L4 | 1.27ms | 0% | 5896.32 |
 
 Decisão: **rejeitado e revertido**. HAProxy funcionou corretamente e manteve 0% falhas, mas p99 piorou de forma clara contra nginx stream. O stack atual de nginx L4 + UDS permanece superior neste ambiente local.
+
+## Ciclo 14h26: nginx HTTP proxy via unix sockets
+
+Hipótese: `joojf/rinha-2026` usa nginx em modo HTTP com upstream UDS e keepalive. Embora o modo `stream` seja mais simples e não parseie HTTP, o HTTP proxy com conexão persistente ao upstream poderia reduzir churn de conexão nginx -> API.
+
+Patch temporário:
+
+```nginx
+http {
+    access_log off;
+    error_log /dev/null;
+
+    upstream api {
+        server unix:/sockets/api1.sock;
+        server unix:/sockets/api2.sock;
+        keepalive 256;
+    }
+
+    server {
+        listen 9999 reuseport backlog=4096;
+        keepalive_timeout 75s;
+        keepalive_requests 100000;
+
+        location / {
+            proxy_pass http://api;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_buffering off;
+        }
+    }
+}
+```
+
+Verificação:
+
+```text
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| nginx HTTP/UDS | 1.34ms | 0% | 5873.19 |
+
+Decisão: **rejeitado e revertido**. O modo HTTP adicionou parse/proxy overhead no LB e piorou a cauda. O nginx `stream` L4 continua a escolha correta para este stack.
