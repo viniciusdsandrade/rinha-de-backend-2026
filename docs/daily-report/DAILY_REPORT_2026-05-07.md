@@ -2187,3 +2187,51 @@ Resultados offline:
 | `fast=8`, `full=24`, bbox, janela `2..3` | 42254.00 | 3 | 0 | mais lenta e perde correção perfeita |
 
 Decisão: **rejeitado sem k6**. A estratégia de múltiplos probes funciona nos líderes porque o kernel e o índice deles foram desenhados para esse regime. No nosso índice `1280` com bbox repair, aumentar `nprobe` multiplica blocos escaneados (`avg_primary_blocks` sobe para `1343.71` em `4/16` e `2613.12` em `8/24`) e elimina qualquer chance de melhorar p99.
+
+## Ciclo 14h18: HAProxy L4 via unix sockets
+
+Hipótese: trocar o nginx `stream` por HAProxy TCP/L4 poderia reduzir cauda do LB, inspirado pelo uso de LB dedicado/custom em submissões líderes. O teste manteve a topologia regulamentar, dois unix sockets de API, porta `9999`, sem lógica de aplicação no LB e os mesmos limites de recurso (`0.18 CPU`, `20MB`) para o balanceador.
+
+Patch temporário:
+
+```yaml
+lb:
+  image: haproxy:3.0-alpine
+  volumes:
+    - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    - sockets:/sockets
+```
+
+Configuração HAProxy testada:
+
+```text
+global
+    maxconn 8192
+    nbthread 1
+
+defaults
+    mode tcp
+    no log
+    retries 0
+
+backend api
+    balance roundrobin
+    server api1 unix@/sockets/api1.sock
+    server api2 unix@/sockets/api2.sock
+```
+
+Verificação:
+
+```text
+DOCKER_BUILDKIT=0 docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| HAProxy L4 | 1.27ms | 0% | 5896.32 |
+
+Decisão: **rejeitado e revertido**. HAProxy funcionou corretamente e manteve 0% falhas, mas p99 piorou de forma clara contra nginx stream. O stack atual de nginx L4 + UDS permanece superior neste ambiente local.
