@@ -1695,3 +1695,37 @@ Resultado k6:
 | `backlog=1024` | 1.24ms | 0% | 5907.68 |
 
 Decisão: **rejeitado e revertido**. A run foi boa, mas ainda abaixo do melhor estado aceito (`5909.24`) e abaixo da melhor run experimental rejeitada por não reproduzir. Sem ganho sustentável.
+
+## Ciclo 12h58: `UWS_HTTP_MAX_HEADERS_COUNT=16`
+
+Hipótese: reduzir o limite compile-time de headers do parser HTTP do uWebSockets de `100` para `16` poderia diminuir o tamanho do objeto de request/parser e melhorar o hot path. O `test/test.js` local envia apenas `Content-Type` explicitamente, e os headers HTTP usuais ficam bem abaixo de 16.
+
+Patch temporário:
+
+```cmake
+UWS_HTTP_MAX_HEADERS_COUNT=16
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose -p perf-noon-tuning build --pull=false api1 api2
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado: testes unitários passaram (`1/1`).
+
+Observação metodológica: a primeira tentativa de build Docker com BuildKit falhou por DNS contra `registry-1.docker.io`; a execução com imagem stale foi abortada. Para obter uma imagem válida, foi necessário repetir o build com `DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0`, que funcionou, mas foi mais pesado por reconstruir etapas de apt no builder clássico.
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| headers 16 #1 | 1.22ms | 0% | 5913.28 |
+| headers 16 #2 | 1.23ms | 0% | 5908.74 |
+| headers 16 #3 | 1.25ms | 0% | 5903.51 |
+
+Decisão: **rejeitado e revertido**. A primeira run foi excelente, mas a terceira caiu para o envelope comum de ruído. A média não supera de forma clara o estado aceito anterior, e a redução do limite de headers adiciona risco de compatibilidade com harness oficial caso ele envie mais headers do que o teste local.
