@@ -468,7 +468,7 @@ void scan_blocks_avx2(
     for (std::uint32_t block = start_block; block < end_block; ++block) {
         const std::size_t block_base = static_cast<std::size_t>(block) * kDimensions * kBlockLanes;
         __m256i acc = _mm256_setzero_si256();
-        for (std::size_t dim = 0; dim < 8; ++dim) {
+        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
             acc = acc_dim_i32(acc, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
         }
 
@@ -480,10 +480,6 @@ void scan_blocks_avx2(
             if (_mm256_movemask_epi8(gt) == kAllLanesMask) {
                 continue;
             }
-        }
-
-        for (std::size_t dim = 8; dim < kDimensions; ++dim) {
-            acc = acc_dim_i32(acc, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
         }
 
         _mm256_store_si256(reinterpret_cast<__m256i*>(values.data()), acc);

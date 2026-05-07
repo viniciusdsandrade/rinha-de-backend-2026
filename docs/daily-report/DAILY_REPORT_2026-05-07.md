@@ -649,3 +649,43 @@ Resultado offline:
 | prune após 6 dims | 13209.2 | 0 | 0 | 4.43808 |
 
 Decisão: **rejeitado e revertido**. A mudança é exata, mas piora o custo offline. O prune após 6 dimensões provavelmente roda a checagem cedo demais, antes de acumular distância suficiente para descartar muitos blocos; o ponto atual em 8 dimensões permanece melhor.
+
+## Ciclo 10h50: prune AVX2 tardio após 14 dimensões
+
+Hipótese: depois de o prune em 6 dimensões piorar, testei pontos mais tardios. A ideia era verificar se a checagem parcial após 8 dimensões estava custando mais do que economizava, por disparar antes de acumular distância suficiente para descartar muitos blocos.
+
+Resultados offline intermediários:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| prune após 10 dims | 12465.0 | 0 | 0 |
+| prune após 12 dims | 12443.0 | 0 | 0 |
+| prune após 14 dims, mantendo skip de bloco | 12097.3 | 0 | 0 |
+| sem skip de bloco antes do insert | 12724.2 | 0 | 0 |
+
+Patch mantido na branch experimental:
+
+```cpp
+for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+    acc = acc_dim_i32(acc, q[dim], blocks_ptr + block_base + (dim * kBlockLanes));
+}
+// mantém skip se todas as lanes são piores que o worst atual
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-ivf-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+Resultado: 100% tests passed
+benchmark final limpo: 12270.4 ns/query, 0 FP, 0 FN
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| prune após 14 dims | 1.27ms | 0% | 5897.34 |
+| baseline recalibrada no mesmo regime | 1.28ms | 0% | 5892.01 |
+
+Decisão: **aceito apenas na branch experimental; não promovido para `submission` ainda**. A mudança é exata, preserva acurácia e reduz custo offline. No k6 ruidoso atual há pequeno ganho contra a baseline recalibrada, mas ainda não supera a submissão estável (`~5944-5950`). Próximo passo: combinar/validar em janela de host menos ruidosa antes de publicar imagem oficial.
