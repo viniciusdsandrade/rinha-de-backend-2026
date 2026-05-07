@@ -2085,3 +2085,46 @@ Resultados k6:
 | buffer padded reutilizável #2 | 1.24ms | 0% | 5906.34 |
 
 Decisão: **rejeitado**. Apesar de `parse_payload` offline melhorar contra o registro anterior (`622.41ns`), o k6 repetiu o padrão histórico desse tipo de mudança: uma run boa seguida por queda abaixo do estado aceito. Como o parser/vetorização está na casa de sub-microssegundos e o p99 é dominado por cauda de infraestrutura/IVF, a mudança foi revertida.
+
+## Ciclo 01h28: especialização IVF para reparo `probe1`
+
+Hipótese: na configuração de submissão (`fast_nprobe=1`, `full_nprobe=1`, `boundary_full=true`), queries na janela de reparo executam `fraud_count_once` duas vezes. A segunda chamada reescaneia o mesmo cluster primário antes de aplicar bbox repair. Uma especialização para `probe1` poderia escanear o primário uma vez, decidir a janela e aplicar bbox repair sobre o mesmo `Top5`.
+
+Medição de incidência:
+
+```text
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 3 0 1 1 1 1 4 1 0 0
+```
+
+Resultado com stats: `repaired_queries=7203` em `162300` consultas (`4.438%`). O custo duplicado existe, mas afeta uma fração pequena do dataset.
+
+Patch testado: novo caminho `fraud_count_probe1_boundary(...)` usado apenas quando `boundary_full && fast_nprobe == 1 && full_nprobe == 1`.
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 5 0 1 1 1 1 4 0 0 0
+DOCKER_BUILDKIT=0 docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultados offline:
+
+| Run | ns/query | FP | FN |
+|---|---:|---:|---:|
+| especialização `probe1` #1 | 7564.86 | 0 | 0 |
+| especialização `probe1` #2 | 7674.69 | 0 | 0 |
+| especialização `probe1` #3 | 7805.54 | 0 | 0 |
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| especialização `probe1` #1 | 1.22ms | 0% | 5914.91 |
+| especialização `probe1` #2 | 1.24ms | 0% | 5907.72 |
+| especialização `probe1` #3 | 1.25ms | 0% | 5903.51 |
+
+Decisão: **rejeitado**. O offline confirmou correção e sinal positivo, mas o k6 não sustentou: média `5908.71`, abaixo do estado aceito do buffer lazy (`5910.68`). Como o ganho ataca só `~4.4%` das queries e aumenta complexidade no classificador, o patch foi revertido.
