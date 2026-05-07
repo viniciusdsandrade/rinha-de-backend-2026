@@ -2312,3 +2312,35 @@ Resultado k6:
 | `nofile=65535` + `seccomp=unconfined` | 1.25ms | 0% | 5901.77 |
 
 Decisão: **rejeitado e revertido**. Não houve ganho e a alteração ainda aumentaria a superfície de risco/ambiguidade regulatória sem necessidade. O compose atual sem `security_opt` permanece melhor.
+
+## Ciclo 14h43: baseline limpo após screenings de LB/runtime
+
+Objetivo: recalibrar o estado atual depois dos experimentos rejeitados de HAProxy, nginx HTTP e runtime flags, garantindo que o compose voltou ao nginx `stream` original e que a imagem local usada pelo k6 representa o código aceito.
+
+Verificações:
+
+```text
+curl -D - http://localhost:9999/fraud-score
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resposta HTTP observada no estado atual:
+
+```text
+HTTP/1.1 200 OK
+Date: Thu, 07 May 2026 17:12:42 GMT
+Content-Length: 36
+
+{"approved":false,"fraud_score":1.0}
+```
+
+Leitura: a resposta já está enxuta (`Date` + `Content-Length`). Remoção de `Date` já foi rejeitada em ciclo anterior, então não foi repetida.
+
+Resultado k6 do baseline limpo:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| baseline atual limpo | 1.23ms | 0% | 5908.42 |
+
+Decisão: **sem mudança de código**. O estado atual continua competitivo e correto, mas esta run não supera a melhor run aceita anterior (`5913.54`) nem a média aceita do buffer lazy (`5910.68`). Próximas tentativas devem atacar gargalo novo, não repetir parser/LB já rejeitados.
