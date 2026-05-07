@@ -379,3 +379,21 @@ Resultados offline:
 | `1280/s65536/i7` | 12469.1 | 0 | 6 | 0 | 4.43068 |
 
 Decisão: **rejeitado sem k6**. `i7` reduziu um pouco o custo offline, mas introduziu `FN`, que é exatamente o erro mais caro depois de HTTP error. `i5` também perde acurácia. O ponto `1280/s65536/i6` continua sendo o único desta família com `0 FP/FN` no benchmark local.
+
+## Ciclo 10h15: repair `1..3` mantendo `extreme_repair`
+
+Hipótese: a janela atual repara `fraud_count` inicial `1..4`, além dos extremos selecionados por regra. Se os casos `f4` fossem majoritariamente seguros, pular esse repair reduziria consultas reparadas sem alterar `FN`.
+
+Comando:
+
+```text
+cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 3 1 0
+```
+
+Resultado:
+
+| Config | ns/query | FP | FN | parse errors | repaired_pct |
+|---|---:|---:|---:|---:|---:|
+| `repair=1..3` + `extreme_repair` | 13157.6 | 176 | 0 | 0 | 3.72828 |
+
+Decisão: **rejeitado sem k6**. O repair de `f4` é necessário: removê-lo transforma transações legítimas em negativas fraudulentas (`FP`) e derruba o `detection_score`. A janela `1..4` continua justificada.
