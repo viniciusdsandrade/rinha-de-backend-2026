@@ -746,3 +746,24 @@ Resultados offline:
 | filtro por lane #3 | 12864.8 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A primeira run parecia promissora, mas não reproduziu. A hipótese adiciona um branch por lane e chama `worst_distance()` com frequência; quando o branch predictor não ajuda, o custo supera a economia de chamadas a `insert`. Como a melhoria não é estável nem inquestionável, não vale k6 nem promoção.
+
+## Ciclo 11h10: `always_inline` em `acc_dim_i32`
+
+Hipótese: forçar inline no helper AVX2 usado em cada dimensão do bloco poderia eliminar qualquer chamada residual no loop quente e estabilizar melhor o código gerado.
+
+Patch temporário:
+
+```cpp
+inline __attribute__((always_inline)) __m256i acc_dim_i32(...)
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| `always_inline` #1 | 11963.2 | 0 | 0 |
+| `always_inline` #2 | 12429.1 | 0 | 0 |
+| `always_inline` #3 | 12439.7 | 0 | 0 |
+| baseline revertido no mesmo momento | 12317.6 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. O melhor ponto isolado foi bom, mas a sequência não mostrou ganho sustentável; a média do patch ficou praticamente empatada com o baseline imediato e abaixo do critério de melhoria inquestionável. Não vale k6 nem promoção.
