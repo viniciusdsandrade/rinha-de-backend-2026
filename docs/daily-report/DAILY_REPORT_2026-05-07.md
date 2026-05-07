@@ -446,3 +446,28 @@ Ao subir o compose com a imagem local já disponível (`docker compose up -d --n
 | `AppState` IVF direto | 1.30ms | 0% | 5886.90 |
 
 Decisão: **rejeitado e revertido**. A hipótese é tecnicamente plausível, mas não gerou ganho mensurável; pelo contrário, caiu abaixo do envelope da submissão atual (`~5944-5950`). O custo do `std::get_if`/`variant` não aparece como gargalo real diante do restante do stack e do ruído do k6 local.
+
+## Ciclo 10h27: `uWS::Loop::setSilent(true)`
+
+Hipótese: uWebSockets escreve por padrão o header `uWebSockets: 20` em todas as respostas. Como o contrato oficial só exige JSON válido/HTTP 200 para `/fraud-score` e 2xx para `/ready`, remover esse marcador poderia reduzir bytes e chamadas de escrita no caminho HTTP sem alterar semântica.
+
+Ação temporária:
+
+```cpp
+uWS::Loop::get()->setSilent(true);
+```
+
+Validação rápida:
+
+```text
+GET /ready -> HTTP/1.1 204 No Content
+Headers observados: Date apenas; header uWebSockets removido
+```
+
+Resultado k6 válido:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `setSilent(true)` | 1.27ms | 0% | 5897.37 |
+
+Decisão: **rejeitado e revertido**. A remoção do header é funcionalmente segura, mas o ganho esperado é pequeno demais e a amostra ficou bem abaixo do envelope da submissão atual. O custo relevante não está nos bytes desse header.
