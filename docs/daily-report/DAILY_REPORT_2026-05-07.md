@@ -471,3 +471,26 @@ Resultado k6 válido:
 | `setSilent(true)` | 1.27ms | 0% | 5897.37 |
 
 Decisão: **rejeitado e revertido**. A remoção do header é funcionalmente segura, mas o ganho esperado é pequeno demais e a amostra ficou bem abaixo do envelope da submissão atual. O custo relevante não está nos bytes desse header.
+
+## Ciclo 10h32: variação de número de clusters IVF
+
+Hipótese: o índice atual usa `1280` clusters. Aumentar clusters poderia reduzir blocos primários por consulta; reduzir clusters poderia melhorar estabilidade/recall da região primária. Testei os dois lados com `train_sample=65536`, `iterations=6`, `nprobe=1`, repair `1..4` e `extreme_repair` ativo.
+
+Comandos:
+
+```text
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1536-s65536-i6.bin 1536 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1536-s65536-i6.bin 3 0 1 1 1 1 4 1 0
+
+nice -n 10 cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1024-s65536-i6.bin 1024 65536 6
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1024-s65536-i6.bin 3 0 1 1 1 1 4 1 0
+```
+
+Resultados offline:
+
+| Índice | ns/query | FP | FN | repaired_pct | avg_primary_blocks | avg_bbox_scanned_blocks |
+|---|---:|---:|---:|---:|---:|---:|
+| `1536/s65536/i6` | 12834.6 | 6 | 0 | 4.44917 | 271.393 | 39.893 |
+| `1024/s65536/i6` | 13528.3 | 3 | 6 | 4.42884 | 408.823 | 50.9443 |
+
+Decisão: **rejeitado sem k6**. `1536` reduz blocos primários, mas introduz falso positivo; `1024` piora custo e também introduz falso negativo. O ponto `1280/s65536/i6` segue sendo o único da família testada com 0 FP/FN e custo competitivo.
