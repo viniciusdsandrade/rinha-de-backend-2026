@@ -2765,3 +2765,24 @@ Resultado k6:
 | repair `2..3` | 1.21ms | 22 | 28 | 0.09% | 5015.30 |
 
 Decisão: **rejeitado e revertido imediatamente**. A latência ficou boa, mas a queda de detecção é inaceitável na fórmula atual. O range `1..4` é necessário para preservar 0% de falhas no dataset local.
+
+## Ciclo 22h12: baseline limpo do estado aceito
+
+Objetivo: após múltiplos experimentos revertidos, medir novamente o estado aceito atual para separar ruído de regressão real.
+
+Estado medido:
+
+```text
+servidor HTTP manual
+buffer fixo de entrada por conexão
+nginx stream original
+IVF repair 1..4
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| estado aceito pós-reverts | 1.20ms | 0% | 5920.04 |
+
+Leitura: o melhor estado aceito segue reproduzindo em torno de `5920`, com 0% falhas. Isso confirma que os reverts não degradaram a branch e que o ganho contra a submissão oficial anterior continua material.
