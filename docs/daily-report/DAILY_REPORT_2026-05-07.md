@@ -397,3 +397,24 @@ Resultado:
 | `repair=1..3` + `extreme_repair` | 13157.6 | 176 | 0 | 0 | 3.72828 |
 
 Decisão: **rejeitado sem k6**. O repair de `f4` é necessário: removê-lo transforma transações legítimas em negativas fraudulentas (`FP`) e derruba o `detection_score`. A janela `1..4` continua justificada.
+
+## Ciclo 10h22: MIT também na branch `submission`
+
+Risco: embora a branch padrão `main` já tenha sido corrigida com `LICENSE`, o runner/organização pode inspecionar diretamente a branch `submission`. Como a regra de submissão exige que `submission` contenha `docker-compose.yml` e `info.json`, mas não proíbe arquivos extras, adicionar `LICENSE` na raiz reduz ambiguidade sem mudar runtime.
+
+Ação:
+
+- Worktree de submissão: `/home/andrade/Desktop/rinha-de-backend-2026-rust`.
+- Branch: `submission`.
+- Commit: `135c78c` (`add mit license to submission`).
+- Push: `origin/submission`.
+- Arquivos na raiz após a mudança: `LICENSE`, `docker-compose.yml`, `info.json`, `nginx.conf`.
+
+Validação:
+
+```text
+DOCKER_HOST=unix:///run/docker.sock docker compose config --quiet
+Resultado: OK
+```
+
+Decisão: **aceito como correção de conformidade**, sem alteração de performance. A imagem da submissão continua `submission-cd3e915`; somente a licença foi adicionada ao branch.
