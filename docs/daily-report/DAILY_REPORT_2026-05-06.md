@@ -554,3 +554,48 @@ Validação final do compose da branch `submission`:
 | branch `submission` / `submission-cd3e915` #3 | 1.14ms | 0 | 0 | 0 | 5944.68 |
 
 Decisão final do ciclo: **manter `submission-cd3e915` como melhor submissão preparada**. O resultado tem variância local, mas duas das três validações finais superaram o melhor público anterior de `submission-a5ef277` (`5943.36`) e a melhor pública do novo candidato chegou a `5950.45`. A issue oficial de teste permanece aberta (`#2009`), sem comentários até o momento, então a branch `submission` atualizada ainda deve ser a versão consumida quando a engine processar a solicitação.
+
+## Ciclo 03h35: `known_merchants` sem alocação no parser
+
+Hipótese: o parser copiava `customer.known_merchants` para `std::vector<std::string>` apenas para calcular `unknown_merchant`. Como o dataset local usa entre 2 e 5 merchants conhecidos por payload, trocar o caminho comum para `std::array<std::string_view, 8>` remove alocações/cópias por request sem alterar o contrato.
+
+Investigação do dataset local:
+
+```text
+min=2, max=5, avg=3.4964 known_merchants por request
+histograma: len=2 -> 13529, len=3 -> 13599, len=4 -> 13560, len=5 -> 13412
+```
+
+Escopo testado:
+
+- `parse_customer` passa a preencher `std::array<std::string_view, 8>` e contador no caminho comum.
+- Para preservar correção se o dataset oficial trouxer mais de 8 merchants conhecidos, há fallback de overflow em `std::vector<std::string_view>`.
+- `parse_merchant` guarda `merchant.id` em `std::string_view` temporário em vez de `std::string`.
+- `Payload` permanece igual; apenas a checagem final de `known_merchant` usa as views ainda válidas durante o parse.
+- Sem alteração de algoritmo, compose, índice IVF, API, resposta ou dados.
+
+Validação funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais com imagem reconstruída:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| fixed `known_merchants` #1 | 1.12ms | 0 | 0 | 0 | 5949.11 |
+| fixed `known_merchants` #2 | 1.12ms | 0 | 0 | 0 | 5949.50 |
+| fixed `known_merchants` #3 | 1.13ms | 0 | 0 | 0 | 5947.51 |
+| fixed `known_merchants` + overflow seguro | 1.13ms | 0 | 0 | 0 | 5947.39 |
+
+Comparação:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Branch `submission` / `submission-cd3e915` melhor final | 1.14ms | 0% | 5944.96 |
+| Melhor pública raw `AppState*` | 1.12ms | 0% | 5950.45 |
+| Pior run local fixed `known_merchants` | 1.13ms | 0% | 5947.39 |
+| Melhor run local fixed `known_merchants` | 1.12ms | 0% | 5949.50 |
+
+Decisão: **promover para candidato público**. Diferente de algumas flags de compilação, esta remove trabalho real do hot path de parse, preserva correção e sustentou três runs locais acima da validação final da branch `submission`. Próximo passo: publicar imagem pública e validar com GHCR antes de mexer novamente na branch `submission`.

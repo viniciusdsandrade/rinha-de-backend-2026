@@ -1,6 +1,7 @@
 #include "rinha/request.hpp"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -77,7 +78,9 @@ bool parse_transaction(const simdjson::dom::object& object, Payload& payload, st
 bool parse_customer(
     const simdjson::dom::object& object,
     Payload& payload,
-    std::vector<std::string>& known_merchants,
+    std::array<std::string_view, 8>& known_merchants,
+    std::size_t& known_merchants_count,
+    std::vector<std::string_view>& overflow_known_merchants,
     std::string& error
 ) {
     for (const auto field : object) {
@@ -96,14 +99,19 @@ bool parse_customer(
                 error = "campo inválido: customer.known_merchants";
                 return false;
             }
-            known_merchants.clear();
+            known_merchants_count = 0;
+            overflow_known_merchants.clear();
             for (const auto merchant : values) {
                 std::string_view merchant_id;
                 if (const auto code = merchant.get(merchant_id); code != simdjson::SUCCESS) {
                     error = "campo inválido: customer.known_merchants[]";
                     return false;
                 }
-                known_merchants.emplace_back(merchant_id.data(), merchant_id.size());
+                if (known_merchants_count < known_merchants.size()) {
+                    known_merchants[known_merchants_count++] = merchant_id;
+                } else {
+                    overflow_known_merchants.emplace_back(merchant_id);
+                }
             }
         }
     }
@@ -113,13 +121,14 @@ bool parse_customer(
 bool parse_merchant(
     const simdjson::dom::object& object,
     Payload& payload,
-    std::string& merchant_id,
+    std::string_view& merchant_id,
     std::string& error
 ) {
     for (const auto field : object) {
         const std::string_view key = field.key;
         if (key == "id") {
-            if (!assign_string(field.value, merchant_id, error, "merchant.id")) {
+            if (const auto code = field.value.get(merchant_id); code != simdjson::SUCCESS) {
+                error = "campo inválido: merchant.id";
                 return false;
             }
         } else if (key == "mcc") {
@@ -210,8 +219,10 @@ bool parse_payload(std::string_view body, Payload& payload, std::string& error) 
         return false;
     }
 
-    std::vector<std::string> known_merchants;
-    std::string merchant_id;
+    std::array<std::string_view, 8> known_merchants{};
+    std::size_t known_merchants_count = 0;
+    std::vector<std::string_view> overflow_known_merchants;
+    std::string_view merchant_id;
 
     for (const auto field : object) {
         const std::string_view key = field.key;
@@ -225,7 +236,9 @@ bool parse_payload(std::string_view body, Payload& payload, std::string& error) 
             }
         } else if (key == "customer") {
             simdjson::dom::object customer;
-            if (const auto code = field.value.get(customer); code != simdjson::SUCCESS || !parse_customer(customer, payload, known_merchants, error)) {
+            if (const auto code = field.value.get(customer);
+                code != simdjson::SUCCESS ||
+                !parse_customer(customer, payload, known_merchants, known_merchants_count, overflow_known_merchants, error)) {
                 if (error.empty()) {
                     error = "campo inválido: customer";
                 }
@@ -259,8 +272,12 @@ bool parse_payload(std::string_view body, Payload& payload, std::string& error) 
         return false;
     }
 
-    payload.known_merchant =
-        std::find(known_merchants.begin(), known_merchants.end(), merchant_id) != known_merchants.end();
+    payload.known_merchant = std::find(known_merchants.begin(), known_merchants.begin() + known_merchants_count, merchant_id) !=
+        known_merchants.begin() + known_merchants_count;
+    if (!payload.known_merchant && !overflow_known_merchants.empty()) {
+        payload.known_merchant =
+            std::find(overflow_known_merchants.begin(), overflow_known_merchants.end(), merchant_id) != overflow_known_merchants.end();
+    }
     return true;
 }
 
