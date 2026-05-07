@@ -1753,3 +1753,39 @@ Resultados offline:
 | `0..5` | 53630.40 | 0 | 0 | correto, mas muito mais lento |
 
 Decisão: **sem mudança**. As variantes mais rápidas criam FP/FN e perderiam muito mais no `detection_score` do que ganhariam em p99; a variante mais ampla mantém corretude mas é inviável em latência. Manter `1..4`.
+
+## Ciclo 13h02: promover `disable_extreme_repair` para produção
+
+Hipótese: desabilitar o ramo de reparo extremo poderia reduzir custo mantendo a janela `repair_min=1` / `repair_max=4`. Uma primeira leitura do benchmark parecia indicar mesmo checksum/correção com menor tempo, mas havia risco de o parâmetro só estar ativo no caminho com stats.
+
+Patch temporário:
+
+```cpp
+bool disable_extreme_repair = false;
+const bool extreme_repair = !config.disable_extreme_repair && should_repair_extreme(frauds, query);
+```
+
+e no compose:
+
+```yaml
+IVF_DISABLE_EXTREME_REPAIR: "true"
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 0 1
+```
+
+Resultado: testes unitários passaram (`1/1`).
+
+Resultados offline após a promoção real do flag:
+
+| Variante | ns/query | FP | FN | checksum |
+|---|---:|---:|---:|---:|
+| `disable_extreme_repair=true` #1 | 7802.57 | 8 | 16 | 246457048 |
+| `disable_extreme_repair=true` #2 | 8137.56 | 8 | 16 | 246457048 |
+
+Decisão: **rejeitado e revertido sem k6**. O reparo extremo é necessário para correção perfeita no dataset local. A leitura anterior era enganosa porque o argumento `disable_extreme` do benchmark só tinha efeito no caminho com stats; ao torná-lo efetivo no caminho normal, surgiram FP/FN. Perder detecção por esse ganho de latência não compensa.
