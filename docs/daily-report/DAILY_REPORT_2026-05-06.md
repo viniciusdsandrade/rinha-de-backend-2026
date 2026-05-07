@@ -236,3 +236,47 @@ cpp/src/main.cpp:57:14: error: exception handling disabled, use '-fexceptions' t
 Causa: o binário ainda possui `catch (...)` no parser de variáveis de ambiente (`uint_env_or_default`) ao redor de `std::stoul`. Seria possível reescrever esse trecho para parsing sem exceções, mas ele roda apenas em startup e não participa do hot path do `/fraud-score`.
 
 Decisão: **rejeitado e revertido**. Não há evidência de ganho mensurável porque o experimento nem compila. A refatoração necessária para permitir `-fno-exceptions` é segura, mas provavelmente tem retorno prático nulo para p99; portanto não vale encerrar o dia abrindo esse risco.
+
+## Ciclo 01h35: remover unwind tables do binário principal
+
+Hipótese: manter exceções habilitadas, mas remover tabelas de unwind do binário principal (`-fno-unwind-tables` e `-fno-asynchronous-unwind-tables`), poderia reduzir metadados/caminhos frios sem tocar no contrato nem no hot path. Diferente de `-fno-exceptions`, essa mudança não exige reescrever código e deve preservar os `catch` existentes.
+
+Escopo testado:
+
+- Adicionado `-fno-unwind-tables`.
+- Adicionado `-fno-asynchronous-unwind-tables`.
+- Mantido `-fno-rtti`.
+- Flags aplicadas apenas em `target_compile_options(rinha-backend-2026-cpp ...)`.
+- Sem alteração de algoritmo, compose, recursos, índice IVF, parser, API ou dados.
+
+Validação funcional:
+
+```bash
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais com imagem reconstruída:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| unwind tables off #1 | 1.22ms | 0 | 0 | 0 | 5912.33 |
+| unwind tables off #2 | 1.14ms | 0 | 0 | 0 | 5942.54 |
+| unwind tables off #3 | 1.14ms | 0 | 0 | 0 | 5944.66 |
+
+Comparação:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Issue oficial `#1714` | 1.29ms | 0% | 5888.51 |
+| Submissão enviada `submission-9ddccaf` validação final | 1.28ms | 0% | 5891.27 |
+| Pior run local unwind tables off | 1.22ms | 0% | 5912.33 |
+| Melhor run local unwind tables off | 1.14ms | 0% | 5944.66 |
+
+Decisão: **promover para candidato público**. A mudança é pequena, compila, preserva acurácia perfeita e as três runs locais ficaram acima da submissão atual. Próximo passo: publicar a imagem via workflow da branch experimental, validar a imagem pública e só então decidir se vira nova tag imutável para `submission`.
