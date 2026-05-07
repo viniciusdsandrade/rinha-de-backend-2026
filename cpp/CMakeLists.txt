@@ -96,6 +96,48 @@ if(RINHA_IPO_SUPPORTED)
     set_property(TARGET rinha-backend-2026-cpp PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 endif()
 
+add_executable(rinha-backend-2026-cpp-manual
+    src/manual_main.cpp
+    src/request.cpp
+    src/vectorize.cpp
+    src/ivf.cpp
+)
+target_include_directories(rinha-backend-2026-cpp-manual
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader"
+)
+target_compile_definitions(rinha-backend-2026-cpp-manual
+    PRIVATE
+        SIMDJSON_EXCEPTIONS=0
+)
+target_link_libraries(rinha-backend-2026-cpp-manual
+    PRIVATE
+        simdjson_singleheader
+        ZLIB::ZLIB
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(rinha-backend-2026-cpp-manual PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+        -fno-unwind-tables
+        -fno-asynchronous-unwind-tables
+        -fno-rtti
+    )
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    target_compile_options(rinha-backend-2026-cpp-manual PRIVATE -mavx2 -mfma -march=x86-64-v3)
+endif()
+
+if(RINHA_IPO_SUPPORTED)
+    set_property(TARGET rinha-backend-2026-cpp-manual PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+
 add_executable(prepare-refs-cpp
     src/prepare_refs.cpp
     src/refs.cpp

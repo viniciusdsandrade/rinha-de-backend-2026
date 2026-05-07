@@ -2381,3 +2381,65 @@ Resultados offline:
 | `parse_vectorize` | 699.05 |
 
 Decisão: **rejeitado sem k6**. O sinal offline não melhorou o caminho de request; o código ficou maior e mais branchy para economizar comparações que já são baratas. Como parser/vetorização não dominam o p99 atual, o patch foi revertido.
+
+## Ciclo 15h20: servidor HTTP manual sobre UDS
+
+Hipótese: depois dos screenings rejeitados de LB, headers, parser e IVF, o gargalo restante mais plausível era overhead fixo do framework HTTP. As soluções no topo parcial usam servidores muito enxutos ou stacks assíncronas de baixo nível; portanto a troca sustentável era manter o classificador/IVF atual e substituir apenas o front HTTP da API C++ por um servidor manual `epoll` em Unix Domain Socket.
+
+Implementação aceita:
+
+```text
+cpp/src/manual_main.cpp
+cpp/CMakeLists.txt
+Dockerfile
+```
+
+Características:
+
+- Servidor `epoll` simples em `UNIX_SOCKET_PATH`, atrás do nginx `stream` existente.
+- `GET /ready` responde `204` com `Content-Length: 0`.
+- `POST /fraud-score` reutiliza `parse_payload`, `vectorize` e `IvfIndex::fraud_count`.
+- Respostas de score continuam pré-computadas, agora como resposta HTTP completa, sem `Date` nem headers extras.
+- Em erro de parse/vetorização, mantém fallback barato para `approved=true/fraud_score=0.0`, evitando HTTP 5xx no cenário de avaliação.
+- O endpoint exposto externamente continua sendo o LB na porta `9999`; o LB segue sem lógica de aplicação.
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+docker compose -p perf-noon-tuning up -d --no-build
+curl http://localhost:9999/ready
+curl -H 'Content-Type: application/json' --data-binary @/tmp/manual-payload.json http://localhost:9999/fraud-score
+./run-local-k6.sh
+```
+
+Smoke real:
+
+```text
+Payload: .entries[0].request de test/test-data.json
+Esperado: {"expected_fraud_score":1,"expected_approved":false}
+Obtido:   {"approved":false,"fraud_score":1.0}
+```
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| manual HTTP 1 | 1.21ms | 0% | 5916.25 |
+| manual HTTP 2 | 1.20ms | 0% | 5921.26 |
+| manual HTTP 3 | 1.22ms | 0% | 5914.03 |
+| **média** | **1.21ms** | **0%** | **5917.18** |
+
+Comparação:
+
+| Referência | final_score |
+|---|---:|
+| submissão oficial anterior `andrade-cpp-ivf` | 5548.91 |
+| melhor run aceita recente antes deste ciclo | 5913.54 |
+| média aceita recente antes deste ciclo | 5910.68 |
+| melhor run deste ciclo | 5921.26 |
+| média deste ciclo | 5917.18 |
+
+Decisão: **aceito**. Este é o primeiro ganho estrutural sustentável desde a rodada de IVF/headers/buffer, supera a melhor run local recente e aumenta a distância contra a submissão oficial anterior. O próximo passo deve ser endurecer este servidor manual com uma rodada curta de validação de estabilidade e, se mantiver média acima do estado anterior, promover para a branch de submissão/issue oficial.
