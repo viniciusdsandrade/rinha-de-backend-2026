@@ -459,3 +459,40 @@ Comparação:
 | sections + GC | 1.15ms | 0% | 5940.37 |
 
 Decisão: **rejeitado e revertido**. A mudança não quebrou funcionalidade, mas também não entregou ganho concreto. Como mexe em flags de libs e linker para retorno abaixo da melhor pública, não é sustentável manter.
+
+## Ciclo 03h10: captura de `AppState` por ponteiro cru
+
+Hipótese: evitar captura/cópia de `std::shared_ptr<AppState>` no hot path HTTP poderia remover uma pequena pressão de refcount/objeto nas lambdas de request do uWebSockets. O `shared_ptr` continua existindo no chamador e mantém o estado vivo durante `app.run()`, mas as lambdas passam a capturar apenas `const AppState*`.
+
+Escopo testado:
+
+- `run_server` recebe `const std::shared_ptr<AppState>& state_owner`.
+- O ponteiro `const AppState* state = state_owner.get()` é criado uma vez antes de registrar as rotas.
+- As lambdas de `POST /fraud-score` capturam `state` por valor como ponteiro cru.
+- Sem alteração de algoritmo, parser, compose, índice IVF, API, dados ou resposta.
+
+Validação funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais com imagem reconstruída:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| raw `AppState*` #1 | 1.14ms | 0 | 0 | 0 | 5944.24 |
+| raw `AppState*` #2 | 1.13ms | 0 | 0 | 0 | 5946.23 |
+| raw `AppState*` #3 | 1.14ms | 0 | 0 | 0 | 5942.89 |
+
+Comparação:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Branch `submission` / `submission-a5ef277` | 1.15ms | 0% | 5939.70 |
+| Pior pública sem `-fno-plt` (`submission-a5ef277`) | 1.14ms | 0% | 5943.01 |
+| Melhor pública sem `-fno-plt` (`submission-a5ef277`) | 1.14ms | 0% | 5943.36 |
+| Pior run local raw `AppState*` | 1.14ms | 0% | 5942.89 |
+| Melhor run local raw `AppState*` | 1.13ms | 0% | 5946.23 |
+
+Decisão: **promover para candidato público**. O ganho ainda é estreito e pode ser ruído, mas duas das três runs locais superaram a melhor validação pública da submissão atual e a mudança é pequena, sustentável e de baixo risco de correção. Próximo passo: publicar a imagem mutável, validar via artefato público e só então decidir se deve substituir `submission-a5ef277`.

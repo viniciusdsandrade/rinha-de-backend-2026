@@ -214,8 +214,9 @@ bool prepare_unix_socket(const std::string& path, std::string& error) {
     return true;
 }
 
-int run_server(const ListenerConfig& config, const std::shared_ptr<AppState>& state) {
+int run_server(const ListenerConfig& config, const std::shared_ptr<AppState>& state_owner) {
     bool listening = false;
+    const AppState* state = state_owner.get();
 
     auto app = uWS::App();
     app.get("/ready", [](auto* res, auto*) {
