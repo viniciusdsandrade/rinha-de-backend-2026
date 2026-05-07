@@ -113,3 +113,36 @@ Impacto na nossa submissão:
 - A branch `submission` está estruturalmente correta e enxuta: contém apenas `docker-compose.yml`, `info.json` e `nginx.conf`.
 - Risco corrigido no branch experimental: o fork não possuía arquivo `LICENSE`/`COPYING` detectável no checkout local. Foi adicionado `LICENSE` MIT no branch de código para alinhar com a nova regra. A branch `submission` não foi alterada, para permanecer mínima com apenas os artefatos de execução.
 - Como o teste final pode ser mais pesado, a estratégia de manter `0 FP/FN/HTTP` continua correta. A otimização abaixo de `1ms` só ajuda até saturar o `p99_score`; o ganho restante real é aproximar p99 de `1ms` sem sacrificar detecção.
+
+## Ciclo 09h52: toolchain Clang 18 vs GCC
+
+Hipótese: trocar o compilador poderia melhorar inlining, layout e vetorização do binário C++ sem alterar algoritmo. Como o hot path já está muito apertado, o teste foi feito primeiro em microbenchmark host para evitar rebuild de imagem caro sem sinal prévio.
+
+Achado de compilação:
+
+- Clang rejeitou um shadowing aceito pelo GCC em `cpp/src/main.cpp`: o lambda capturava `body` para acumular chunks e depois declarava outro `body` para o JSON de resposta.
+- Ajuste mínimo aplicado: renomear a variável de resposta para `response_body`.
+- Esse ajuste é semântico no-op, preserva GCC e deixa a base compilável em Clang para experimentos futuros.
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+
+100% tests passed, 0 tests failed out of 1
+
+cmake --build cpp/build-clang --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-ivf-cpp -j2
+ctest --test-dir cpp/build-clang --output-on-failure
+
+100% tests passed, 0 tests failed out of 1
+```
+
+Microbenchmark comparativo no mesmo índice/dataset:
+
+| Toolchain | ns/query | FP | FN | parse errors | failure_rate |
+|---|---:|---:|---:|---:|---:|
+| GCC atual | 12629.4 | 0 | 0 | 0 | 0% |
+| Clang 18 | 13600.6 | 0 | 0 | 0 | 0% |
+
+Decisão: **Clang rejeitado** para a próxima imagem. O binário Clang ficou cerca de `7.7%` pior no microbenchmark offline, então não há base para pagar o custo de adaptar Dockerfile e rodar k6 completo. O pequeno rename de compatibilidade fica no branch experimental como higiene de portabilidade, mas não altera a submissão atual.

@@ -251,8 +251,8 @@ int run_server(const ListenerConfig& config, const std::shared_ptr<AppState>& st
                 classification = {};
             }
 
-            const std::string_view body = classification_json(classification);
-            res->end(body);
+            const std::string_view response_body = classification_json(classification);
+            res->end(response_body);
         });
     });
 
