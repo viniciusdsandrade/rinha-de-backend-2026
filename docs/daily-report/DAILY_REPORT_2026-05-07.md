@@ -1459,3 +1459,17 @@ Resultados k6 válidos:
 | sem `Date` #2 | 1.25ms | 0% | 5903.47 |
 
 Decisão: **rejeitado e revertido**. A primeira run ficou competitiva, mas a repetição caiu para o mesmo envelope de ruído baixo. Como a mudança toca código vendorizado e não supera a macro nativa `UWS_HTTPRESPONSE_NO_WRITEMARK`, não vale manter.
+
+## Ciclo 12h18: controle pós-reversão do `Date`
+
+Objetivo: reconstruir e medir o estado aceito real depois de reverter o patch `no-date`, garantindo que as próximas comparações não usem imagem Docker stale.
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| controle `NO_WRITEMARK` após reversão `Date` | 1.26ms | 0% | 5900.96 |
+
+Interpretação: a run ficou abaixo do par aceito de `NO_WRITEMARK` (`5908.38`/`5909.24`) e também abaixo de runs anteriores do mesmo estado. Como não houve mudança de código além da reversão já registrada, o resultado reforça ruído local forte nesta janela.
+
+Decisão: **sem mudança adicional**. Manter `UWS_HTTPRESPONSE_NO_WRITEMARK` como única mudança aceita no eixo de headers e exigir repetição para qualquer nova promoção.
