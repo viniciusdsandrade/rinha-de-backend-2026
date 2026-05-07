@@ -214,3 +214,25 @@ Issue oficial aberta:
 - Body: `https://github.com/viniciusdsandrade/rinha-de-backend-2026`.
 
 Decisão: **submissão enviada**. A validação final ficou acima da issue `#1714` (`5888.51`) e preservou `0%` falhas. A expectativa realista é ganho oficial modesto se a engine cair perto de `1.27-1.28ms`, ou ganho forte se repetir a melhor run pública (`1.15ms`).
+
+## Ciclo 01h10: tentativa `-fno-exceptions`
+
+Hipótese: depois do ganho pequeno com `-fno-rtti`, testar `-fno-exceptions` no binário principal poderia reduzir metadados/caminhos frios e talvez melhorar marginalmente o perfil de cache/instruções.
+
+Escopo testado:
+
+- Adicionado `-fno-exceptions` apenas em `target_compile_options(rinha-backend-2026-cpp ...)`.
+- Mantido `-fno-rtti`.
+- Sem alteração de algoritmo, compose, dados ou contrato HTTP.
+
+Resultado:
+
+```text
+cpp/src/main.cpp:57:14: error: exception handling disabled, use '-fexceptions' to enable
+   57 |     } catch (...) {
+      |              ^~~
+```
+
+Causa: o binário ainda possui `catch (...)` no parser de variáveis de ambiente (`uint_env_or_default`) ao redor de `std::stoul`. Seria possível reescrever esse trecho para parsing sem exceções, mas ele roda apenas em startup e não participa do hot path do `/fraud-score`.
+
+Decisão: **rejeitado e revertido**. Não há evidência de ganho mensurável porque o experimento nem compila. A refatoração necessária para permitir `-fno-exceptions` é segura, mas provavelmente tem retorno prático nulo para p99; portanto não vale encerrar o dia abrindo esse risco.
