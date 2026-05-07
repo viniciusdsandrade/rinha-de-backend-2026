@@ -1134,3 +1134,29 @@ Resultados offline:
 | ponteiro local #2 | 8019.76 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. O primeiro número ficou na faixa normal do melhor estado, mas a segunda run piorou. O compilador provavelmente já otimiza `data()`/`operator[]` bem; a alteração não trouxe ganho sustentável.
+
+## Ciclo 11h34: benchmark do caminho de request
+
+Objetivo: medir o custo isolado de montagem de resposta, parse DOM, parse seletivo e vetorização para decidir se ainda faz sentido insistir no parser antes de novas mudanças no IVF.
+
+Comando executado:
+
+```text
+nice -n 10 cpp/build/benchmark-request-cpp test/test-data.json cpp/build/perf-data/references.bin cpp/build/perf-data/labels.bin
+```
+
+Resultado:
+
+| Métrica | ns/query | Observação |
+|---|---:|---|
+| `body_append_default` | 30.46 | montagem simples do corpo de resposta |
+| `body_append_reserve768` | 26.68 | ganho micro; irrelevante para p99 atual |
+| `dom_padded_parse` | 240.19 | parse DOM isolado ainda sub-microssegundo |
+| `dom_reserve768_parse` | 243.58 | `reserve` não ajudou o DOM |
+| `parse_payload` | 622.41 | parser seletivo segue barato |
+| `parse_vectorize` | 1114.22 | parse + vetorização em ~1.1us |
+| `parse_classify` | 382873.00 | métrica descartada para a submissão atual |
+
+Interpretação: o custo real de parser/vetorização está baixo demais para explicar o gap restante contra o ranking parcial. A métrica `parse_classify` usa o classificador exato antigo do benchmark de request, não o caminho IVF atual da API, então não deve orientar otimização da submissão vigente.
+
+Decisão: **sem mudança de código**. O próximo foco continua sendo IVF/infra/proxy/scheduling ou experimentos de scoring com evidência k6, não micro-otimização de parser.
