@@ -1016,3 +1016,16 @@ Resultados offline:
 | dois acumuladores #2 | 7706.46 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A mudança manteve acurácia, mas piorou o custo. Provável causa: pressão adicional de registradores e código maior superam qualquer benefício de quebrar dependência.
+
+## Ciclo 12h42: repetição k6 do nearest centroid AVX2 aceito
+
+Depois dos microexperimentos rejeitados, rodei nova validação k6 sem rebuild para confirmar se o ganho real do nearest centroid AVX2 com melhor por lane era estável no compose local.
+
+Resultado:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| k6 válido #1 | 1.23ms | 0% | 5908.42 |
+| k6 repetição #2 | 1.24ms | 0% | 5907.40 |
+
+Decisão: **mantém branch experimental, sem promoção ainda**. A repetição confirma ganho local contra o envelope ruidoso recente, mas não supera a `submission` publicada historicamente (`~5944-5950`). Não há base para abrir nova issue/submissão neste momento.
