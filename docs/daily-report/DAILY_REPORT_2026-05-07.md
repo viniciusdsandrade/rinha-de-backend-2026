@@ -2128,3 +2128,39 @@ Resultados k6:
 | especialização `probe1` #3 | 1.25ms | 0% | 5903.51 |
 
 Decisão: **rejeitado**. O offline confirmou correção e sinal positivo, mas o k6 não sustentou: média `5908.71`, abaixo do estado aceito do buffer lazy (`5910.68`). Como o ganho ataca só `~4.4%` das queries e aumenta complexidade no classificador, o patch foi revertido.
+
+## Ciclo 02h04: prefetch em `scan_blocks_avx2`
+
+Investigação externa: repositórios públicos com pontuação alta mostram prefetch explícito no scan de blocos IVF. `jairoblatt/rinha-2026-rust` usa prefetch de `block+8` no kernel de scan e `joojf/rinha-2026` também antecipa blocos no loop AVX2. A hipótese era que nosso layout SoA de blocos (`14 * 8` `i16` por bloco) poderia se beneficiar do mesmo padrão.
+
+Patch testado:
+
+```cpp
+const std::uint32_t prefetch_block = block + 8U;
+if (prefetch_block < end_block) {
+    const std::size_t prefetch_base =
+        static_cast<std::size_t>(prefetch_block) * kDimensions * kBlockLanes;
+    _mm_prefetch(reinterpret_cast<const char*>(blocks_ptr + prefetch_base), _MM_HINT_T0);
+    _mm_prefetch(
+        reinterpret_cast<const char*>(blocks_ptr + prefetch_base + ((kDimensions * kBlockLanes) / 2U)),
+        _MM_HINT_T0
+    );
+}
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 5 0 1 1 1 1 4 0 0 0
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| prefetch `block+8` #1 | 7817.31 | 0 | 0 |
+| prefetch `block+8` #2 | 8007.09 | 0 | 0 |
+
+Decisão: **rejeitado sem k6**. A ideia é válida nos líderes, mas no nosso kernel atual o sinal offline ficou abaixo da faixa boa recente e não justificou uma rodada de compose. Provável causa: o scan com bbox/cluster pequeno já é suficientemente cache-local, e o prefetch adiciona instruções em consultas onde não há distância longa o bastante para esconder latência. Patch revertido.
