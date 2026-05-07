@@ -1269,3 +1269,33 @@ Resultado k6:
 Interpretação: a run de controle ficou no mesmo patamar dos experimentos de infra rejeitados, abaixo das duas runs válidas anteriores do mesmo estado (`5908.42` e `5907.40`). Isso indica ruído/carga local relevante nesta janela.
 
 Decisão: **sem mudança de código**. Para promoção, não basta uma medição única com melhora pequena; a próxima mudança precisa repetir ganho ou melhorar acima do ruído observado.
+
+## Ciclo 11h52: IPO nas libs internas
+
+Hipótese: o executável principal já usa IPO/LTO, mas `simdjson_singleheader` e `usockets` eram libs estáticas sem IPO explícito. Ativar IPO nelas poderia permitir melhor otimização interprocedural no binário final.
+
+Patch temporário:
+
+```cmake
+set_property(TARGET simdjson_singleheader PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+set_property(TARGET usockets PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+```
+
+Verificação:
+
+```text
+cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado: testes passaram (`1/1`).
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| IPO libs #1 | 1.24ms | 0% | 5906.98 |
+| IPO libs #2 | 1.26ms | 0% | 5901.07 |
+
+Decisão: **rejeitado e revertido**. A primeira run superou a run de controle imediata, mas a repetição caiu abaixo do envelope aceito. O ganho não é sustentável e ainda aumenta custo/risco de build.
