@@ -254,3 +254,34 @@ fp=0 fn=0 parse_errors=0 failure_rate_pct=0
 ```
 
 Decisão: **rejeitado e revertido sem k6**. A flag no target principal não removeu a dependência final de `__stack_chk_fail`, provavelmente por objetos de bibliotecas linkadas, e o microbenchmark ficou pior que o controle recente GCC (`12629.4 ns/query`). Não há evidência para ampliar a flag para dependências ou publicar imagem.
+
+## Ciclo 10h15: rechecagem de runner, líderes e hipóteses de baixo sinal
+
+Objetivo: evitar repetir trabalho já rejeitado e validar se havia alguma janela segura para submissão ou algum repositório líder novo publicamente indexado.
+
+Verificações:
+
+```text
+gh issue view 2026 -R zanfranceschi/rinha-de-backend-2026
+state=OPEN
+comments=[]
+title=Runner broken: stale submission directory since #2019
+
+gh search repos 'rinha 2026 thiagorigonatti'
+[]
+
+gh search repos 'rinha 2026 jairoblatt'
+[]
+
+gh search repos 'rinha backend 2026 fraud detection'
+[]
+```
+
+Decisões:
+
+- Não abrir nova issue oficial enquanto `#2026` continuar aberta e sem comentário, porque a falha do runner pode produzir resultado inválido.
+- Não repetir transplantes de knobs dos líderes sem URL/código novo. As famílias `HAProxy`, `nginx http`, `nginx 1.29`, `seccomp`, `ulimits`, `cpuset`, `worker_priority`, `backlog`, `reuseport`, `worker_processes`, `MALLOC_ARENA_MAX`, `mimalloc`, parser com `string_view`, parser mutable/padding, `mcc` switch/precompute e flags pequenas já têm evidência negativa ou insuficiente neste stack.
+- Não testar prune parcial com comparação `>=` no kernel IVF: apesar de parecer mais agressivo, ele não é semanticamente seguro por causa do desempate por `id` quando a distância empata com o pior top-5.
+- Não testar `access_log off`/`error_log off` isolado no `nginx stream`: o modo atual não tem access log de stream configurado, e os runs bons não indicam emissão de erros. A versão com `http { access_log off; error_log /dev/null; }` já foi rejeitada em 2026-05-02.
+
+Leitura: o espaço de micro-otimizações seguras está quase saturado. A melhor submissão preparada continua `submission-cd3e915`; as próximas tentativas com chance real precisam ser estruturais, mas devem ser pequenas o suficiente para não arriscar a máquina: protótipo de servidor HTTP manual/epoll em branch separada, ou nova geração de índice/layout AoSoA16 com benchmark offline antes de qualquer k6.
