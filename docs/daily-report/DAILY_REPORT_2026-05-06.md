@@ -424,3 +424,38 @@ Comparação contra o candidato sem `-fno-plt`:
 | Melhor pública com `-fno-plt` | 1.14ms | 0% | 5942.06 |
 
 Decisão: **rejeitado e revertido**. Localmente a flag parecia levemente positiva (`5944-5947`), mas no artefato público ela não superou a versão sem `-fno-plt`. Como a margem é pequena e o objetivo é performance sustentável, a melhor submissão permanece `submission-a5ef277` (`-fno-rtti` + sem unwind tables, sem `-fno-plt`).
+
+## Ciclo 02h45: function/data sections + linker GC
+
+Hipótese: compilar `usockets`, `simdjson_singleheader` e o binário principal com `-ffunction-sections -fdata-sections`, além de linkar o binário com `-Wl,--gc-sections`, poderia remover código morto e reduzir pressão de instruções/cache.
+
+Escopo testado:
+
+- `usockets`: `-ffunction-sections -fdata-sections`.
+- `simdjson_singleheader`: `-ffunction-sections -fdata-sections`.
+- `rinha-backend-2026-cpp`: `-ffunction-sections -fdata-sections`.
+- Link do binário principal: `-Wl,--gc-sections`.
+- Mantidos `-fno-rtti`, `-fno-unwind-tables` e `-fno-asynchronous-unwind-tables`.
+- Sem alteração de algoritmo, parser, compose, índice IVF, API ou dados.
+
+Validação funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local com imagem reconstruída:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| sections + GC #1 | 1.15ms | 0 | 0 | 0 | 5940.37 |
+
+Comparação:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Branch `submission` / `submission-a5ef277` | 1.15ms | 0% | 5939.70 |
+| Pior pública sem `-fno-plt` (`submission-a5ef277`) | 1.14ms | 0% | 5943.01 |
+| sections + GC | 1.15ms | 0% | 5940.37 |
+
+Decisão: **rejeitado e revertido**. A mudança não quebrou funcionalidade, mas também não entregou ganho concreto. Como mexe em flags de libs e linker para retorno abaixo da melhor pública, não é sustentável manter.
