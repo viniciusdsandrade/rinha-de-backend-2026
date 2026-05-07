@@ -2665,3 +2665,36 @@ Resultados k6:
 | **média** | **1.205ms** | **0%** | **5918.84** |
 
 Decisão: **rejeitado e revertido**. A média ficou levemente abaixo do buffer fixo aceito (`5918.99`). O ganho não é suficientemente claro para justificar mais código no parser HTTP.
+
+## Ciclo 20h47: reduzir buffer pendente por conexão para 2KB
+
+Hipótese: depois do buffer fixo aceito, `kMaxPending=16KB` parecia conservador para payloads locais cujo JSON máximo tem `469` bytes. Reduzir para `2KB` poderia melhorar cache/memória por conexão sem afetar contrato.
+
+Evidência de tamanho do dataset local:
+
+```text
+count=54100 avg=434.544 max=469
+```
+
+Patch temporário:
+
+```cpp
+constexpr std::size_t kMaxPending = 2 * 1024;
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `kMaxPending=2KB` | 1.21ms | 0% | 5917.90 |
+
+Decisão: **rejeitado e revertido**. A redução não gerou erro, mas ficou abaixo da média do buffer fixo aceito (`5918.99`). A versão de `16KB` permanece mais segura contra variação de headers/payloads e mais rápida no benchmark medido.
