@@ -716,3 +716,33 @@ Resultado:
 | prune 14 dims, com `-funroll-loops` | 12788.7 | 0 | 0 | 4.43808 |
 
 Decisão: **rejeitado e revertido**. A flag preserva acurácia, mas piora o custo offline em aproximadamente `+4.2%`. Interpretação: o hot path já está suficientemente explícito/vetorizado, e o desenrolamento automático provavelmente aumentou pressão de código/cache sem reduzir trabalho real. Não vale k6 nem promoção.
+
+## Ciclo 11h02: filtro por lane antes de `Top5::insert`
+
+Hipótese: após calcular as 14 dimensões no bloco AVX2, muitas lanes já ficam acima do pior top-5 atual. Checar `values[lane] <= top.worst_distance()` antes de chamar `Top5::insert` poderia evitar chamadas inúteis e `refresh_worst()` desnecessário, mantendo o desempate correto porque a igualdade ainda chamaria `insert`.
+
+Patch temporário:
+
+```cpp
+if (id != invalid && values[lane] <= top.worst_distance()) {
+    top.insert(values[lane], labels_ptr[label_base + lane], id);
+}
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-ivf-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+Resultado: 100% tests passed
+```
+
+Resultados offline:
+
+| Run | ns/query | FP | FN |
+|---|---:|---:|---:|
+| filtro por lane #1 | 12040.1 | 0 | 0 |
+| filtro por lane #2 | 13149.7 | 0 | 0 |
+| filtro por lane #3 | 12864.8 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A primeira run parecia promissora, mas não reproduziu. A hipótese adiciona um branch por lane e chama `worst_distance()` com frequência; quando o branch predictor não ajuda, o custo supera a economia de chamadas a `insert`. Como a melhoria não é estável nem inquestionável, não vale k6 nem promoção.
