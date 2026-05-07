@@ -2344,3 +2344,40 @@ Resultado k6 do baseline limpo:
 | baseline atual limpo | 1.23ms | 0% | 5908.42 |
 
 Decisão: **sem mudança de código**. O estado atual continua competitivo e correto, mas esta run não supera a melhor run aceita anterior (`5913.54`) nem a média aceita do buffer lazy (`5910.68`). Próximas tentativas devem atacar gargalo novo, não repetir parser/LB já rejeitados.
+
+## Ciclo 14h51: `mcc_risk` por switch numérico
+
+Hipótese: substituir a cadeia de comparações `std::string == "5411"` por um parse numérico de quatro dígitos + `switch` poderia reduzir custo de vetorização no hot path.
+
+Patch temporário:
+
+```cpp
+const int code =
+    (static_cast<int>(c0 - '0') * 1000) +
+    (static_cast<int>(c1 - '0') * 100) +
+    (static_cast<int>(c2 - '0') * 10) +
+    static_cast<int>(c3 - '0');
+switch (code) {
+    case 5411: return 0.15f;
+    // ...
+}
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-request-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+nice -n 10 cpp/build/benchmark-request-cpp test/test-data.json resources/references.json.gz 3 0
+```
+
+Resultado: testes unitários passaram (`1/1`).
+
+Resultados offline:
+
+| Métrica | ns/query |
+|---|---:|
+| `parse_payload` | 602.09 |
+| `parse_vectorize` | 699.05 |
+
+Decisão: **rejeitado sem k6**. O sinal offline não melhorou o caminho de request; o código ficou maior e mais branchy para economizar comparações que já são baratas. Como parser/vetorização não dominam o p99 atual, o patch foi revertido.
