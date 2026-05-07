@@ -2641,3 +2641,27 @@ Resultados k6:
 | **média** | **1.22ms** | **0%** | **5912.53** |
 
 Decisão: **rejeitado e revertido**. A segunda run degradou muito o p99, e a média ficou bem abaixo do buffer fixo aceito. O `unordered_map` não aparece como gargalo sustentado, e a versão com ownership explícito por `unique_ptr` é mais segura sem custo mensurável relevante.
+
+## Ciclo 20h08: fast path exato para `Content-Length`
+
+Hipótese: o parser HTTP manual ainda fazia varredura genérica case-insensitive dos headers para descobrir `Content-Length`. Como o k6 tende a enviar `Content-Length:` no formato canônico, um `headers.find("Content-Length:")` antes do fallback genérico poderia cortar trabalho por POST.
+
+Patch temporário:
+
+```cpp
+constexpr std::string_view prefix = "Content-Length:";
+if (const std::size_t pos = headers.find(prefix); pos != std::string_view::npos) {
+    // parse decimal direto
+}
+// fallback genérico preservado
+```
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| fast `Content-Length` 1 | 1.20ms | 0% | 5920.20 |
+| fast `Content-Length` 2 | 1.21ms | 0% | 5917.47 |
+| **média** | **1.205ms** | **0%** | **5918.84** |
+
+Decisão: **rejeitado e revertido**. A média ficou levemente abaixo do buffer fixo aceito (`5918.99`). O ganho não é suficientemente claro para justificar mais código no parser HTTP.
