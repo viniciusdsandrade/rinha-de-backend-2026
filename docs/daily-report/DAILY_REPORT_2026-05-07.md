@@ -1216,3 +1216,24 @@ Resultado k6:
 | api 0.39 / nginx 0.22 | 1.27ms | 0% | 5895.39 |
 
 Decisão: **rejeitado e revertido**. Dar mais CPU ao nginx tirou capacidade demais das APIs e piorou o score. A família de redistribuição testada (`0.43/0.14`, `0.41/0.18`, `0.39/0.22`) favorece manter o estado atual `api=0.41`, `nginx=0.18`.
+
+## Ciclo 11h45: filtro de lane antes de `top.insert`
+
+Hipótese: no `scan_blocks_avx2`, pular lanes com distância maior que o pior top-5 atual antes de carregar `id`/`label` poderia economizar leituras e chamadas de `top.insert`. A regra é exata porque empate ainda passa para preservar o tie-break por menor `id`.
+
+Patch temporário:
+
+```cpp
+if (values[lane] > top.worst_distance()) {
+    continue;
+}
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| filtro lane #1 | 7551.81 | 0 | 0 |
+| filtro lane #2 | 8004.26 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A primeira run ficou dentro da faixa do melhor estado aceito, mas a segunda piorou bastante. A checagem adicional não demonstrou ganho sustentável e ainda adiciona branch no loop de lanes.
