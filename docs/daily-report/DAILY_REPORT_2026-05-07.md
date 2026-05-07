@@ -2538,3 +2538,35 @@ Resultado k6:
 | nginx `multi_accept on` | 1.22ms | 0% | 5912.50 |
 
 Decisão: **rejeitado e revertido**. A mudança piorou o tail e indica que `multi_accept off` preserva melhor a distribuição/fairness sob o limite atual de CPU do LB.
+
+## Ciclo 18h08: `-fno-exceptions` no alvo manual
+
+Hipótese: o alvo `rinha-backend-2026-cpp-manual` ainda compilava com suporte a exceptions, embora a única exceção explícita estivesse no parsing de variáveis de ambiente no startup. Trocar `std::stoul`/`try-catch` por `std::from_chars` e adicionar `-fno-exceptions` poderia reduzir overhead/binário sem alterar runtime de classificação.
+
+Patch temporário:
+
+```text
+manual_main.cpp: uint_env_or_default com std::from_chars
+CMakeLists.txt: -fno-exceptions apenas no target manual
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+./run-local-k6.sh x2
+```
+
+Testes unitários: passaram (`1/1`).
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `-fno-exceptions` 1 | 1.20ms | 0% | 5919.36 |
+| `-fno-exceptions` 2 | 1.22ms | 0% | 5912.97 |
+| **média** | **1.21ms** | **0%** | **5916.17** |
+
+Decisão: **rejeitado e revertido**. A média ficou abaixo do servidor manual aceito (`5917.18`) e o ganho aparente foi novamente outlier. Como a exceção só existe no startup e não no hot path, a flag não merece entrar.
