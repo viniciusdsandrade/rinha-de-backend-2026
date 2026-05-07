@@ -1255,3 +1255,17 @@ Resultado k6:
 | sem `reuseport` | 1.24ms | 0% | 5905.46 |
 
 Decisão: **rejeitado e revertido**. O resultado foi melhor que as redistribuições ruins de CPU, mas ainda abaixo das duas runs válidas do estado atual (`5908.42` e `5907.40`). O `reuseport` permanece.
+
+## Ciclo 11h49: run de controle após hipóteses de infra
+
+Objetivo: medir novamente o estado limpo atual depois das hipóteses rejeitadas de nginx/CPU para separar regressão real de ruído local.
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| controle estado atual | 1.25ms | 0% | 5903.45 |
+
+Interpretação: a run de controle ficou no mesmo patamar dos experimentos de infra rejeitados, abaixo das duas runs válidas anteriores do mesmo estado (`5908.42` e `5907.40`). Isso indica ruído/carga local relevante nesta janela.
+
+Decisão: **sem mudança de código**. Para promoção, não basta uma medição única com melhora pequena; a próxima mudança precisa repetir ganho ou melhorar acima do ruído observado.
