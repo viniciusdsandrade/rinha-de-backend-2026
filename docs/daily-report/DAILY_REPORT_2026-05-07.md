@@ -1973,3 +1973,40 @@ Resultados k6:
 | buffer lazy #3 | 1.22ms | 0% | 5913.54 |
 
 Decisão: **aceito**. A média das três runs (`5910.68`) supera o par aceito anterior de `NO_WRITEMARK` (`5908.38` / `5909.24`), sem erro HTTP e sem alterar semântica da API. Ganho pequeno, mas a mudança é localizada, sustentável e reduz trabalho no caso comum de body em chunk único.
+
+## Ciclo 23h58: `thread_local` para buffer de erro do parser
+
+Hipótese: o handler de `/fraud-score` cria um `std::string error` por request para o parser. Como o caminho feliz não usa a mensagem, reaproveitar o buffer via `thread_local` poderia reduzir construção/destruição no hot path sem alterar o contrato HTTP.
+
+Patch testado:
+
+```cpp
+rinha::Payload payload;
+thread_local std::string error;
+error.clear();
+if (!rinha::parse_payload(request_body, payload, error)) {
+    // ...
+}
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+DOCKER_BUILDKIT=0 docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado: testes unitários passaram (`1/1`). A imagem Docker foi reconstruída antes das medições.
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `thread_local error` #1 | 1.22ms | 0% | 5913.14 |
+| `thread_local error` #2 | 1.23ms | 0% | 5910.03 |
+| `thread_local error` #3 | 1.25ms | 0% | 5902.65 |
+
+Decisão: **rejeitado**. A primeira run foi forte, mas a terceira caiu abaixo do patamar aceito do buffer lazy e a média (`5908.61`) não melhora o estado atual (`5910.68`). O patch foi revertido para evitar complexidade global/thread-local sem ganho sustentável.
