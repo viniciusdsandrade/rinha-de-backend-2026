@@ -10,7 +10,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <vector>
 
 #include <fcntl.h>
 #include <sys/epoll.h>
@@ -50,7 +49,8 @@ constexpr std::array<std::string_view, 6> kFraudResponses{{
 
 struct Connection {
     int fd = -1;
-    std::vector<char> in;
+    std::array<char, kMaxPending> in{};
+    std::size_t in_len = 0;
     std::string out;
     std::size_t out_pos = 0;
 };
@@ -160,8 +160,8 @@ int listen_unix_socket(const std::string& path, std::string& error) {
     return fd;
 }
 
-std::optional<std::size_t> find_header_end(const std::vector<char>& buffer) {
-    for (std::size_t index = 0; index + 3U < buffer.size(); ++index) {
+std::optional<std::size_t> find_header_end(const char* buffer, std::size_t len) {
+    for (std::size_t index = 0; index + 3U < len; ++index) {
         if (buffer[index] == '\r' && buffer[index + 1U] == '\n' &&
             buffer[index + 2U] == '\r' && buffer[index + 3U] == '\n') {
             return index;
@@ -284,9 +284,9 @@ void append_response(
 
 bool process_requests(Connection& conn, const rinha::IvfIndex& index, const rinha::IvfSearchConfig& config) {
     while (true) {
-        const std::optional<std::size_t> header_end = find_header_end(conn.in);
+        const std::optional<std::size_t> header_end = find_header_end(conn.in.data(), conn.in_len);
         if (!header_end) {
-            return conn.in.size() <= kMaxPending;
+            return conn.in_len <= kMaxPending;
         }
 
         const std::size_t header_len = *header_end + 4U;
@@ -294,20 +294,24 @@ bool process_requests(Connection& conn, const rinha::IvfIndex& index, const rinh
         const std::size_t first_line_end = header.find('\n');
         if (first_line_end == std::string_view::npos) {
             conn.out.append(kBadRequestResponse);
-            conn.in.erase(conn.in.begin(), conn.in.begin() + static_cast<std::ptrdiff_t>(header_len));
+            const std::size_t remaining = conn.in_len - header_len;
+            std::memmove(conn.in.data(), conn.in.data() + header_len, remaining);
+            conn.in_len = remaining;
             continue;
         }
 
         const std::string_view first_line = trim_cr(header.substr(0, first_line_end));
         const std::size_t content_length = parse_content_length(header.substr(first_line_end + 1U)).value_or(0);
         const std::size_t total_len = header_len + content_length;
-        if (conn.in.size() < total_len) {
+        if (conn.in_len < total_len) {
             return total_len <= kMaxPending;
         }
 
         const std::string_view body(conn.in.data() + header_len, content_length);
         append_response(conn, first_line, body, index, config);
-        conn.in.erase(conn.in.begin(), conn.in.begin() + static_cast<std::ptrdiff_t>(total_len));
+        const std::size_t remaining = conn.in_len - total_len;
+        std::memmove(conn.in.data(), conn.in.data() + total_len, remaining);
+        conn.in_len = remaining;
     }
 }
 
@@ -379,8 +383,6 @@ int run_server(const std::string& socket_path, const rinha::IvfIndex& index, con
 
     std::unordered_map<int, std::unique_ptr<Connection>> connections;
     std::array<epoll_event, kMaxEvents> events{};
-    std::array<char, kReadChunk> read_buffer{};
-
     while (true) {
         const int count = epoll_wait(epoll_fd, events.data(), static_cast<int>(events.size()), -1);
         if (count < 0) {
@@ -403,7 +405,6 @@ int run_server(const std::string& socket_path, const rinha::IvfIndex& index, con
                     }
                     auto conn = std::make_unique<Connection>();
                     conn->fd = fd;
-                    conn->in.reserve(kReadChunk);
                     conn->out.reserve(512);
 
                     epoll_event conn_event{};
@@ -426,13 +427,15 @@ int run_server(const std::string& socket_path, const rinha::IvfIndex& index, con
 
             if (alive && (event.events & EPOLLIN) != 0U) {
                 while (true) {
-                    const ssize_t read_bytes = recv(conn->fd, read_buffer.data(), read_buffer.size(), 0);
+                    const std::size_t available = kMaxPending - conn->in_len;
+                    if (available == 0) {
+                        alive = false;
+                        break;
+                    }
+                    const std::size_t read_size = std::min<std::size_t>(kReadChunk, available);
+                    const ssize_t read_bytes = recv(conn->fd, conn->in.data() + conn->in_len, read_size, 0);
                     if (read_bytes > 0) {
-                        conn->in.insert(
-                            conn->in.end(),
-                            read_buffer.begin(),
-                            read_buffer.begin() + static_cast<std::ptrdiff_t>(read_bytes)
-                        );
+                        conn->in_len += static_cast<std::size_t>(read_bytes);
                         if (!process_requests(*conn, index, config)) {
                             alive = false;
                             break;

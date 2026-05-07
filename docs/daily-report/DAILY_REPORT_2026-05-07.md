@@ -2570,3 +2570,52 @@ Resultados k6:
 | **média** | **1.21ms** | **0%** | **5916.17** |
 
 Decisão: **rejeitado e revertido**. A média ficou abaixo do servidor manual aceito (`5917.18`) e o ganho aparente foi novamente outlier. Como a exceção só existe no startup e não no hot path, a flag não merece entrar.
+
+## Ciclo 18h48: buffer fixo no servidor manual
+
+Hipótese: o servidor HTTP manual aceito ainda usava `std::vector<char>` por conexão com `insert()` no recebimento e `erase()` após processar cada request. Como este caminho roda em todo POST, substituir por buffer fixo por conexão (`std::array<char, 16KB> + in_len`) poderia remover overhead de crescimento/iterator/erase e deixar o hot path mais previsível.
+
+Implementação aceita:
+
+```text
+Connection::in: std::vector<char> -> std::array<char, kMaxPending>
+Connection::in_len para controlar bytes pendentes
+recv() direto em conn.in.data() + conn.in_len
+memmove() apenas para preservar eventual sobra/pipeline
+find_header_end(const char*, len)
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+curl POST /fraud-score com .entries[0].request
+./run-local-k6.sh x3
+```
+
+Testes unitários: passaram (`1/1`).
+
+Smoke real: manteve `{"approved":false,"fraud_score":1.0}` para payload com `expected_fraud_score=1`.
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| buffer fixo 1 | 1.20ms | 0% | 5920.14 |
+| buffer fixo 2 | 1.22ms | 0% | 5915.16 |
+| buffer fixo 3 | 1.20ms | 0% | 5921.67 |
+| **média** | **1.21ms** | **0%** | **5918.99** |
+| **mediana** | **1.20ms** | **0%** | **5920.14** |
+
+Comparação:
+
+| Referência | final_score |
+|---|---:|
+| servidor manual base, média | 5917.18 |
+| servidor manual base, mediana | 5916.25 |
+| buffer fixo, média | 5918.99 |
+| buffer fixo, mediana | 5920.14 |
+
+Decisão: **aceito**. O ganho é pequeno, mas ataca hot path real, manteve 0% falhas, melhorou média e mediana em relação ao servidor manual base e não altera algoritmo, topologia ou contrato HTTP.
