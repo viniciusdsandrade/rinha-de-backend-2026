@@ -2042,3 +2042,46 @@ Resultado k6:
 | `known_merchants string_view` #1 | 1.26ms | 0% | 5900.26 |
 
 Decisão: **rejeitado cedo**. O resultado ficou abaixo do estado aceito por margem suficiente para não gastar mais duas runs. A hipótese provável é que, no dataset local, a lista vazia torna as cópias quase irrelevantes, enquanto o wrapper inline/fallback adiciona custo de stack/código no hot path. Patch revertido.
+
+## Ciclo 00h47: reuso de buffer padded do simdjson
+
+Hipótese: `parse_payload` ainda cria `simdjson::padded_string` por request. Reaproveitar um `thread_local std::string` e chamar `simdjson::pad_with_reserve` poderia manter a cópia obrigatória para padding, mas reduzir alocações/destruições recorrentes.
+
+Patch testado:
+
+```cpp
+thread_local simdjson::dom::parser parser;
+thread_local std::string json_buffer;
+
+json_buffer.assign(body.data(), body.size());
+const simdjson::padded_string_view json = simdjson::pad_with_reserve(json_buffer);
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target benchmark-request-cpp rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+nice -n 10 cpp/build/benchmark-request-cpp test/test-data.json resources/references.json.gz 3 0
+DOCKER_BUILDKIT=0 docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultados offline:
+
+| Métrica | ns/query |
+|---|---:|
+| `dom_padded_parse` | 242.18 |
+| `dom_reserve768_parse` | 245.07 |
+| `parse_payload` com buffer reutilizável | 595.26 |
+| `parse_vectorize` com buffer reutilizável | 654.96 |
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| buffer padded reutilizável #1 | 1.23ms | 0% | 5911.21 |
+| buffer padded reutilizável #2 | 1.24ms | 0% | 5906.34 |
+
+Decisão: **rejeitado**. Apesar de `parse_payload` offline melhorar contra o registro anterior (`622.41ns`), o k6 repetiu o padrão histórico desse tipo de mudança: uma run boa seguida por queda abaixo do estado aceito. Como o parser/vetorização está na casa de sub-microssegundos e o p99 é dominado por cauda de infraestrutura/IVF, a mudança foi revertida.
