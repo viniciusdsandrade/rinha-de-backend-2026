@@ -1045,3 +1045,26 @@ Resultado comparativo local:
 | experimental centróide AVX2 #2 | 1.24ms | 0% | 5907.40 |
 
 Decisão: **a branch experimental virou candidata real de promoção**, mas ainda não vou abrir nova issue oficial. Motivo: ela supera a `submission` atual no mesmo regime local por `~11-12` pontos, porém a melhor evidência histórica da `submission` segue mais alta (`~5944-5950`) e a issue oficial `#2026` continua aberta sem comentário, indicando runner/submissão ainda bloqueados. Próximo passo prudente: mais uma validação em janela menos ruidosa ou preparar imagem candidata sem acionar issue enquanto `#2026` estiver aberta.
+
+## Ciclo 13h02: nearest centroid AVX2 em blocos de 16 clusters
+
+Hipótese: processar 16 clusters por iteração com dois vetores AVX2 poderia reduzir overhead do loop externo e reutilizar o mesmo broadcast da query por dimensão.
+
+Patch temporário:
+
+```cpp
+for (; cluster + 16 <= clusters; cluster += 16) {
+    __m256 acc0 = ...
+    __m256 acc1 = ...
+    ...
+}
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| bloco 16 #1 | 7968.67 | 0 | 0 |
+| bloco 16 #2 | 7581.96 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A acurácia se manteve, mas o resultado não melhorou a versão aceita e adicionou complexidade/pressão de registradores. O bloco de 8 com melhor por lane continua sendo o melhor formato medido.
