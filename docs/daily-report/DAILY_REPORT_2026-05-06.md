@@ -395,3 +395,32 @@ Comparação:
 | Melhor run local `-fno-plt` | 1.13ms | 0% | 5947.44 |
 
 Decisão: **promover para candidato público**. O ganho é pequeno, mas as três runs ficaram acima da branch `submission` recém-atualizada, sem regressão de acurácia. Próximo passo: publicar imagem pública, validar duas runs públicas e só então decidir se vale substituir `submission-a5ef277`.
+
+### Validação pública do candidato `-fno-plt`
+
+Commit candidato:
+
+- `d8be840` (`test no plt app build`).
+
+Workflow de publicação da imagem pública mutável:
+
+- Run: `25475654615`.
+- Resultado: sucesso.
+- Duração: `1m16s`.
+- Imagem publicada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission`.
+
+Resultados públicos:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| imagem pública `submission`/`-fno-plt` #1 | 1.14ms | 0 | 0 | 0 | 5941.26 |
+| imagem pública `submission`/`-fno-plt` #2 | 1.14ms | 0 | 0 | 0 | 5942.06 |
+
+Comparação contra o candidato sem `-fno-plt`:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Pior pública sem `-fno-plt` (`submission-a5ef277`) | 1.14ms | 0% | 5943.01 |
+| Melhor pública com `-fno-plt` | 1.14ms | 0% | 5942.06 |
+
+Decisão: **rejeitado e revertido**. Localmente a flag parecia levemente positiva (`5944-5947`), mas no artefato público ela não superou a versão sem `-fno-plt`. Como a margem é pequena e o objetivo é performance sustentável, a melhor submissão permanece `submission-a5ef277` (`-fno-rtti` + sem unwind tables, sem `-fno-plt`).
