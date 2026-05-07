@@ -1609,3 +1609,39 @@ Resultado k6:
 | sem `onAborted` | 0.89ms | 100% | 54059 | 0 |
 
 Decisão: **rejeitado e revertido imediatamente**. Embora a latência aparente tenha caído, a remoção quebrou o comportamento sob carga e causou erro HTTP massivo. O callback vazio é necessário como proteção prática no ciclo de vida do `HttpResponse` capturado pelo `onData`.
+
+## Ciclo 12h42: booleano explícito para caminho IVF
+
+Hipótese: substituir o `std::get_if` por um booleano calculado no startup e `std::get` direto no caminho IVF poderia reduzir uma checagem por request sem alterar a arquitetura.
+
+Patch temporário:
+
+```cpp
+if (use_ivf) {
+    const auto& ivf = std::get<rinha::IvfIndex>(classifier);
+    const std::uint8_t fraud_count = ivf.fraud_count(query, ivf_config);
+}
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker compose -p perf-noon-tuning build --pull=false api1 api2
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Observação metodológica: a primeira tentativa Docker falhou por DNS contra `registry-1.docker.io`; a execução que teria usado imagem stale foi abortada e descartada. A medição abaixo usou rebuild posterior válido.
+
+Resultado: testes unitários passaram (`1/1`) e o build Docker válido foi concluído.
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `use_ivf` flag #1 | 1.23ms | 0% | 5909.71 |
+| `use_ivf` flag #2 | 1.25ms | 0% | 5903.29 |
+
+Decisão: **rejeitado e revertido**. A primeira run foi ligeiramente acima do melhor local recente, mas a repetição caiu para o envelope de ruído. O ganho não é sustentável nem inquestionável.
