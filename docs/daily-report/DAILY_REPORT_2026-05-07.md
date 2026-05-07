@@ -1299,3 +1299,23 @@ Resultados k6:
 | IPO libs #2 | 1.26ms | 0% | 5901.07 |
 
 Decisão: **rejeitado e revertido**. A primeira run superou a run de controle imediata, mas a repetição caiu abaixo do envelope aceito. O ganho não é sustentável e ainda aumenta custo/risco de build.
+
+## Ciclo 11h56: estado do issue oficial
+
+Verifiquei o issue oficial da submissão/runner:
+
+```text
+gh issue view 2026 -R zanfranceschi/rinha-de-backend-2026 --json state,title,comments,updatedAt,url
+```
+
+Resultado:
+
+| Campo | Valor |
+|---|---|
+| URL | https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2026 |
+| Estado | `OPEN` |
+| Título | `Runner broken: stale submission directory since #2019` |
+| Comentários | `0` |
+| Última atualização | `2026-05-07T11:00:57Z` |
+
+Decisão: **não abrir nova submissão agora**. O runner oficial segue com issue aberto, então o ciclo continua em branch experimental com foco em evidência local e não em novo issue oficial duplicado.
