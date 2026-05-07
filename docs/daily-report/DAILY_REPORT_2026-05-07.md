@@ -2893,3 +2893,31 @@ READY
 ```
 
 Decisão: **aceito**. Não é melhoria de p99, mas é uma limpeza técnica sustentável da submissão: menos build, menos artefato morto e nenhum impacto no contrato ou no binário efetivamente executado.
+
+## Ciclo 00h22: testar `nginx:1.29-alpine`
+
+Hipótese: uma versão mais nova do nginx poderia trazer pequenas melhorias no módulo `stream`/alpine, mantendo a mesma configuração L4/UDS.
+
+Pré-checagem:
+
+```text
+docker manifest inspect nginx:1.29-alpine
+NGINX_129_EXISTS
+```
+
+Patch temporário:
+
+```yaml
+nginx:
+  image: nginx:1.29-alpine
+```
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| nginx 1.29 1 | 1.20ms | 0% | 5920.84 |
+| nginx 1.29 2 | 1.23ms | 0% | 5910.88 |
+| **média** | **1.215ms** | **0%** | **5915.86** |
+
+Decisão: **rejeitado e revertido**. A primeira run foi boa, mas a segunda caiu muito; a média ficou abaixo do estado aceito. `nginx:1.27-alpine` permanece mais confiável localmente.
