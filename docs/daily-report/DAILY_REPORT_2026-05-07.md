@@ -994,3 +994,25 @@ Resultados offline:
 | query lanes pré-carregadas #2 | 8006.27 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A acurácia se manteve, mas o custo piorou. A hipótese provavelmente aumentou pressão de registradores ou spills; manter o `set1` local dentro do loop deixa o compilador gerar código melhor.
+
+## Ciclo 12h35: dois acumuladores no nearest centroid AVX2
+
+Hipótese: o loop de 14 dimensões do centróide tinha uma dependência serial em `acc`. Dividir em `acc0` para dimensões `0..6` e `acc1` para `7..13`, somando ao final, poderia reduzir latência do pipeline.
+
+Patch temporário:
+
+```cpp
+__m256 acc0 = _mm256_setzero_ps();
+__m256 acc1 = _mm256_setzero_ps();
+...
+const __m256 acc = _mm256_add_ps(acc0, acc1);
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| dois acumuladores #1 | 7953.40 | 0 | 0 |
+| dois acumuladores #2 | 7706.46 | 0 | 0 |
+
+Decisão: **rejeitado e revertido**. A mudança manteve acurácia, mas piorou o custo. Provável causa: pressão adicional de registradores e código maior superam qualquer benefício de quebrar dependência.
