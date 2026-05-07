@@ -1645,3 +1645,28 @@ Resultados k6:
 | `use_ivf` flag #2 | 1.25ms | 0% | 5903.29 |
 
 Decisão: **rejeitado e revertido**. A primeira run foi ligeiramente acima do melhor local recente, mas a repetição caiu para o envelope de ruído. O ganho não é sustentável nem inquestionável.
+
+## Ciclo 12h45: nginx `worker_connections 1024`
+
+Hipótese: reduzir `worker_connections` de `4096` para `1024` poderia diminuir estruturas internas do nginx e melhorar a cauda, mantendo folga suficiente para o cenário local.
+
+Patch temporário:
+
+```nginx
+worker_connections 1024;
+```
+
+Verificação:
+
+```text
+docker compose -p perf-noon-tuning up -d --no-build
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `worker_connections 1024` | 1.25ms | 0% | 5902.66 |
+
+Decisão: **rejeitado e revertido**. A redução piorou a cauda. Para o perfil atual, manter `4096` é mais seguro.
