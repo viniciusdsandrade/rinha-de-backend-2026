@@ -2502,3 +2502,21 @@ Resultados k6:
 | **média** | **1.215ms** | **0%** | **5916.33** |
 
 Decisão: **rejeitado e revertido**. A média ficou abaixo da média do servidor manual aceito (`5917.18`) e não há evidência de que o nginx precise de mais CPU neste ponto. A distribuição `api=0.41 + 0.41`, `nginx=0.18` permanece como melhor balanço medido.
+
+## Ciclo 17h12: nginx com um worker
+
+Hipótese: dentro de apenas `0.18 CPU`, reduzir `worker_processes` do nginx de `2` para `1` poderia cortar overhead de agendamento/coordenação no LB `stream`.
+
+Patch temporário:
+
+```nginx
+worker_processes 1;
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| nginx `worker_processes 1` | 1.22ms | 0% | 5912.58 |
+
+Decisão: **rejeitado e revertido**. O resultado ficou abaixo do servidor manual aceito e confirmou que dois workers continuam sendo o melhor equilíbrio medido para o fan-in externo na porta `9999`.
