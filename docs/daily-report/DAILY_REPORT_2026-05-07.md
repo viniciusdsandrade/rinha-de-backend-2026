@@ -2786,3 +2786,32 @@ Resultado k6:
 | estado aceito pós-reverts | 1.20ms | 0% | 5920.04 |
 
 Leitura: o melhor estado aceito segue reproduzindo em torno de `5920`, com 0% falhas. Isso confirma que os reverts não degradaram a branch e que o ganho contra a submissão oficial anterior continua material.
+
+## Ciclo 22h39: evitar `memmove` quando não há sobra no buffer
+
+Hipótese: no servidor manual com buffer fixo, após processar uma request normalmente não há bytes remanescentes. Evitar `memmove(..., 0)` poderia remover chamada inútil no hot path.
+
+Patch temporário:
+
+```cpp
+if (remaining > 0) {
+    std::memmove(..., remaining);
+}
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| skip `memmove(0)` | 1.22ms | 0% | 5915.07 |
+
+Decisão: **rejeitado e revertido**. A branch adicional piorou o tail; a chamada `memmove` com zero bytes não é gargalo mensurável nesta libc/compilação.
