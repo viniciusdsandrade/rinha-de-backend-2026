@@ -1178,3 +1178,22 @@ Resultado k6:
 | nginx 1 worker | 1.25ms | 0% | 5903.39 |
 
 Decisão: **rejeitado e revertido**. O resultado ficou abaixo das duas medições válidas do estado atual (`5908.42` e `5907.40`). O nginx com 2 workers continua melhor no envelope local, provavelmente por absorver melhor conexões simultâneas do k6 mesmo sendo apenas L4.
+
+## Ciclo 11h39: redistribuição de CPU para APIs
+
+Hipótese: mover CPU do nginx para as APIs poderia melhorar o trecho computacional do IVF, mantendo a soma em 1.00 CPU.
+
+Patch temporário:
+
+```yaml
+api1/api2:  cpus: "0.43"
+nginx:      cpus: "0.14"
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| api 0.43 / nginx 0.14 | 1.25ms | 0% | 5903.48 |
+
+Decisão: **rejeitado e revertido**. O resultado ficou no mesmo patamar ruim do teste com 1 worker no nginx. A evidência local indica que reduzir a fatia do nginx prejudica o envelope de p99 mais do que a API ganha com CPU extra.
