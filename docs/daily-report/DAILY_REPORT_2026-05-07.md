@@ -2443,3 +2443,40 @@ Comparação:
 | média deste ciclo | 5917.18 |
 
 Decisão: **aceito**. Este é o primeiro ganho estrutural sustentável desde a rodada de IVF/headers/buffer, supera a melhor run local recente e aumenta a distância contra a submissão oficial anterior. O próximo passo deve ser endurecer este servidor manual com uma rodada curta de validação de estabilidade e, se mantiver média acima do estado anterior, promover para a branch de submissão/issue oficial.
+
+## Ciclo 16h05: resposta manual por `std::string_view`
+
+Hipótese: como o servidor HTTP manual já usa respostas constantes, substituir `std::string::append()` por um `std::string_view` apontando diretamente para os literais poderia remover uma cópia pequena no hot path.
+
+Patch temporário:
+
+```text
+Connection::out_owned + Connection::out string_view
+queue_response(conn, response)
+flush_output lendo diretamente do string_view
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+curl POST /fraud-score com .entries[0].request
+./run-local-k6.sh x3
+```
+
+Testes unitários: passaram (`1/1`).
+
+Smoke real: manteve `{"approved":false,"fraud_score":1.0}` para payload com `expected_fraud_score=1`.
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `string_view` 1 | 1.18ms | 0% | 5926.89 |
+| `string_view` 2 | 1.22ms | 0% | 5914.87 |
+| `string_view` 3 | 1.22ms | 0% | 5914.25 |
+| **média** | **1.21ms** | **0%** | **5918.67** |
+
+Decisão: **rejeitado e revertido**. Apesar do pico excelente, duas das três runs ficaram abaixo da mediana do servidor manual aceito (`5916.25`) e a melhora média veio concentrada em outlier. A mudança também adicionava complexidade para lidar com resposta constante vs. resposta acumulada em possível pipeline. Pelo critério de ganho sustentável, manter o `std::string` simples é tecnicamente mais justo.
