@@ -1,6 +1,6 @@
 services:
   api1: &api
-    image: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-df6994a
+    image: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-9ddccaf
     platform: linux/amd64
     environment:
       UNIX_SOCKET_PATH: /sockets/api1.sock
