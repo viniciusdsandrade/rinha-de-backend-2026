@@ -1237,3 +1237,21 @@ Resultados offline:
 | filtro lane #2 | 8004.26 | 0 | 0 |
 
 Decisão: **rejeitado e revertido**. A primeira run ficou dentro da faixa do melhor estado aceito, mas a segunda piorou bastante. A checagem adicional não demonstrou ganho sustentável e ainda adiciona branch no loop de lanes.
+
+## Ciclo 11h46: nginx sem `reuseport`
+
+Hipótese: com `worker_processes 2`, remover `reuseport` poderia reduzir variação de distribuição entre workers e melhorar p99.
+
+Patch temporário:
+
+```nginx
+listen 9999 backlog=4096;
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| sem `reuseport` | 1.24ms | 0% | 5905.46 |
+
+Decisão: **rejeitado e revertido**. O resultado foi melhor que as redistribuições ruins de CPU, mas ainda abaixo das duas runs válidas do estado atual (`5908.42` e `5907.40`). O `reuseport` permanece.
