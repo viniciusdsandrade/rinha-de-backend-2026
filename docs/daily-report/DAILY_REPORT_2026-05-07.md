@@ -195,3 +195,26 @@ ctest --test-dir cpp/build --output-on-failure
 ```
 
 Decisão: **rejeitado e revertido sem k6**. A mudança não melhora o parser e piora o microbench de classificação limitado. Provável causa: `thread_local` adiciona custo/indireção e o vetor local pequeno já é barato o suficiente frente ao parse DOM/padding. A tentativa anterior com `string_view`/array continua sendo a única variação de `known_merchants` que gerou sinal local, mas ela já foi rejeitada em validação pública.
+
+## Ciclo 10h20: screening tardio de `mimalloc`
+
+Hipótese: como a API ainda faz pequenas alocações por request (`simdjson::padded_string`, `std::string` temporárias e estruturas DOM), trocar o allocator glibc por `mimalloc` poderia suavizar cauda. A ideia foi inspirada pela stack Rust líder, mas tratada como screening tardio, porque allocator costuma ter efeito pequeno e dependente do workload.
+
+Escopo testado:
+
+- `Dockerfile` runtime instalando `libmimalloc2.0`.
+- `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.2`.
+- Sem mudança de código, índice, compose, API ou algoritmo.
+
+Observação operacional:
+
+- A primeira execução via `run-local-k6.sh` retornou `54059` erros HTTP, mas a checagem manual mostrou que a imagem subia corretamente com `mimalloc` e `/ready` respondia `204`.
+- Repeti o teste com a pilha já de pé para separar falha de startup de efeito de performance.
+
+Resultado k6 local com `mimalloc`:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `mimalloc` #1 | 1.27ms | 0 | 0 | 0 | 5894.89 |
+
+Decisão: **rejeitado e revertido**. A correção de detecção permaneceu perfeita, mas a p99 ficou muito abaixo da submissão preparada (`submission-cd3e915`, validações finais `5944-5950`). O custo/risco de adicionar biblioteca runtime e `LD_PRELOAD` não se justifica; glibc malloc segue melhor para este hot path.
