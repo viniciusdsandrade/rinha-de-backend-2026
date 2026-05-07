@@ -609,3 +609,17 @@ Resultado:
 | `-ffast-math` anterior | 1.27ms | 0% | 5895.59 |
 
 Decisão: **calibração registrada; sem promoção**. O resultado mostra que a rodada estava em um regime de host pior que o envelope histórico, então `-ffast-math` não deve ser lido como regressão. Ao mesmo tempo, também não provou ganho de score de ponta a ponta; por isso segue rejeitado para submissão até existir validação reproduzível acima da imagem atual.
+
+## Ciclo 10h44: contexto de ruído local
+
+Após a recalibração baixa, verifiquei o estado da máquina para evitar tomar decisão por ruído:
+
+```text
+docker ps: nenhum container ativo
+uptime/load average: 1.04, 1.18, 1.09
+nproc: 16
+free -m: 7623 MB total, 5149 MB available, swap 2099/4095 MB em uso
+processos mais ativos: Docker Desktop/QEMU e shell de benchmark
+```
+
+Leitura: não há container concorrente óbvio, mas o ambiente Docker Desktop está com VM/QEMU ativa e swap já usada. Isso explica por que duas runs consecutivas (`baseline` e `-ffast-math`) ficaram no patamar `~5892-5896`, abaixo do melhor envelope histórico. Para as próximas microdecisões, vou privilegiar rejeição por acurácia offline e só usar k6 quando o sinal for forte o suficiente.
