@@ -183,3 +183,34 @@ Comparação contra a melhor submissão oficial atual:
 | Melhor run pública `-fno-rtti` | 1.15ms | 0% | 5940.80 |
 
 Decisão: **promover para submissão oficial**. Diferente das runs locais isoladas, a imagem pública repetiu três vezes acima da issue oficial `#1714`, sempre com `0%` falhas. Próximo passo: publicar tag imutável `submission-9ddccaf`, atualizar a branch `submission` para essa imagem e abrir issue oficial na Rinha.
+
+### Publicação oficial do candidato `-fno-rtti`
+
+Tag imutável:
+
+- Adicionada ao workflow `Publish submission image`: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-9ddccaf`.
+- Commit de publicação/registro na branch experimental: `6eb703c`.
+- Workflow de publicação: `25474524962`.
+- Resultado da workflow: sucesso em `1m26s`.
+- Manifest verificado: `linux/amd64` presente.
+
+Branch oficial de entrega:
+
+- Branch: `submission`.
+- Commit: `a4ce657` (`point submission to no rtti image`).
+- `docker-compose.yml` atualizado para `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-9ddccaf`.
+- `docker compose config --quiet`: OK.
+
+Validação final da branch `submission` com a imagem imutável:
+
+| Fonte | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| branch `submission` / `submission-9ddccaf` | 1.28ms | 0 | 0 | 0 | 5891.27 |
+
+Issue oficial aberta:
+
+- URL: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2009`.
+- Título: `rinha/test andrade-cpp-ivf`.
+- Body: `https://github.com/viniciusdsandrade/rinha-de-backend-2026`.
+
+Decisão: **submissão enviada**. A validação final ficou acima da issue `#1714` (`5888.51`) e preservou `0%` falhas. A expectativa realista é ganho oficial modesto se a engine cair perto de `1.27-1.28ms`, ou ganho forte se repetir a melhor run pública (`1.15ms`).
