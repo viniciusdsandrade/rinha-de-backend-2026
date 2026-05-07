@@ -588,3 +588,24 @@ Resultado k6 válido:
 | `-ffast-math` | 1.27ms | 0% | 5895.59 |
 
 Decisão: **rejeitado e revertido**. O benchmark offline melhorou e preservou acurácia, mas o stack oficial local não confirmou ganho de ponta a ponta. Como a pontuação ficou abaixo do envelope estável da submissão atual (`~5944-5950`), não há ganho sustentável suficiente para promover a flag.
+
+## Ciclo 10h45: recalibração de baseline no mesmo regime de host
+
+Hipótese: a run k6 baixa de `-ffast-math` poderia ter sido ruído/estado da máquina, não regressão da flag. Para comparar de forma justa, reconstruí a imagem sem alterações de código e rodei uma baseline imediatamente depois.
+
+Comandos:
+
+```text
+DOCKER_HOST=unix:///run/docker.sock docker compose -p perf-noon-tuning build --pull=false api1 api2
+DOCKER_HOST=unix:///run/docker.sock docker compose -p perf-noon-tuning up -d --no-build
+DOCKER_HOST=unix:///run/docker.sock nice -n 10 ./run-local-k6.sh
+```
+
+Resultado:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| baseline reconstruída, sem alterações | 1.28ms | 0% | 5892.01 |
+| `-ffast-math` anterior | 1.27ms | 0% | 5895.59 |
+
+Decisão: **calibração registrada; sem promoção**. O resultado mostra que a rodada estava em um regime de host pior que o envelope histórico, então `-ffast-math` não deve ser lido como regressão. Ao mesmo tempo, também não provou ganho de score de ponta a ponta; por isso segue rejeitado para submissão até existir validação reproduzível acima da imagem atual.
