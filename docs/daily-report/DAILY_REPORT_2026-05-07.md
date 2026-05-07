@@ -2746,3 +2746,22 @@ Resultado k6:
 | cache máscara epoll | 1.22ms | 0% | 5913.69 |
 
 Decisão: **rejeitado e revertido**. A hipótese não melhorou o tail; a ramificação/estado extra ou o padrão real de eventos não compensou. O `epoll_ctl` repetido não é gargalo prioritário neste stack.
+
+## Ciclo 21h49: restringir repair IVF para `2..3`
+
+Hipótese: o compose aceito usa `IVF_REPAIR_MIN_FRAUDS=1` e `IVF_REPAIR_MAX_FRAUDS=4`, ou seja, faz repair completo em muitos resultados intermediários. Restringir para `2..3` poderia reduzir custo mantendo decisão correta se os casos `1` e `4` fossem seguros.
+
+Patch temporário:
+
+```yaml
+IVF_REPAIR_MIN_FRAUDS: "2"
+IVF_REPAIR_MAX_FRAUDS: "3"
+```
+
+Resultado k6:
+
+| Variante | p99 | FP | FN | Falhas | final_score |
+|---|---:|---:|---:|---:|---:|
+| repair `2..3` | 1.21ms | 22 | 28 | 0.09% | 5015.30 |
+
+Decisão: **rejeitado e revertido imediatamente**. A latência ficou boa, mas a queda de detecção é inaceitável na fórmula atual. O range `1..4` é necessário para preservar 0% de falhas no dataset local.
