@@ -164,3 +164,34 @@ extreme_repair_queries=0
 ```
 
 Decisão: **rejeitado sem k6**. O tempo offline ficou dentro do ruído positivo da rodada, mas a mudança introduziu erros reais de detecção. No dataset base isso equivale a aproximadamente `1 FP / 2 FN` por passada, o suficiente para reduzir drasticamente o `detection_score` frente à submissão atual com `0%` falhas. Nesta faixa de ranking, acurácia perfeita vale mais que remover algumas centenas de repairs.
+
+## Ciclo 10h07: reaproveitar `std::vector` de `known_merchants`
+
+Hipótese: uma alternativa menos agressiva que o parser `known_merchants` sem cópia seria apenas reaproveitar o `std::vector<std::string>` via `thread_local`, reduzindo alocações sem mudar `Payload`, sem usar `string_view` e sem alterar a lógica de comparação.
+
+Baseline microbench limitado (`100` amostras, repeat `20`) antes do patch:
+
+| Métrica | ns/query |
+|---|---:|
+| `parse_payload` | 548.7 |
+| `parse_vectorize` | 601.117 |
+| `parse_classify` | 387570 |
+
+Resultado com `thread_local std::vector<std::string>`:
+
+| Métrica | ns/query |
+|---|---:|
+| `parse_payload` | 563.302 |
+| `parse_vectorize` | 600.157 |
+| `parse_classify` | 433564 |
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests benchmark-request-cpp -j2
+ctest --test-dir cpp/build --output-on-failure
+
+100% tests passed, 0 tests failed out of 1
+```
+
+Decisão: **rejeitado e revertido sem k6**. A mudança não melhora o parser e piora o microbench de classificação limitado. Provável causa: `thread_local` adiciona custo/indireção e o vetor local pequeno já é barato o suficiente frente ao parse DOM/padding. A tentativa anterior com `string_view`/array continua sendo a única variação de `known_merchants` que gerou sinal local, mas ela já foi rejeitada em validação pública.
