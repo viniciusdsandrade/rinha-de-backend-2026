@@ -659,3 +659,18 @@ Busca realizada:
 - `joojf rinha de backend 2026 github`.
 
 Resultado: **sem achado acionável**. Os resultados retornaram ruído de busca, páginas genéricas e repositórios não relacionados aos três líderes consultados. A página pública do ranking confirma a existência do preview da edição 2026, mas não entrega código-fonte dos participantes. Decisão: não gastar nova rodada nessa trilha sem URL direta de repositório; o melhor uso da janela restante é preservar a submissão `submission-cd3e915` e só testar hipóteses locais com retorno técnico claro.
+
+## Fechamento do ciclo estendido até 03h30
+
+Estado conferido às `2026-05-07 03:32:41 -03`:
+
+- Branch experimental: `perf/noon-tuning`, limpa e alinhada com `origin/perf/noon-tuning`.
+- Últimos reports pushados: `a4b1778` (`report leader code search`), `4674068` (`report rejected mcc risk experiment`), `013fc2e` (`reject known merchants parser change`), `d9cdc30` (`report raw state submission`).
+- Branch `submission`: limpa e alinhada com `origin/submission`.
+- Commit da submissão preparada: `46e9aeb` (`point submission to raw state image`).
+- Imagem da submissão preparada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-cd3e915`.
+- Melhor evidência pública/local do ciclo: raw `AppState*` com melhor pública `1.12ms / 5950.45`, validação final da branch `submission` em `5938.77`, `5944.96`, `5944.68`, sempre `0%` falhas.
+- Issue oficial: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2009`, estado `OPEN`, sem comentários até o fechamento.
+- Containers de experimento: derrubados após auditoria para liberar a porta `9999`.
+
+Conclusão operacional: o melhor estado preparado continua sendo `submission-cd3e915`. Nenhum experimento posterior entregou ganho público/local sustentável o bastante para substituir essa submissão.
