@@ -501,9 +501,11 @@ std::uint32_t nearest_centroid_avx2(
     std::uint32_t clusters
 ) noexcept {
     constexpr std::uint32_t kLanes = 8;
+    alignas(32) std::array<std::uint32_t, kLanes> cluster_ids{};
     alignas(32) std::array<float, kLanes> distances{};
-    std::uint32_t best_cluster = 0;
-    float best_distance = std::numeric_limits<float>::infinity();
+    __m256 best_distances = _mm256_set1_ps(std::numeric_limits<float>::infinity());
+    __m256i best_clusters = _mm256_setzero_si256();
+    const __m256i lane_offsets = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
     std::uint32_t cluster = 0;
     for (; cluster + kLanes <= clusters; cluster += kLanes) {
         __m256 acc = _mm256_setzero_ps();
@@ -513,12 +515,21 @@ std::uint32_t nearest_centroid_avx2(
             const __m256 delta = _mm256_sub_ps(q, centroid);
             acc = _mm256_add_ps(acc, _mm256_mul_ps(delta, delta));
         }
-        _mm256_store_ps(distances.data(), acc);
-        for (std::uint32_t lane = 0; lane < kLanes; ++lane) {
-            if (distances[lane] < best_distance) {
-                best_distance = distances[lane];
-                best_cluster = cluster + lane;
-            }
+        const __m256 mask = _mm256_cmp_ps(acc, best_distances, _CMP_LT_OQ);
+        const __m256i candidate_clusters = _mm256_add_epi32(_mm256_set1_epi32(static_cast<int>(cluster)), lane_offsets);
+        best_distances = _mm256_blendv_ps(best_distances, acc, mask);
+        best_clusters = _mm256_blendv_epi8(best_clusters, candidate_clusters, _mm256_castps_si256(mask));
+    }
+    _mm256_store_ps(distances.data(), best_distances);
+    _mm256_store_si256(reinterpret_cast<__m256i*>(cluster_ids.data()), best_clusters);
+
+    std::uint32_t best_cluster = cluster_ids[0];
+    float best_distance = distances[0];
+    for (std::uint32_t lane = 1; lane < kLanes; ++lane) {
+        if (distances[lane] < best_distance ||
+            (distances[lane] == best_distance && cluster_ids[lane] < best_cluster)) {
+            best_distance = distances[lane];
+            best_cluster = cluster_ids[lane];
         }
     }
     for (; cluster < clusters; ++cluster) {

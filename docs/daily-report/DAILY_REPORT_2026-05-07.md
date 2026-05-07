@@ -887,3 +887,48 @@ Validação k6 local:
 | centróide AVX2 | 1.24ms | 0% | 5906.98 |
 
 Decisão: **aceito na branch experimental; ainda não promovido para `submission`**. Esta é a primeira melhoria forte e sustentável da rodada: o offline caiu de `~12.0-12.3 us/query` para `~8.1-8.3 us/query` sem FP/FN. O k6 também melhorou contra o envelope ruidoso recente (`~5892-5897`), mas ainda ficou abaixo do melhor histórico da submissão publicada (`~5944-5950`). Próximo passo: validar em outra janela/rodada k6 e, se estabilizar acima da `submission`, publicar nova imagem e abrir nova issue de submissão apenas se a issue oficial atual não estiver bloqueando.
+
+## Ciclo 12h08: reduzir comparação escalar no nearest centroid AVX2
+
+Hipótese: a primeira versão AVX2 do nearest centroid ainda fazia 8 comparações escalares por bloco de centróides. Mantendo o melhor de cada lane em registradores (`best_distances` + `best_clusters`) e reduzindo apenas no final, o caminho evita `1280` comparações escalares por query, preservando desempate por menor cluster na redução final.
+
+Patch mantido:
+
+```cpp
+__m256 best_distances = _mm256_set1_ps(inf);
+__m256i best_clusters = _mm256_setzero_si256();
+...
+const __m256 mask = _mm256_cmp_ps(acc, best_distances, _CMP_LT_OQ);
+best_distances = _mm256_blendv_ps(best_distances, acc, mask);
+best_clusters = _mm256_blendv_epi8(best_clusters, candidate_clusters, _mm256_castps_si256(mask));
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| centróide AVX2 com comparação escalar #1 | 8110.35 | 0 | 0 |
+| centróide AVX2 com comparação escalar #2 | 8201.03 | 0 | 0 |
+| centróide AVX2 com comparação escalar #3 | 8329.17 | 0 | 0 |
+| centróide AVX2 com melhor por lane #1 | 7695.19 | 0 | 0 |
+| centróide AVX2 com melhor por lane #2 | 7522.45 | 0 | 0 |
+| centróide AVX2 com melhor por lane #3 | 7585.52 | 0 | 0 |
+
+Validação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+Resultado: 100% tests passed
+```
+
+Observação de infra: a primeira tentativa de k6 desta variante foi descartada porque o build Docker falhou por DNS/OAuth em `auth.docker.io`, e `up --no-build` teria usado imagem local antiga. O stack foi derrubado e o build foi reexecutado até `BUILD_OK` antes do k6 válido.
+
+Validação k6 válida:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| centróide AVX2 com comparação escalar | 1.24ms | 0% | 5906.98 |
+| centróide AVX2 com melhor por lane | 1.23ms | 0% | 5908.42 |
+
+Decisão: **aceito na branch experimental; ainda não promovido para `submission`**. O refinamento é sustentável no offline e gera pequeno avanço no k6 local válido, mas a pontuação segue abaixo da submissão histórica publicada. Próximo passo: buscar combinação adicional ou validar em janela menos ruidosa antes de qualquer nova imagem oficial.
