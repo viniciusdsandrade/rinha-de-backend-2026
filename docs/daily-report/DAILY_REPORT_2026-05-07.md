@@ -2815,3 +2815,30 @@ Resultado k6:
 | skip `memmove(0)` | 1.22ms | 0% | 5915.07 |
 
 Decisão: **rejeitado e revertido**. A branch adicional piorou o tail; a chamada `memmove` com zero bytes não é gargalo mensurável nesta libc/compilação.
+
+## Ciclo 23h07: reduzir `kReadChunk` para 1024
+
+Hipótese: como os payloads locais ficam na faixa de centenas de bytes, ler até `4096` bytes por `recv()` poderia ser excesso. Reduzir `kReadChunk` para `1024` poderia melhorar cache sem fragmentar requests.
+
+Patch temporário:
+
+```cpp
+constexpr std::size_t kReadChunk = 1024;
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `kReadChunk=1024` | 1.20ms | 0% | 5919.33 |
+
+Decisão: **rejeitado e revertido**. O resultado é bom, mas não supera o baseline aceito limpo (`5920.04`) nem a melhor run do buffer fixo (`5921.67`). Manter `4096` evita risco de fragmentação em cenários com headers maiores.
