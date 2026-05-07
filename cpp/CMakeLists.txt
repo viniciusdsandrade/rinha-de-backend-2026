@@ -79,6 +79,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         -Wpedantic
         -Wconversion
         -Wsign-conversion
+        -fno-plt
         -fno-unwind-tables
         -fno-asynchronous-unwind-tables
         -fno-rtti

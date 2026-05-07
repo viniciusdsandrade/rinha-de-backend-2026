@@ -353,3 +353,45 @@ Estado da issue oficial:
 - Comentários no momento da troca: nenhum.
 
 Decisão: **submissão efetiva atualizada antes do processamento da issue**. Como a issue `#2009` ainda estava aberta e sem resultado, a branch `submission` agora aponta para a melhor imagem disponível. Se a engine clonar o estado atual do fork quando processar a issue, deve testar `submission-a5ef277`.
+
+## Ciclo 02h15: `-fno-plt` no binário principal
+
+Hipótese: adicionar `-fno-plt` ao binário principal poderia reduzir indireções em chamadas para símbolos de bibliotecas dinâmicas. A mudança é pequena, reversível e não altera semântica de negócio.
+
+Escopo testado:
+
+- Adicionado `-fno-plt`.
+- Mantidos `-fno-unwind-tables`, `-fno-asynchronous-unwind-tables` e `-fno-rtti`.
+- Flags aplicadas apenas em `target_compile_options(rinha-backend-2026-cpp ...)`.
+- Sem alteração de algoritmo, parser, compose, recursos, índice IVF, API ou dados.
+
+Validação funcional:
+
+```bash
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+```
+
+Resultado funcional:
+
+```text
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais com imagem reconstruída:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| `-fno-plt` #1 | 1.13ms | 0 | 0 | 0 | 5947.44 |
+| `-fno-plt` #2 | 1.13ms | 0 | 0 | 0 | 5946.45 |
+| `-fno-plt` #3 | 1.14ms | 0 | 0 | 0 | 5944.47 |
+
+Comparação:
+
+| Referência | p99 | Falhas | Score |
+|---|---:|---:|---:|
+| Branch `submission` / `submission-a5ef277` | 1.15ms | 0% | 5939.70 |
+| Pior run local `-fno-plt` | 1.14ms | 0% | 5944.47 |
+| Melhor run local `-fno-plt` | 1.13ms | 0% | 5947.44 |
+
+Decisão: **promover para candidato público**. O ganho é pequeno, mas as três runs ficaram acima da branch `submission` recém-atualizada, sem regressão de acurácia. Próximo passo: publicar imagem pública, validar duas runs públicas e só então decidir se vale substituir `submission-a5ef277`.
