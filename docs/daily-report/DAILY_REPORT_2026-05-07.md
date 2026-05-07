@@ -2921,3 +2921,16 @@ Resultados k6:
 | **média** | **1.215ms** | **0%** | **5915.86** |
 
 Decisão: **rejeitado e revertido**. A primeira run foi boa, mas a segunda caiu muito; a média ficou abaixo do estado aceito. `nginx:1.27-alpine` permanece mais confiável localmente.
+
+## Ciclo 00h55: controle do estado atual após muitas rodadas
+
+Objetivo: depois de voltar do teste com `nginx:1.29-alpine` para `nginx:1.27-alpine`, medir o estado atual para garantir que o compose real seguia funcional.
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| controle pós-nginx 1 | 1.25ms | 0% | 5904.22 |
+| controle pós-nginx 2 | 1.27ms | 0% | 5897.80 |
+
+Leitura: ambas as runs mantiveram 0% falhas, mas vieram abaixo do patamar `~5920` visto no baseline limpo anterior. Como não havia patch de runtime pendente após os reverts, a hipótese mais provável é contenção/aquecimento da máquina após muitas execuções consecutivas de Docker/k6. Essas duas runs foram registradas como controle de ambiente e **não** como regressão de código.
