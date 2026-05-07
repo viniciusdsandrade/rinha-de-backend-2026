@@ -2480,3 +2480,25 @@ Resultados k6:
 | **média** | **1.21ms** | **0%** | **5918.67** |
 
 Decisão: **rejeitado e revertido**. Apesar do pico excelente, duas das três runs ficaram abaixo da mediana do servidor manual aceito (`5916.25`) e a melhora média veio concentrada em outlier. A mudança também adicionava complexidade para lidar com resposta constante vs. resposta acumulada em possível pipeline. Pelo critério de ganho sustentável, manter o `std::string` simples é tecnicamente mais justo.
+
+## Ciclo 16h42: redistribuição de CPU para nginx
+
+Hipótese: com o servidor HTTP manual reduzindo custo das APIs, o gargalo poderia migrar para o nginx `stream` na porta `9999`. Foi testado deslocar `0.02 CPU` das APIs para o LB.
+
+Patch temporário:
+
+```yaml
+api1/api2: 0.41 CPU -> 0.40 CPU
+nginx:     0.18 CPU -> 0.20 CPU
+total:     1.00 CPU
+```
+
+Resultados k6:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `api0.40/nginx0.20` 1 | 1.21ms | 0% | 5917.85 |
+| `api0.40/nginx0.20` 2 | 1.22ms | 0% | 5914.80 |
+| **média** | **1.215ms** | **0%** | **5916.33** |
+
+Decisão: **rejeitado e revertido**. A média ficou abaixo da média do servidor manual aceito (`5917.18`) e não há evidência de que o nginx precise de mais CPU neste ponto. A distribuição `api=0.41 + 0.41`, `nginx=0.18` permanece como melhor balanço medido.
