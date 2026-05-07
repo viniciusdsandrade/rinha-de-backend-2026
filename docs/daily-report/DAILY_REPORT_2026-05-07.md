@@ -2718,3 +2718,31 @@ Issues abertas buscando viniciusdsandrade: []
 ```
 
 Decisão operacional: **não abrir nova issue enquanto #2026 estiver aberta**, para evitar uma medição oficial potencialmente contaminada por checkout/submission directory stale. A branch `perf/noon-tuning` já contém resultado local melhor que a submissão oficial anterior; quando o runner voltar ao normal, o próximo passo é promover o melhor estado para `submission` e abrir issue oficial.
+
+## Ciclo 21h18: cache de máscara do epoll
+
+Hipótese: o servidor manual chamava `epoll_ctl(EPOLL_CTL_MOD)` ao fim de cada evento vivo, mesmo quando a máscara continuava `EPOLLIN | EPOLLRDHUP`. Cachear a máscara atual por conexão e só modificar quando `EPOLLOUT` entra/sai poderia reduzir syscalls.
+
+Patch temporário:
+
+```text
+Connection::events
+update_events(): calcula desired, retorna cedo se desired == current
+```
+
+Verificação:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+docker build --pull=false -t rinha-backend-2026-cpp-api:local .
+./run-local-k6.sh
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| cache máscara epoll | 1.22ms | 0% | 5913.69 |
+
+Decisão: **rejeitado e revertido**. A hipótese não melhorou o tail; a ramificação/estado extra ou o padrão real de eventos não compensou. O `epoll_ctl` repetido não é gargalo prioritário neste stack.
