@@ -527,3 +527,30 @@ Comparação contra a submissão atual:
 | Melhor pública raw `AppState*` | 1.12ms | 0% | 5950.45 |
 
 Decisão: **promover para tag imutável e branch `submission`**. A primeira pública ficou abaixo do melhor `a5ef277`, mas a segunda empatou/superou marginalmente e a terceira abriu ganho material. Como a alteração é pequena, sem impacto de contrato e com zero falhas em todas as runs, vale preparar `submission-cd3e915` e validar o compose final da branch `submission`.
+
+### Promoção para `submission-cd3e915`
+
+Tag imutável:
+
+- Workflow: `25476605994`.
+- Resultado: sucesso.
+- Duração: `1m32s`.
+- Manifest: `linux/amd64` presente para `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-cd3e915`.
+
+Branch oficial do fork:
+
+- Branch: `submission`.
+- Commit: `46e9aeb` (`point submission to raw state image`).
+- `docker-compose.yml`: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-cd3e915`.
+- `docker compose config --quiet`: OK.
+- Push: concluído em `origin/submission`.
+
+Validação final do compose da branch `submission`:
+
+| Run | p99 | FP | FN | HTTP errors | final_score |
+|---|---:|---:|---:|---:|---:|
+| branch `submission` / `submission-cd3e915` #1 | 1.15ms | 0 | 0 | 0 | 5938.77 |
+| branch `submission` / `submission-cd3e915` #2 | 1.14ms | 0 | 0 | 0 | 5944.96 |
+| branch `submission` / `submission-cd3e915` #3 | 1.14ms | 0 | 0 | 0 | 5944.68 |
+
+Decisão final do ciclo: **manter `submission-cd3e915` como melhor submissão preparada**. O resultado tem variância local, mas duas das três validações finais superaram o melhor público anterior de `submission-a5ef277` (`5943.36`) e a melhor pública do novo candidato chegou a `5950.45`. A issue oficial de teste permanece aberta (`#2009`), sem comentários até o momento, então a branch `submission` atualizada ainda deve ser a versão consumida quando a engine processar a solicitação.
