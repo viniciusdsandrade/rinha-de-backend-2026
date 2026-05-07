@@ -3027,3 +3027,33 @@ Reteste do índice `1536`:
 | fast=2/full=2 | 14324.10 | 0 | 0 |
 
 Decisão: **rejeitado**. `1536` é mais rápido apenas aceitando FP; quando zera FP/FN com `fast=2`, fica muito mais lento que `1280`. Pela fórmula de pontuação, qualquer FP/FN nessa escala perde muito mais do que a pequena melhoria de p99 poderia recuperar.
+
+## Ciclo 02h37: screening offline de treino do índice IVF
+
+Hipótese: mantendo `1280` clusters, alterar iterações ou tamanho da amostra de treino do k-means poderia formar clusters mais rápidos sem alterar código runtime.
+
+Comando:
+
+```text
+cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-1280-*.bin 1280 <train_sample> <iterations>
+cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-1280-*.bin 3 0 1 1 1 1 4 0 0
+```
+
+Resultados por iteração (`train_sample=65536`):
+
+| iterations | ns/query | FP | FN | decisão |
+|---:|---:|---:|---:|---|
+| 4 | 7254.02 | 3 | 0 | inválido |
+| 6 atual | ~7262 a 7845 | 0 | 0 | aceito |
+| 8 | 7265.89 | 0 | 3 | inválido |
+| 10 | 7126.02 | 0 | 3 | inválido |
+
+Resultados por amostra (`iterations=6`):
+
+| train_sample | ns/query | FP | FN | decisão |
+|---:|---:|---:|---:|---|
+| 32768 | 7256.06 | 9 | 9 | inválido |
+| 65536 atual | ~7262 a 7845 | 0 | 0 | aceito |
+| 131072 | 7506.89 | 6 | 6 | inválido |
+
+Decisão: **rejeitado**. O índice atual (`1280`, sample `65536`, `6` iterações) é o único dessa triagem que preservou FP/FN zero. As variações até podem parecer competitivas em ns/query, mas perdem score de detecção.
