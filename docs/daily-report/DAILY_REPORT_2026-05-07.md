@@ -3057,3 +3057,24 @@ Resultados por amostra (`iterations=6`):
 | 131072 | 7506.89 | 6 | 6 | inválido |
 
 Decisão: **rejeitado**. O índice atual (`1280`, sample `65536`, `6` iterações) é o único dessa triagem que preservou FP/FN zero. As variações até podem parecer competitivas em ns/query, mas perdem score de detecção.
+
+## Ciclo 03h02: revisão de metadata de submissão
+
+Objetivo: antes de qualquer promoção para `submission`, revisar se os arquivos de raiz refletem o estado técnico atual.
+
+Evidência:
+
+```text
+info.json ainda declarava "uwebsockets"
+runtime atual usa /app/rinha-backend-2026-cpp-manual
+Dockerfile ENTRYPOINT ["/app/rinha-backend-2026-cpp-manual"]
+nginx stream -> Unix sockets /sockets/api1.sock e /sockets/api2.sock
+```
+
+Correção aplicada:
+
+```json
+"stack": ["c++20", "epoll", "unix-socket", "simdjson", "nginx", "avx2", "fma"]
+```
+
+Decisão: **aceito**. A metadata agora descreve a stack real da melhor implementação: C++20 com servidor HTTP manual baseado em `epoll`, comunicação API-LB por Unix socket, `simdjson`, nginx e AVX2/FMA.
