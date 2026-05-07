@@ -2972,3 +2972,58 @@ Reteste com `repeat=5`:
 | `fast=1/full=3/bbox=1/repair=1..4` | 7841.97 | 0 | 0 |
 
 Decisão: **sem mudança**. O estado atual (`fast=1/full=1/bbox=1/repair=1..4`) continua sendo o melhor ponto medido que preserva FP/FN zero. Acurácia zero-falha depende do bbox repair, e aumentar probes só adiciona custo.
+
+## Ciclo 01h52: baseline offline de request/parser
+
+Objetivo: medir parser/vetorização isoladamente antes de propor novas micro-otimizações, evitando k6 quando o ambiente Docker está ruidoso.
+
+Comando:
+
+```text
+cmake --build cpp/build --target benchmark-request-cpp -j2
+nice -n 10 cpp/build/benchmark-request-cpp test/test-data.json resources/references.json.gz 5 0
+```
+
+Resultado:
+
+| Métrica | ns/query |
+|---|---:|
+| `body_append_default` | 28.00 |
+| `body_append_reserve768` | 25.70 |
+| `dom_padded_parse` | 236.45 |
+| `dom_reserve768_parse` | 242.01 |
+| `parse_payload` | 612.06 |
+| `parse_vectorize` | 669.98 |
+| `parse_classify` exato legado | 368465 |
+
+Leitura: parser/vetorização são pequenos frente à busca/classificação; micro-parser só deve ir para k6 se o benchmark offline mostrar ganho claro. O caminho dominante continua sendo busca/infra.
+
+## Ciclo 02h04: screening offline de quantidade de clusters IVF
+
+Hipótese: mudar a quantidade de clusters do índice poderia reduzir candidatos por cluster e melhorar tempo, mantendo memória parecida. Foram gerados índices temporários em `/tmp` sem alterar o repo.
+
+Comando base:
+
+```text
+cpp/build/prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-<clusters>.bin <clusters> 65536 6
+cpp/build/benchmark-ivf-cpp test/test-data.json /tmp/rinha-ivf-perf/index-<clusters>.bin 3 0 1 1 1 1 4 0 0
+```
+
+Resultados:
+
+| clusters | memória MB | ns/query | FP | FN | decisão |
+|---:|---:|---:|---:|---:|---|
+| 1024 | 94.64 | 8101.37 | 3 | 6 | inválido |
+| 1280 atual | 94.69 | ~7262 a 7845 | 0 | 0 | aceito |
+| 1536 | 94.75 | 6691.27 | 6 | 0 | inválido |
+| 2048 | 94.87 | 7440.71 | 9 | 9 | inválido |
+
+Reteste do índice `1536`:
+
+| config | ns/query | FP | FN |
+|---|---:|---:|---:|
+| fast=1/full=2 | 7179.32 | 6 | 0 |
+| fast=1/full=3 | 7082.45 | 6 | 0 |
+| fast=2/full=2 | 14324.10 | 0 | 0 |
+
+Decisão: **rejeitado**. `1536` é mais rápido apenas aceitando FP; quando zera FP/FN com `fast=2`, fica muito mais lento que `1280`. Pela fórmula de pontuação, qualquer FP/FN nessa escala perde muito mais do que a pequena melhoria de p99 poderia recuperar.
