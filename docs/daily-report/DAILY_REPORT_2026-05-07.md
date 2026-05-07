@@ -2520,3 +2520,21 @@ Resultado k6:
 | nginx `worker_processes 1` | 1.22ms | 0% | 5912.58 |
 
 Decisão: **rejeitado e revertido**. O resultado ficou abaixo do servidor manual aceito e confirmou que dois workers continuam sendo o melhor equilíbrio medido para o fan-in externo na porta `9999`.
+
+## Ciclo 17h38: nginx `multi_accept on`
+
+Hipótese: aceitar múltiplas conexões por wakeup no nginx poderia reduzir overhead no ramp alto do k6.
+
+Patch temporário:
+
+```nginx
+multi_accept on;
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| nginx `multi_accept on` | 1.22ms | 0% | 5912.50 |
+
+Decisão: **rejeitado e revertido**. A mudança piorou o tail e indica que `multi_accept off` preserva melhor a distribuição/fairness sob o limite atual de CPU do LB.
