@@ -493,6 +493,48 @@ void scan_blocks_avx2(
         }
     }
 }
+
+__attribute__((target("avx2")))
+std::uint32_t nearest_centroid_avx2(
+    const std::vector<float>& centroids,
+    const QueryVector& query,
+    std::uint32_t clusters
+) noexcept {
+    constexpr std::uint32_t kLanes = 8;
+    alignas(32) std::array<float, kLanes> distances{};
+    std::uint32_t best_cluster = 0;
+    float best_distance = std::numeric_limits<float>::infinity();
+    std::uint32_t cluster = 0;
+    for (; cluster + kLanes <= clusters; cluster += kLanes) {
+        __m256 acc = _mm256_setzero_ps();
+        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+            const __m256 centroid = _mm256_loadu_ps(centroids.data() + (dim * clusters) + cluster);
+            const __m256 q = _mm256_set1_ps(query[dim]);
+            const __m256 delta = _mm256_sub_ps(q, centroid);
+            acc = _mm256_add_ps(acc, _mm256_mul_ps(delta, delta));
+        }
+        _mm256_store_ps(distances.data(), acc);
+        for (std::uint32_t lane = 0; lane < kLanes; ++lane) {
+            if (distances[lane] < best_distance) {
+                best_distance = distances[lane];
+                best_cluster = cluster + lane;
+            }
+        }
+    }
+    for (; cluster < clusters; ++cluster) {
+        float distance = 0.0f;
+        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+            const float centroid = centroids[dim * clusters + cluster];
+            const float delta = query[dim] - centroid;
+            distance += delta * delta;
+        }
+        if (distance < best_distance) {
+            best_distance = distance;
+            best_cluster = cluster;
+        }
+    }
+    return best_cluster;
+}
 #endif
 
 bool supports_avx2() noexcept {
@@ -505,6 +547,34 @@ bool supports_avx2() noexcept {
 #else
     return false;
 #endif
+}
+
+std::uint32_t nearest_centroid_probe1(
+    const std::vector<float>& centroids,
+    const QueryVector& query,
+    std::uint32_t clusters
+) noexcept {
+#if defined(__x86_64__) || defined(_M_X64)
+    static const bool avx2_available = supports_avx2();
+    if (avx2_available) {
+        return nearest_centroid_avx2(centroids, query, clusters);
+    }
+#endif
+    std::uint32_t best_cluster = 0;
+    float best_distance = std::numeric_limits<float>::infinity();
+    for (std::uint32_t cluster = 0; cluster < clusters; ++cluster) {
+        float distance = 0.0f;
+        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+            const float centroid = centroids[dim * clusters + cluster];
+            const float delta = query[dim] - centroid;
+            distance += delta * delta;
+        }
+        if (distance < best_distance) {
+            best_distance = distance;
+            best_cluster = cluster;
+        }
+    }
+    return best_cluster;
 }
 
 void scan_blocks(
@@ -860,15 +930,19 @@ std::uint8_t IvfIndex::fraud_count_once_fixed_stats(
 
     std::array<std::uint32_t, MaxNprobe> best_clusters{};
     std::array<float, MaxNprobe> best_distances{};
-    best_distances.fill(std::numeric_limits<float>::infinity());
-    for (std::uint32_t cluster = 0; cluster < clusters_; ++cluster) {
-        float distance = 0.0f;
-        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
-            const float centroid = centroids_[dim * clusters_ + cluster];
-            const float delta = query_float[dim] - centroid;
-            distance += delta * delta;
+    if (nprobe == 1U) {
+        best_clusters[0] = nearest_centroid_probe1(centroids_, query_float, clusters_);
+    } else {
+        best_distances.fill(std::numeric_limits<float>::infinity());
+        for (std::uint32_t cluster = 0; cluster < clusters_; ++cluster) {
+            float distance = 0.0f;
+            for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+                const float centroid = centroids_[dim * clusters_ + cluster];
+                const float delta = query_float[dim] - centroid;
+                distance += delta * delta;
+            }
+            insert_probe(cluster, distance, best_clusters.data(), best_distances.data(), nprobe);
         }
-        insert_probe(cluster, distance, best_clusters.data(), best_distances.data(), nprobe);
     }
 
     Top5 top;
@@ -918,15 +992,19 @@ std::uint8_t IvfIndex::fraud_count_once_fixed(
 
     std::array<std::uint32_t, MaxNprobe> best_clusters{};
     std::array<float, MaxNprobe> best_distances{};
-    best_distances.fill(std::numeric_limits<float>::infinity());
-    for (std::uint32_t cluster = 0; cluster < clusters_; ++cluster) {
-        float distance = 0.0f;
-        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
-            const float centroid = centroids_[dim * clusters_ + cluster];
-            const float delta = query_float[dim] - centroid;
-            distance += delta * delta;
+    if (nprobe == 1U) {
+        best_clusters[0] = nearest_centroid_probe1(centroids_, query_float, clusters_);
+    } else {
+        best_distances.fill(std::numeric_limits<float>::infinity());
+        for (std::uint32_t cluster = 0; cluster < clusters_; ++cluster) {
+            float distance = 0.0f;
+            for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+                const float centroid = centroids_[dim * clusters_ + cluster];
+                const float delta = query_float[dim] - centroid;
+                distance += delta * delta;
+            }
+            insert_probe(cluster, distance, best_clusters.data(), best_distances.data(), nprobe);
         }
-        insert_probe(cluster, distance, best_clusters.data(), best_distances.data(), nprobe);
     }
 
     Top5 top;

@@ -832,3 +832,58 @@ Resultados offline após reconstruir o benchmark:
 | benchmark IVF com IPO #2 | 12016.9 | 0 | 0 |
 
 Decisão: **mantido como ajuste de metodologia na branch experimental**. Não é uma promoção de performance para `submission`, mas reduz um desvio entre benchmark e API, já que a API final já usa IPO. As próximas decisões offline devem considerar que a faixa ainda tem ruído, mas agora mede um binário mais parecido com o real.
+
+## Ciclo 11h55: nearest centroid AVX2 para `nprobe=1`
+
+Hipótese: o custo restante do IVF não estava apenas no scan dos blocos, mas também na seleção do cluster primário. Com `1280` clusters e `14` dimensões, o caminho escalar fazia `1280 x 14` cargas/contas por query. Como os centróides já estão em layout transposto (`centroids_[dim * clusters + cluster]`), dá para calcular 8 clusters por vez com AVX2, mantendo a mesma ordem de soma por lane e desempate por menor índice.
+
+Patch mantido na branch experimental:
+
+```cpp
+__attribute__((target("avx2")))
+std::uint32_t nearest_centroid_avx2(...) {
+    for (; cluster + 8 <= clusters; cluster += 8) {
+        __m256 acc = _mm256_setzero_ps();
+        for (std::size_t dim = 0; dim < kDimensions; ++dim) {
+            const __m256 centroid = _mm256_loadu_ps(centroids.data() + (dim * clusters) + cluster);
+            const __m256 q = _mm256_set1_ps(query[dim]);
+            const __m256 delta = _mm256_sub_ps(q, centroid);
+            acc = _mm256_add_ps(acc, _mm256_mul_ps(delta, delta));
+        }
+        ...
+    }
+}
+```
+
+Validação offline:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp -j2
+nice -n 10 cpp/build/benchmark-ivf-cpp test/test-data.json cpp/build/perf-data/index-1280.bin 8 0 1 1 1 1 4 1 0
+```
+
+Resultados offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| centróide escalar, benchmark com IPO #1 | 12348.7 | 0 | 0 |
+| centróide escalar, benchmark com IPO #2 | 12016.9 | 0 | 0 |
+| centróide AVX2 #1 | 8110.35 | 0 | 0 |
+| centróide AVX2 #2 | 8201.03 | 0 | 0 |
+| centróide AVX2 #3 | 8329.17 | 0 | 0 |
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp rinha-backend-2026-cpp-tests -j2
+ctest --test-dir cpp/build --output-on-failure
+Resultado: 100% tests passed
+```
+
+Validação k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| centróide AVX2 | 1.24ms | 0% | 5906.98 |
+
+Decisão: **aceito na branch experimental; ainda não promovido para `submission`**. Esta é a primeira melhoria forte e sustentável da rodada: o offline caiu de `~12.0-12.3 us/query` para `~8.1-8.3 us/query` sem FP/FN. O k6 também melhorou contra o envelope ruidoso recente (`~5892-5897`), mas ainda ficou abaixo do melhor histórico da submissão publicada (`~5944-5950`). Próximo passo: validar em outra janela/rodada k6 e, se estabilizar acima da `submission`, publicar nova imagem e abrir nova issue de submissão apenas se a issue oficial atual não estiver bloqueando.
