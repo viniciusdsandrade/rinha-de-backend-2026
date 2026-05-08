@@ -336,3 +336,18 @@ estado esperado da branch submission: 8d8a2f6
 imagem esperada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-60daa3d
 melhor validação local pública: p99 1.13ms, 0% falhas, final_score 5947.40
 ```
+
+## Ciclo 18h18: `trixie` + `haswell`
+
+Hipótese: após a vitória do GCC 14/base `trixie`, retestar `-march=haswell -mtune=haswell` poderia combinar o melhor dos dois caminhos.
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `trixie + haswell` | 1.16ms | 0% | 5935.29 |
+| `trixie + x86-64-v3` melhor pública local | 1.13ms | 0% | 5947.40 |
+
+Resultado: **rejeitado e revertido**.
+
+Aprendizado: com GCC 14, manter `x86-64-v3` genérico foi melhor no stack completo. O `haswell` continua competitivo offline/isolado, mas perde no k6 end-to-end.
