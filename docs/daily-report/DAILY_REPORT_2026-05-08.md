@@ -396,3 +396,19 @@ Resultado k6:
 Resultado: **rejeitado e revertido**.
 
 Aprendizado: o allocator alternativo ficou competitivo, mas não superou o estado vencedor. O hot path atual já tem pouca pressão de heap; adicionar dependência/runtime preload não se justifica por resultado inferior.
+
+## Ciclo 19h16: `nginx:1.29-alpine`
+
+Hipótese: uma versão mais nova do nginx poderia reduzir ligeiramente overhead no proxy TCP stream.
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `nginx:1.29-alpine` run 1 | 1.12ms | 0% | 5949.11 |
+| `nginx:1.29-alpine` run 2 | 1.13ms | 0% | 5945.42 |
+| baseline contemporâneo `nginx:1.27-alpine` | 1.13ms | 0% | 5948.47 |
+
+Resultado: **inconclusivo/rejeitado e revertido**.
+
+Aprendizado: `1.29` existe e funciona, mas não abriu distância clara. O baseline `1.27` no mesmo momento ficou praticamente empatado e acima da segunda run do `1.29`. Pelo critério de ganho sustentável e inquestionável, manter `nginx:1.27-alpine`.
