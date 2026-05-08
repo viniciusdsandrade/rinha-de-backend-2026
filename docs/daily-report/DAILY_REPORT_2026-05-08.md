@@ -455,3 +455,11 @@ Interpretação:
 - As duas runs limpas locais atuais ficaram muito abaixo e estáveis em `~5900`, indicando condição local degradada naquele momento ou diferença de cache/ambiente local, não necessariamente regressão da imagem pública.
 - A issue oficial nova `#2328` segue aberta aguardando a engine testar o estado atualizado da branch `submission`.
 - Decisão operacional: não promover novos micro-ajustes com base em runs locais enquanto o baseline contemporâneo estiver degradado; exigir comparação no mesmo bloco de execução ou resultado oficial.
+
+Validação adicional no mesmo momento:
+
+| Artefato | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| imagem pública `submission-60daa3d` reexecutada | 1.26ms | 0% | 5899.29 |
+
+Conclusão: a imagem pública também caiu para o mesmo patamar das runs limpas locais. Portanto a queda para `~5900` é efeito do ambiente local no momento da medição, não diferença entre imagem local e imagem publicada.
