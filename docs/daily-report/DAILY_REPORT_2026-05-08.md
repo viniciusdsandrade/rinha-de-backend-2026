@@ -487,3 +487,27 @@ Resultados k6:
 Resultado: **rejeitado e revertido**.
 
 Aprendizado: a melhora da segunda run veio da recuperação do ambiente local, não do patch. A comparação imediata com a imagem pública atual foi superior sem a mudança. Manter `std::string` com `reserve(512)` no hot path.
+
+## Ciclo 20h15: resultado oficial da issue `#2328`
+
+A issue oficial que testou a imagem `submission-60daa3d` fechou:
+
+```text
+issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2328
+commit testado: 8d8a2f6
+imagem testada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-60daa3d
+p99: 1.21ms
+falhas: 0%
+final_score: 5918.79
+```
+
+Comparação oficial:
+
+| Issue | Imagem | p99 | Falhas | final_score |
+|---|---|---:|---:|---:|
+| `#2316` | `submission-a477d55` | 1.20ms | 0% | 5921.80 |
+| `#2328` | `submission-60daa3d` | 1.21ms | 0% | 5918.79 |
+
+Resultado: **`trixie/GCC14` rejeitado para submissão oficial**, apesar de ter sido melhor localmente. A melhor evidência oficial continua sendo `submission-a477d55`.
+
+Decisão operacional: branch `submission` restaurada para `submission-a477d55` no commit `f2a5b98` (`restore best official submission image`). Abrir nova issue apenas se for necessário restaurar o ranking/site para o melhor estado oficial conhecido.
