@@ -510,4 +510,14 @@ Comparação oficial:
 
 Resultado: **`trixie/GCC14` rejeitado para submissão oficial**, apesar de ter sido melhor localmente. A melhor evidência oficial continua sendo `submission-a477d55`.
 
-Decisão operacional: branch `submission` restaurada para `submission-a477d55` no commit `f2a5b98` (`restore best official submission image`). Abrir nova issue apenas se for necessário restaurar o ranking/site para o melhor estado oficial conhecido.
+Decisão operacional: branch `submission` restaurada para `submission-a477d55` no commit `f2a5b98` (`restore best official submission image`).
+
+Nova issue aberta para a engine testar novamente o melhor estado oficial conhecido:
+
+```text
+issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2338
+body/title: rinha/test andrade-cpp-ivf
+estado esperado da branch submission: f2a5b98
+imagem esperada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55
+referência oficial a restaurar/superar: p99 1.20ms, 0% falhas, final_score 5921.80
+```
