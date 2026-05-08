@@ -412,3 +412,26 @@ Resultados k6:
 Resultado: **inconclusivo/rejeitado e revertido**.
 
 Aprendizado: `1.29` existe e funciona, mas não abriu distância clara. O baseline `1.27` no mesmo momento ficou praticamente empatado e acima da segunda run do `1.29`. Pelo critério de ganho sustentável e inquestionável, manter `nginx:1.27-alpine`.
+
+## Ciclo 19h36: split CPU `api=0.405`, `nginx=0.19` sobre `trixie`
+
+Hipótese: após a melhora de codegen com `trixie/GCC14`, o balanço ótimo entre API e nginx poderia ter mudado.
+
+Patch temporário:
+
+```yaml
+api1/api2: 0.41 -> 0.405 CPU
+nginx:     0.18 -> 0.19 CPU
+total:     1.00 CPU
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `api0.405/nginx0.19` sobre `trixie` | 1.14ms | 0% | 5944.33 |
+| baseline contemporâneo `api0.41/nginx0.18` | 1.13ms | 0% | 5948.47 |
+
+Resultado: **rejeitado e revertido**.
+
+Aprendizado: mesmo com GCC 14, retirar CPU das APIs para o nginx piora o p99. O melhor split medido continua `api=0.41 + 0.41`, `nginx=0.18`.
