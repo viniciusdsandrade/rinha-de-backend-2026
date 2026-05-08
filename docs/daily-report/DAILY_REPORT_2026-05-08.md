@@ -163,3 +163,31 @@ Resultado k6:
 | `api0.405/nginx0.19` | 1.24ms | 0% | 5907.43 |
 
 Decisão: **rejeitado e revertido**. O ponto intermediário piorou mais que o estado aceito e confirmou que a distribuição `api=0.41 + 0.41`, `nginx=0.18` segue sendo o melhor balanço de recursos medido.
+
+## Ciclo 16h41: diagnóstico da fila da issue oficial
+
+Investigação: a issue `#2316` permaneceu aberta sem comentários enquanto algumas issues próximas foram processadas.
+
+Evidência:
+
+```text
+#2319 CLOSED, #2309 CLOSED
+#2316 OPEN sem comentários
+várias issues recentes também OPEN (#2313, #2314, #2315, #2317, #2318, #2320)
+```
+
+Checagem do participante oficial:
+
+```text
+gh api repos/zanfranceschi/rinha-de-backend-2026/contents/participants/viniciusdsandrade.json?ref=main
+[
+  {
+    "id": "andrade-cpp-ivf",
+    "repo": "https://github.com/viniciusdsandrade/rinha-de-backend-2026"
+  }
+]
+```
+
+Observação: os arquivos locais `participants/viniciusdsandrade.json` ainda aparecem como `andrade-rust`, mas o arquivo oficial no upstream está correto. A engine usa o cadastro oficial, então a issue `rinha/test andrade-cpp-ivf` está semanticamente correta.
+
+Decisão: **não abrir issue duplicada**. Manter `#2316` aberta e aguardar a fila/runner.
