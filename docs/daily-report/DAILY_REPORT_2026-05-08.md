@@ -351,3 +351,26 @@ Resultado k6:
 Resultado: **rejeitado e revertido**.
 
 Aprendizado: com GCC 14, manter `x86-64-v3` genérico foi melhor no stack completo. O `haswell` continua competitivo offline/isolado, mas perde no k6 end-to-end.
+
+## Ciclo 18h35: `trixie` + `clang++/lld`
+
+Hipótese: manter `trixie`, mas trocar o compilador de GCC 14 para Clang 19 com `lld`, poderia gerar código mais rápido no hot path sem alterar comportamento.
+
+Patch temporário:
+
+```text
+apt-get install clang lld
+CC=clang CXX=clang++ cmake ...
+CMAKE_EXE_LINKER_FLAGS_RELEASE=-fuse-ld=lld
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `trixie + clang++/lld` | 1.17ms | 0% | 5930.99 |
+| `trixie + GCC 14` melhor pública local | 1.13ms | 0% | 5947.40 |
+
+Resultado: **rejeitado e revertido**.
+
+Aprendizado: Clang 19 construiu corretamente e manteve acurácia, mas perdeu p99 no stack completo. O estado vencedor permanece `debian:trixie` com GCC 14 padrão.
