@@ -191,3 +191,32 @@ gh api repos/zanfranceschi/rinha-de-backend-2026/contents/participants/viniciusd
 Observação: os arquivos locais `participants/viniciusdsandrade.json` ainda aparecem como `andrade-rust`, mas o arquivo oficial no upstream está correto. A engine usa o cadastro oficial, então a issue `rinha/test andrade-cpp-ivf` está semanticamente correta.
 
 Decisão: **não abrir issue duplicada**. Manter `#2316` aberta e aguardar a fila/runner.
+
+## Ciclo 16h55: screening PGO offline
+
+Hipótese: `-fprofile-generate/-fprofile-use` poderia reorganizar branches e layout do binário para reduzir alguns microssegundos no hot path do parser/classificador.
+
+Procedimento:
+
+```text
+build instrumentado com -fprofile-generate=/tmp/rinha-pgo-profile
+treino offline com prepare-ivf-cpp + benchmark-ivf-cpp + benchmark-request-cpp
+build posterior com -fprofile-use=/tmp/rinha-pgo-profile -fprofile-correction
+comparação offline contra build base atual
+```
+
+Resultado do kernel IVF:
+
+| Variante | ns/query | FP | FN | parse_errors |
+|---|---:|---:|---:|---:|
+| PGO | 10123.7 | 0 | 0 | 0 |
+| Base atual | 10007.1 | 0 | 0 | 0 |
+
+Resultado: **rejeitado**.
+
+Aprendizados:
+
+- O PGO piorou o kernel IVF em ~1.17% no benchmark offline, sem alteração de acurácia.
+- A etapa `benchmark-request-cpp` exata com `repeat=5` ficou cara demais para screening leve e foi abortada após o IVF já sinalizar regressão.
+- Mesmo que houvesse ganho pontual, treinar PGO com `test/test-data.json` é tecnicamente questionável para submissão sustentável, por risco de overfitting ao dataset público local.
+- Decisão operacional: não integrar PGO no Dockerfile nem gerar nova imagem de submissão a partir desse caminho.
