@@ -435,3 +435,23 @@ Resultado k6:
 Resultado: **rejeitado e revertido**.
 
 Aprendizado: mesmo com GCC 14, retirar CPU das APIs para o nginx piora o p99. O melhor split medido continua `api=0.41 + 0.41`, `nginx=0.18`.
+
+## Ciclo 20h08: auditoria de baseline local pós-experimentos
+
+Durante a sequência de experimentos foi identificada uma nuance metodológica: após o teste com `mimalloc`, algumas variantes seguintes usaram `docker compose up --no-build`. Isso significa que a imagem local poderia continuar carregando o build anterior mesmo depois do Dockerfile ter sido revertido. Como nenhuma dessas variantes foi promovida, não houve impacto na branch `submission`, mas os aprendizados posteriores precisam ser interpretados com essa cautela.
+
+Correção aplicada: rebuild limpo do estado vencedor atual (`debian:trixie` + GCC 14, `nginx:1.27-alpine`, sem `mimalloc`) e duas runs k6.
+
+Resultados:
+
+| Run limpa | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| clean-trixie baseline 1 | 1.26ms | 0% | 5900.21 |
+| clean-trixie baseline 2 | 1.26ms | 0% | 5899.84 |
+
+Interpretação:
+
+- A imagem pública `submission-60daa3d` já foi validada separadamente a partir da branch `submission` com `p99 1.13ms`, `0%`, `final_score 5947.40`.
+- As duas runs limpas locais atuais ficaram muito abaixo e estáveis em `~5900`, indicando condição local degradada naquele momento ou diferença de cache/ambiente local, não necessariamente regressão da imagem pública.
+- A issue oficial nova `#2328` segue aberta aguardando a engine testar o estado atualizado da branch `submission`.
+- Decisão operacional: não promover novos micro-ajustes com base em runs locais enquanto o baseline contemporâneo estiver degradado; exigir comparação no mesmo bloco de execução ou resultado oficial.
