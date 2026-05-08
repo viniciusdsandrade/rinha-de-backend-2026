@@ -143,3 +143,23 @@ Resultado k6 com imagem pública:
 | `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55` | 1.21ms | 0% | 5917.98 |
 
 Decisão: **válido para submissão**. A imagem pública está acessível, é executável no compose da branch `submission`, mantém 0% falhas e reproduz o patamar esperado do melhor estado aceito.
+
+## Ciclo 16h32: CPU intermediária `api=0.405`, `nginx=0.19`
+
+Hipótese: os extremos já testados (`api0.40/nginx0.20` e `api0.42/nginx0.16`) foram ruins, mas um ponto intermediário poderia reduzir leve contenção no nginx sem tirar CPU demais das APIs.
+
+Patch temporário:
+
+```yaml
+api1/api2: 0.41 CPU -> 0.405 CPU
+nginx:     0.18 CPU -> 0.19 CPU
+total:     1.00 CPU
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `api0.405/nginx0.19` | 1.24ms | 0% | 5907.43 |
+
+Decisão: **rejeitado e revertido**. O ponto intermediário piorou mais que o estado aceito e confirmou que a distribuição `api=0.41 + 0.41`, `nginx=0.18` segue sendo o melhor balanço de recursos medido.
