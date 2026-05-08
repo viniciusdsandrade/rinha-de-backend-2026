@@ -521,3 +521,32 @@ estado esperado da branch submission: f2a5b98
 imagem esperada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55
 referência oficial a restaurar/superar: p99 1.20ms, 0% falhas, final_score 5921.80
 ```
+
+## Ciclo 17h34: GCC14 no build + runtime bookworm estático
+
+Hipótese: preservar o codegen do `GCC 14`/trixie, mas trocar apenas o runtime para `debian:bookworm-slim`, poderia explicar a divergência entre resultado local e oficial caso o custo viesse do runtime/glibc do trixie.
+
+Patch experimental aplicado temporariamente:
+
+```text
+builder: debian:trixie com GCC 14
+linker: -static-libstdc++ -static-libgcc
+runtime: debian:bookworm-slim
+```
+
+Resultado:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| GCC14 + runtime bookworm | 0.87ms | 100% | 0 |
+
+Diagnóstico:
+
+```text
+/app/rinha-backend-2026-cpp-manual: /lib/x86_64-linux-gnu/libc.so.6:
+version `GLIBC_2.38' not found
+```
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: `-static-libstdc++/-static-libgcc` não resolve a dependência de `glibc`; o binário criado no trixie continua exigindo símbolo novo demais para bookworm. Se quisermos isolar codegen vs runtime com rigor, o caminho sustentável seria build contra sysroot bookworm, toolchain cruzada compatível, ou libc alternativa. Como troca simples de Dockerfile, a hipótese é inválida.
