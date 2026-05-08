@@ -257,3 +257,41 @@ Validação k6 em compose:
 Resultado: **rejeitado e revertido**.
 
 Aprendizado: o ganho offline não sobreviveu ao stack completo. O gargalo/p99 observado pelo k6 segue dominado por interação compose/nginx/scheduler/HTTP, não apenas pelo kernel IVF isolado. Como a submissão pública anterior mediu `5917.98` e o melhor local aceito do ciclo anterior foi `5921.67`, `haswell` não é promoção segura.
+
+## Ciclo 17h45: base `debian:trixie` / GCC 14
+
+Hipótese: a imagem atual compila no `debian:bookworm` com GCC 12, enquanto os testes locais fora do Docker usam toolchain mais novo. Migrar builder/runtime para `debian:trixie` poderia melhorar codegen e bibliotecas de runtime sem mexer no algoritmo, no compose, na topologia ou na acurácia.
+
+Patch:
+
+```diff
+- FROM debian:bookworm AS builder
++ FROM debian:trixie AS builder
+
+- FROM debian:bookworm-slim AS runtime
++ FROM debian:trixie-slim AS runtime
+```
+
+Validação k6 em compose:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `trixie` run 1 | 1.15ms | 0% | 5938.30 |
+| `trixie` run 2 | 1.13ms | 0% | 5947.63 |
+
+Comparação contra referências recentes:
+
+| Estado | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| imagem pública submetida `submission-a477d55` | 1.21ms | 0% | 5917.98 |
+| melhor local aceito anterior | ~1.20ms | 0% | 5921.67 |
+| `trixie` melhor run local | 1.13ms | 0% | 5947.63 |
+
+Resultado: **aceito para promoção**.
+
+Aprendizados:
+
+- A troca é sustentável: muda apenas toolchain/base image, sem alterar decisão, índice, protocolo, recursos ou parâmetros de busca.
+- O ganho reproduziu em duas runs consecutivas e manteve `0%` falhas.
+- A melhora aproximada contra a imagem pública submetida é `+29.65` pontos na melhor run local (`5947.63 - 5917.98`).
+- Próximo passo: commitar/pushar, publicar nova imagem GHCR e atualizar branch `submission` para apontar para o novo tag antes de abrir nova issue oficial se o runner da issue anterior continuar sem resposta.
