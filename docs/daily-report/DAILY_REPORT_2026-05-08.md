@@ -35,3 +35,26 @@ Critério de aceitação desta rodada:
 - Rejeitar picos isolados sem reprodução.
 - Registrar tanto achados positivos quanto negativos.
 - Evitar repetir classes já rejeitadas no dia anterior: nginx workers, `multi_accept`, HAProxy, nginx HTTP proxy, headers, `Content-Length` fast path, `memmove(0)`, `kReadChunk`, redistribuições CPU já testadas, clusters/treino IVF que geraram FP/FN.
+
+## Ciclo 16h08: checagem do runner oficial e preparação de imagem
+
+Investigação: a issue antiga do runner (`#2026`) está fechada, mas apontava reincidência em issues novas. Foram checadas as issues `#2123` a `#2126`.
+
+Resultado:
+
+```text
+#2123, #2125 e #2126 já receberam JSON de resultado depois da falha inicial de clone.
+#2124 ainda ficou apenas com erro de clone, mas a engine voltou a executar ao menos parte da fila.
+Não há issue aberta para viniciusdsandrade.
+```
+
+Hipótese: como o runner voltou a produzir resultados, vale preparar uma submissão oficial nova com o melhor estado aceito (`manual HTTP + buffer fixo`), mas somente depois de publicar uma imagem pública GHCR com a branch atual.
+
+Ação:
+
+```text
+.github/workflows/publish-submission-image.yml
+adicionar tag ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55
+```
+
+Status: em preparação. Próximo passo: commit/push da tag do workflow e acompanhar publicação da imagem.
