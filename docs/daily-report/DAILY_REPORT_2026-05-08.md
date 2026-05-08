@@ -220,3 +220,40 @@ Aprendizados:
 - A etapa `benchmark-request-cpp` exata com `repeat=5` ficou cara demais para screening leve e foi abortada após o IVF já sinalizar regressão.
 - Mesmo que houvesse ganho pontual, treinar PGO com `test/test-data.json` é tecnicamente questionável para submissão sustentável, por risco de overfitting ao dataset público local.
 - Decisão operacional: não integrar PGO no Dockerfile nem gerar nova imagem de submissão a partir desse caminho.
+
+## Ciclo 17h18: `-march=haswell -mtune=haswell`
+
+Hipótese: o host oficial descrito para a Rinha é `amd64` antigo com AVX2; trocar o alvo genérico `x86-64-v3` por `haswell` poderia melhorar branch/layout de instruções sem mexer no algoritmo.
+
+Patch temporário:
+
+```text
+RINHA_X86_FLAGS = -mavx2 -mfma -march=haswell -mtune=haswell
+```
+
+Validação offline:
+
+| Variante | ns/query | FP | FN | parse_errors |
+|---|---:|---:|---:|---:|
+| `haswell` temporário | 9598.45 | 0 | 0 | 0 |
+| base antes do patch | 10063.5 | 0 | 0 | 0 |
+
+Após aplicar no CMake local e reconstruir:
+
+```text
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+
+benchmark-ivf-cpp
+ns_per_query=7684.64 fp=0 fn=0 parse_errors=0
+```
+
+Validação k6 em compose:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `haswell` temporário | 1.31ms | 0% | 5884.28 |
+
+Resultado: **rejeitado e revertido**.
+
+Aprendizado: o ganho offline não sobreviveu ao stack completo. O gargalo/p99 observado pelo k6 segue dominado por interação compose/nginx/scheduler/HTTP, não apenas pelo kernel IVF isolado. Como a submissão pública anterior mediu `5917.98` e o melhor local aceito do ciclo anterior foi `5921.67`, `haswell` não é promoção segura.
