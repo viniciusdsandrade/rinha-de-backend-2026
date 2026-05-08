@@ -103,3 +103,43 @@ title/body: rinha/test andrade-cpp-ivf
 ```
 
 Status: aguardando resultado da engine oficial.
+
+## Ciclo 16h23: validação local da imagem pública submetida
+
+Hipótese: antes de confiar na issue oficial, validar localmente a imagem pública `submission-a477d55` exatamente como a branch `submission` aponta. Isso cobre falhas de publicação/tag/arquitetura que a imagem `:local` não detecta.
+
+Primeira tentativa:
+
+```text
+run-local-k6.sh executado a partir da branch submission mínima
+falhou porque test/test.js não existe nessa branch
+aprendizado: compose deve vir da branch submission, mas o k6 local deve rodar do worktree completo
+```
+
+Validação correta:
+
+```text
+docker compose -p submission-public pull
+docker compose -p submission-public up -d --no-build
+curl /ready
+curl POST /fraud-score com .entries[0].request
+run-local-k6.sh a partir de perf/noon-tuning
+```
+
+Smoke:
+
+```text
+READY
+HTTP/1.1 200 OK
+Content-Length: 36
+
+{"approved":false,"fraud_score":1.0}
+```
+
+Resultado k6 com imagem pública:
+
+| Imagem | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55` | 1.21ms | 0% | 5917.98 |
+
+Decisão: **válido para submissão**. A imagem pública está acessível, é executável no compose da branch `submission`, mantém 0% falhas e reproduz o patamar esperado do melhor estado aceito.
