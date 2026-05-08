@@ -313,3 +313,26 @@ Validação da imagem pública a partir da branch `submission`:
 | `submission-60daa3d` | 1.13ms | 0% | 5947.40 |
 
 Decisão: **submissão preparada**. O novo tag público reproduziu praticamente a melhor run local e superou a submissão pública anterior (`5917.98`) por `+29.42` pontos no mesmo ambiente local.
+
+## Ciclo 18h05: resultado oficial da issue antiga e nova submissão
+
+A issue oficial `#2316` foi processada, mas usou o estado anterior da branch `submission`:
+
+```text
+issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2316
+commit testado: 2b25c5f
+imagem testada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55
+p99: 1.20ms
+falhas: 0%
+final_score: 5921.80
+```
+
+Como a branch `submission` já havia sido atualizada para `8d8a2f6` apontando para `submission-60daa3d`, foi aberta uma nova issue para testar a imagem melhor:
+
+```text
+issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2328
+body/title: rinha/test andrade-cpp-ivf
+estado esperado da branch submission: 8d8a2f6
+imagem esperada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-60daa3d
+melhor validação local pública: p99 1.13ms, 0% falhas, final_score 5947.40
+```
