@@ -374,3 +374,25 @@ Resultado k6:
 Resultado: **rejeitado e revertido**.
 
 Aprendizado: Clang 19 construiu corretamente e manteve acurácia, mas perdeu p99 no stack completo. O estado vencedor permanece `debian:trixie` com GCC 14 padrão.
+
+## Ciclo 18h55: `trixie` + `mimalloc`
+
+Hipótese: se ainda houver alocação relevante no parser/servidor, `mimalloc` poderia reduzir p99 sem alterar algoritmo.
+
+Patch temporário:
+
+```text
+apt-get install libmimalloc3
+LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.3
+```
+
+Resultado k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `trixie + mimalloc` | 1.14ms | 0% | 5942.92 |
+| `trixie + glibc malloc` melhor pública local | 1.13ms | 0% | 5947.40 |
+
+Resultado: **rejeitado e revertido**.
+
+Aprendizado: o allocator alternativo ficou competitivo, mas não superou o estado vencedor. O hot path atual já tem pouca pressão de heap; adicionar dependência/runtime preload não se justifica por resultado inferior.
