@@ -295,3 +295,21 @@ Aprendizados:
 - O ganho reproduziu em duas runs consecutivas e manteve `0%` falhas.
 - A melhora aproximada contra a imagem pública submetida é `+29.65` pontos na melhor run local (`5947.63 - 5917.98`).
 - Próximo passo: commitar/pushar, publicar nova imagem GHCR e atualizar branch `submission` para apontar para o novo tag antes de abrir nova issue oficial se o runner da issue anterior continuar sem resposta.
+
+Promoção:
+
+```text
+commit perf/noon-tuning: 60daa3d use trixie toolchain for submission image
+commit perf/noon-tuning: a0a400d add trixie submission image tag
+GitHub Actions: Publish submission image #25575633025 success
+imagem: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-60daa3d
+commit submission: 8d8a2f6 point submission to trixie image
+```
+
+Validação da imagem pública a partir da branch `submission`:
+
+| Imagem pública | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `submission-60daa3d` | 1.13ms | 0% | 5947.40 |
+
+Decisão: **submissão preparada**. O novo tag público reproduziu praticamente a melhor run local e superou a submissão pública anterior (`5917.98`) por `+29.42` pontos no mesmo ambiente local.
