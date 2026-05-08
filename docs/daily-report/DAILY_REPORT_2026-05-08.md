@@ -58,3 +58,48 @@ adicionar tag ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55
 ```
 
 Status: em preparação. Próximo passo: commit/push da tag do workflow e acompanhar publicação da imagem.
+
+## Ciclo 16h15: publicar imagem e atualizar branch `submission`
+
+Ação executada:
+
+```text
+commit 0bff099 add current submission image tag
+GitHub Actions run 25574111307
+workflow Publish submission image
+resultado: success
+tag publicada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55
+```
+
+Branch `submission` atualizada no worktree `/home/andrade/Desktop/rinha-de-backend-2026-rust`:
+
+```text
+docker-compose.yml:
+  image: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55
+
+info.json:
+  stack: ["c++20", "epoll", "unix-socket", "simdjson", "nginx", "avx2", "fma", "ivf", "int16"]
+```
+
+Verificação:
+
+```text
+docker compose -p submission-check config --quiet
+COMPOSE_CONFIG_OK
+```
+
+Commit/push:
+
+```text
+2b25c5f point submission to manual epoll image
+origin/submission atualizado
+```
+
+Issue oficial aberta:
+
+```text
+https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2316
+title/body: rinha/test andrade-cpp-ivf
+```
+
+Status: aguardando resultado da engine oficial.
