@@ -463,3 +463,27 @@ Validação adicional no mesmo momento:
 | imagem pública `submission-60daa3d` reexecutada | 1.26ms | 0% | 5899.29 |
 
 Conclusão: a imagem pública também caiu para o mesmo patamar das runs limpas locais. Portanto a queda para `~5900` é efeito do ambiente local no momento da medição, não diferença entre imagem local e imagem publicada.
+
+## Ciclo 20h34: buffer fixo de saída por conexão
+
+Hipótese: substituir `std::string out` por buffer fixo no `manual_main.cpp` removeria alocação por conexão e poderia reduzir p99.
+
+Validação:
+
+```text
+cmake --build ... rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| buffer fixo run 1 | 1.25ms | 0% | 5904.02 |
+| buffer fixo run 2 | 1.16ms | 0% | 5935.34 |
+| imagem pública atual comparativa | 1.13ms | 0% | 5948.17 |
+
+Resultado: **rejeitado e revertido**.
+
+Aprendizado: a melhora da segunda run veio da recuperação do ambiente local, não do patch. A comparação imediata com a imagem pública atual foi superior sem a mudança. Manter `std::string` com `reserve(512)` no hot path.
