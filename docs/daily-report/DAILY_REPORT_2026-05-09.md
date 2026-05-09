@@ -1071,3 +1071,33 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: a inversão do branch não melhorou a cauda. O `[[likely]]` no `POST` já parece suficiente para o compilador organizar o caminho dominante; reordenar manualmente não trouxe ganho e pode ter alterado layout/inlining de forma pior.
+
+## Ciclo 14h08: remover clamp defensivo da resposta
+
+Hipótese: `response_for_score` usa `std::min(fraud_count, 5)`, mas `fraud_count` já vem do classificador no intervalo `0..5`. Remover o clamp defensivo poderia reduzir uma operação no hot path de resposta sem alterar o comportamento observado.
+
+Alteração temporária:
+
+```text
+return kFraudResponses[std::min<std::uint8_t>(fraud_count, 5)];
+-> return kFraudResponses[fraud_count];
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual + `[[likely]]` melhor run | 1.03ms | 0% | 5985.53 |
+| resposta sem clamp defensivo | 1.20ms | 0% | 5921.08 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: remover o clamp não melhorou performance end-to-end. O compilador provavelmente já otimiza bem esse trecho ou o custo é irrelevante frente ao kernel de classificação/rede. Manter o clamp defensivo, pois ele evita risco sem custo mensurável.
