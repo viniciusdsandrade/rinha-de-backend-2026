@@ -750,7 +750,7 @@ Decisão: **validado como submissão correta, mas não é novo melhor oficial**.
 
 Aprendizado: o parser manual seletivo melhorou o benchmark local de forma reproduzível, mas no runner oficial empatou tecnicamente com a melhor submissão anterior e ficou 0.01 ponto abaixo. A conclusão prática é que a solução atual está no platô de `1.20ms` oficial; novas submissões só valem se reduzirem claramente o p99 oficial estimado para abaixo desse patamar, idealmente com local estável abaixo de `1.10ms` ou com mudança estrutural que afete diretamente o overhead de rede/proxy.
 
-## Ciclo 13h18: `to_next_value` com varredura unica
+## Ciclo 13h08: `to_next_value` com varredura unica
 
 Hipótese: o parser manual seletivo ainda paga duas buscas por campo em `to_next_value` (`memchr` para `:` e para `"`). Uma varredura única caractere-a-caractere poderia reduzir overhead no caminho quente.
 
@@ -781,7 +781,7 @@ Decisão: **rejeitado e revertido**.
 
 Aprendizado: a hipótese era plausível, mas a troca não criou sinal melhor que a variante atual. O `memchr` duplo provavelmente está barato o suficiente por usar rotina libc vetorizada, enquanto o loop escalar introduz mais branches no caminho quente. Manter a versão atual.
 
-## Ciclo 13h43: investigacao do LB custom dos lideres e prototipo `tiny-lb`
+## Ciclo 13h13: investigacao do LB custom dos lideres e prototipo `tiny-lb`
 
 Achado externo/oficial:
 
