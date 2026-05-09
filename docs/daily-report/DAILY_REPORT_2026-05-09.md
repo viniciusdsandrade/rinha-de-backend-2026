@@ -410,3 +410,34 @@ Resultados k6 locais:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: o microbenchmark melhorou bastante, mas o p99 end-to-end piorou de forma reproduzida. Como a pontuação é decidida por p99 e não por ns/query offline, a mudança não é sustentável para submissão.
+
+## Ciclo 11h59: parse sem cópia com buffer já acolchoado
+
+Hipótese: `parse_payload` cria `simdjson::padded_string` por request, copiando o body para garantir padding. No servidor manual, o body já está dentro de `Connection::in`, um `std::array<char, 16 * 1024>`, então seria possível usar `parser.parse(body.data(), body.size(), false)` e evitar a cópia.
+
+Alteração temporária:
+
+```text
+request.hpp: adiciona parse_payload_padded(...)
+request.cpp: fatoração parse_payload_root(...)
+manual_main.cpp: classify_body usa parse_payload_padded(...)
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| janela estreita melhor run | 1.13ms | 0% | 5946.11 |
+| parse sem cópia | 1.17ms | 0% | 5931.74 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: apesar de tecnicamente correto em carga local, o caminho sem cópia não trouxe ganho de p99 e aumenta a responsabilidade sobre padding do buffer HTTP. Sem melhoria mensurável, o caminho seguro com `padded_string` continua preferível.
