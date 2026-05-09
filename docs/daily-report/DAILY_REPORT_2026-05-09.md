@@ -334,3 +334,16 @@ Resultados k6 locais após rebuild da imagem:
 Decisão: **aceito na branch experimental**.
 
 Aprendizado: há ganho real no kernel IVF ao reduzir reparos extremos de 48 para 3, preservando detecção perfeita no dataset local/oficial conhecido. O p99 end-to-end continua sujeito a ruído, mas a mudança é pequena, explicável e não altera contrato/API/topologia. Próximo passo antes de submissão oficial: portar para `submission`, rebuildar/pushar imagem com tag própria e decidir se a evidência local justifica issue nova.
+
+Tentativa de publicação:
+
+```text
+tag candidata: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-45df206
+docker tag: ok
+docker push: negado pelo GHCR
+erro: permission_denied: The token provided does not match expected scopes.
+gh auth scopes atuais: delete:packages, gist, read:org, read:packages, repo, workflow
+scope ausente: write:packages
+```
+
+Decisão operacional: **não abrir issue oficial enquanto a tag pública não existir**. A candidata fica válida localmente, mas a submissão oficial precisa de token com `write:packages` ou outro registry público autenticado.
