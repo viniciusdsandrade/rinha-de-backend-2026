@@ -850,6 +850,7 @@ Resultados k6 locais:
 |---|---:|---:|---:|
 | `Content-Length` fast path #1 | 1.09ms | 0% | 5964.09 |
 | `Content-Length` fast path #2 | 1.12ms | 0% | 5949.78 |
+| `Content-Length` fast path #3 | 1.17ms | 0% | 5932.50 |
 
 Comparação:
 
@@ -858,6 +859,6 @@ Comparação:
 | parser manual seletivo anterior | 1.10ms | 0% | 5958.98 |
 | parser manual + `Content-Length` fast path | 1.09ms | 0% | 5964.09 |
 
-Decisão: **aceito na branch experimental**.
+Decisão: **rejeitado e revertido após a terceira medição**.
 
-Aprendizado: o ganho é pequeno e ainda precisa de confirmação oficial, mas a mudança é sustentável: não altera contrato, mantém fallback para headers fora do padrão esperado e reduz trabalho repetitivo no caminho quente. Como o runner oficial anterior ficou preso em `1.20ms`, esta candidata só deve virar nova submissão se mais uma medição local continuar abaixo ou próxima de `1.10ms`.
+Aprendizado: o ganho inicial de `1.09ms` não reproduziu com estabilidade. Como a terceira execução caiu para `1.17ms`, a mudança não atende o critério de melhoria sustentável/inquestionável. A hipótese continua tecnicamente plausível, mas a evidência local indica ruído ou piora de cauda; não promover para submissão oficial.

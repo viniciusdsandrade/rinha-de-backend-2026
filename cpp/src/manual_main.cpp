@@ -246,30 +246,6 @@ std::optional<std::size_t> parse_content_length(std::string_view headers) {
     return std::nullopt;
 }
 
-std::optional<std::size_t> parse_content_length_fast(std::string_view headers) {
-    constexpr std::string_view kHeader = "Content-Length: ";
-    const std::size_t pos = headers.find(kHeader);
-    if (pos == std::string_view::npos) {
-        return std::nullopt;
-    }
-    std::size_t cursor = pos + kHeader.size();
-    std::size_t value = 0;
-    bool seen = false;
-    while (cursor < headers.size()) {
-        const char ch = headers[cursor];
-        if (ch < '0' || ch > '9') {
-            break;
-        }
-        seen = true;
-        value = (value * 10U) + static_cast<std::size_t>(ch - '0');
-        ++cursor;
-    }
-    if (!seen) {
-        return std::nullopt;
-    }
-    return value;
-}
-
 std::string_view response_for_score(std::uint8_t fraud_count) noexcept {
     return kFraudResponses[std::min<std::uint8_t>(fraud_count, 5)];
 }
@@ -598,10 +574,7 @@ bool process_requests(Connection& conn, const rinha::IvfIndex& index, const rinh
         }
 
         const std::string_view first_line = trim_cr(header.substr(0, first_line_end));
-        const std::string_view remaining_headers = header.substr(first_line_end + 1U);
-        std::optional<std::size_t> content_length_fast = parse_content_length_fast(remaining_headers);
-        const std::size_t content_length =
-            content_length_fast ? *content_length_fast : parse_content_length(remaining_headers).value_or(0);
+        const std::size_t content_length = parse_content_length(header.substr(first_line_end + 1U)).value_or(0);
         const std::size_t total_len = header_len + content_length;
         if (conn.in_len < total_len) {
             return total_len <= kMaxPending;
