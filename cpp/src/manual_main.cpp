@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -30,6 +31,8 @@ namespace {
 constexpr std::size_t kReadChunk = 4096;
 constexpr std::size_t kMaxPending = 16 * 1024;
 constexpr int kMaxEvents = 1024;
+constexpr std::int64_t kSecondsPerMinute = 60;
+constexpr std::int64_t kSecondsPerDay = 86'400;
 
 constexpr std::string_view kReadyResponse =
     "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
@@ -247,17 +250,287 @@ std::string_view response_for_score(std::uint8_t fraud_count) noexcept {
     return kFraudResponses[std::min<std::uint8_t>(fraud_count, 5)];
 }
 
+float clamp01(float value) noexcept {
+    return std::clamp(value, 0.0f, 1.0f);
+}
+
+bool to_next_value(std::size_t& cursor, std::string_view body) noexcept {
+    while (cursor < body.size()) {
+        const void* colon_ptr = std::memchr(body.data() + cursor, ':', body.size() - cursor);
+        const void* quote_ptr = std::memchr(body.data() + cursor, '"', body.size() - cursor);
+        if (colon_ptr == nullptr && quote_ptr == nullptr) {
+            return false;
+        }
+        const auto colon_pos = colon_ptr == nullptr
+            ? body.size()
+            : static_cast<std::size_t>(static_cast<const char*>(colon_ptr) - body.data());
+        const auto quote_pos = quote_ptr == nullptr
+            ? body.size()
+            : static_cast<std::size_t>(static_cast<const char*>(quote_ptr) - body.data());
+        if (colon_pos < quote_pos) {
+            cursor = colon_pos + 1U;
+            while (cursor < body.size() &&
+                   (body[cursor] == ' ' || body[cursor] == '\t' || body[cursor] == '\n' || body[cursor] == '\r')) {
+                ++cursor;
+            }
+            return true;
+        }
+        cursor = quote_pos + 1U;
+        const void* end_quote = std::memchr(body.data() + cursor, '"', body.size() - cursor);
+        if (end_quote == nullptr) {
+            return false;
+        }
+        cursor = static_cast<std::size_t>(static_cast<const char*>(end_quote) - body.data()) + 1U;
+    }
+    return false;
+}
+
+bool skip_json_string(std::size_t& cursor, std::string_view body) noexcept {
+    if (cursor < body.size() && body[cursor] == '"') {
+        ++cursor;
+    }
+    const void* end_quote = std::memchr(body.data() + cursor, '"', body.size() - cursor);
+    if (end_quote == nullptr) {
+        return false;
+    }
+    cursor = static_cast<std::size_t>(static_cast<const char*>(end_quote) - body.data()) + 1U;
+    return true;
+}
+
+bool scan_json_string(std::size_t& cursor, std::string_view body, std::string_view& value) noexcept {
+    if (cursor >= body.size() || body[cursor] != '"') {
+        return false;
+    }
+    ++cursor;
+    const std::size_t start = cursor;
+    const void* end_quote = std::memchr(body.data() + cursor, '"', body.size() - cursor);
+    if (end_quote == nullptr) {
+        return false;
+    }
+    const auto end = static_cast<std::size_t>(static_cast<const char*>(end_quote) - body.data());
+    value = body.substr(start, end - start);
+    cursor = end + 1U;
+    return true;
+}
+
+bool scan_u32(std::size_t& cursor, std::string_view body, std::uint32_t& value) noexcept {
+    std::uint32_t parsed = 0;
+    bool seen = false;
+    while (cursor < body.size() && body[cursor] >= '0' && body[cursor] <= '9') {
+        parsed = (parsed * 10U) + static_cast<std::uint32_t>(body[cursor] - '0');
+        ++cursor;
+        seen = true;
+    }
+    value = parsed;
+    return seen;
+}
+
+bool scan_f32(std::size_t& cursor, std::string_view body, float& value) noexcept {
+    const char* begin = body.data() + cursor;
+    const char* end = body.data() + body.size();
+    auto [ptr, ec] = std::from_chars(begin, end, value);
+    if (ec != std::errc()) {
+        return false;
+    }
+    cursor = static_cast<std::size_t>(ptr - body.data());
+    return true;
+}
+
+std::int64_t days_from_civil_fast(std::int32_t year, std::uint8_t month, std::uint8_t day) noexcept {
+    const std::int32_t adjusted_year = year - static_cast<std::int32_t>(month <= 2);
+    const std::int32_t era = adjusted_year >= 0 ? adjusted_year / 400 : (adjusted_year - 399) / 400;
+    const std::int32_t year_of_era = adjusted_year - (era * 400);
+    const std::int32_t shifted_month = static_cast<std::int32_t>(month) + (month > 2 ? -3 : 9);
+    const std::int32_t day_of_year = ((153 * shifted_month) + 2) / 5 + static_cast<std::int32_t>(day) - 1;
+    const std::int32_t day_of_era =
+        (year_of_era * 365) + (year_of_era / 4) - (year_of_era / 100) + day_of_year;
+    return static_cast<std::int64_t>((era * 146'097) + day_of_era - 719'468);
+}
+
+struct FastTimestamp {
+    std::int64_t total_seconds = 0;
+    std::uint8_t hour = 0;
+    std::uint8_t weekday_monday0 = 0;
+};
+
+bool scan_iso_timestamp(std::size_t& cursor, std::string_view body, FastTimestamp& parsed) noexcept {
+    if (cursor < body.size() && body[cursor] == '"') {
+        ++cursor;
+    }
+    if (cursor + 20U > body.size()) {
+        return false;
+    }
+    const char* s = body.data() + cursor;
+    const auto digit = [](char ch) noexcept -> std::uint8_t {
+        return static_cast<std::uint8_t>(ch - '0');
+    };
+    const std::int32_t year = (digit(s[0]) * 1000) + (digit(s[1]) * 100) + (digit(s[2]) * 10) + digit(s[3]);
+    const std::uint8_t month = static_cast<std::uint8_t>((digit(s[5]) * 10) + digit(s[6]));
+    const std::uint8_t day = static_cast<std::uint8_t>((digit(s[8]) * 10) + digit(s[9]));
+    const std::uint8_t hour = static_cast<std::uint8_t>((digit(s[11]) * 10) + digit(s[12]));
+    const std::uint8_t minute = static_cast<std::uint8_t>((digit(s[14]) * 10) + digit(s[15]));
+    const std::uint8_t second = static_cast<std::uint8_t>((digit(s[17]) * 10) + digit(s[18]));
+    const std::int64_t days = days_from_civil_fast(year, month, day);
+    parsed.total_seconds =
+        (days * kSecondsPerDay) + (static_cast<std::int64_t>(hour) * 3600) +
+        (static_cast<std::int64_t>(minute) * kSecondsPerMinute) + static_cast<std::int64_t>(second);
+    parsed.hour = hour;
+    parsed.weekday_monday0 = static_cast<std::uint8_t>((days + 3) % 7);
+    cursor += 20U;
+    if (cursor < body.size() && body[cursor] == '"') {
+        ++cursor;
+    }
+    return true;
+}
+
+bool scan_bool(std::size_t& cursor, std::string_view body, bool& value) noexcept {
+    if (cursor < body.size() && body[cursor] == 't') {
+        value = true;
+        cursor += 4U;
+        return true;
+    }
+    if (cursor < body.size() && body[cursor] == 'f') {
+        value = false;
+        cursor += 5U;
+        return true;
+    }
+    return false;
+}
+
+bool scan_mcc(std::size_t& cursor, std::string_view body, std::uint32_t& value) noexcept {
+    if (cursor < body.size() && body[cursor] == '"') {
+        ++cursor;
+    }
+    if (!scan_u32(cursor, body, value)) {
+        return false;
+    }
+    if (cursor < body.size() && body[cursor] == '"') {
+        ++cursor;
+    }
+    return true;
+}
+
+float mcc_risk_fast(std::uint32_t mcc) noexcept {
+    switch (mcc) {
+        case 5411: return 0.15f;
+        case 5812: return 0.30f;
+        case 5912: return 0.20f;
+        case 5944: return 0.45f;
+        case 7801: return 0.80f;
+        case 7802: return 0.75f;
+        case 7995: return 0.85f;
+        case 4511: return 0.35f;
+        case 5311: return 0.25f;
+        case 5999: return 0.50f;
+        default: return 0.50f;
+    }
+}
+
+bool fast_vectorize_payload(std::string_view body, rinha::QueryVector& vector) noexcept {
+    std::size_t cursor = 0;
+    if (!to_next_value(cursor, body) || !skip_json_string(cursor, body)) return false;
+
+    float amount = 0.0f;
+    std::uint32_t installments = 0;
+    FastTimestamp requested_at{};
+    float customer_avg_amount = 0.0f;
+    std::uint32_t tx_count_24h = 0;
+    std::array<std::string_view, 16> known_merchants{};
+    std::size_t known_count = 0;
+    std::string_view merchant_id;
+    std::uint32_t mcc = 0;
+    float merchant_avg_amount = 0.0f;
+    bool is_online = false;
+    bool card_present = false;
+    float km_from_home = 0.0f;
+    bool has_last_tx = false;
+    FastTimestamp last_timestamp{};
+    float km_from_current = 0.0f;
+
+    if (!to_next_value(cursor, body) || !to_next_value(cursor, body) || !scan_f32(cursor, body, amount)) return false;
+    if (!to_next_value(cursor, body) || !scan_u32(cursor, body, installments)) return false;
+    if (!to_next_value(cursor, body) || !scan_iso_timestamp(cursor, body, requested_at)) return false;
+    if (!to_next_value(cursor, body) || !to_next_value(cursor, body) || !scan_f32(cursor, body, customer_avg_amount)) return false;
+    if (!to_next_value(cursor, body) || !scan_u32(cursor, body, tx_count_24h)) return false;
+    if (!to_next_value(cursor, body)) return false;
+    while (cursor < body.size() && body[cursor] != ']') {
+        if (body[cursor] == '"') {
+            std::string_view merchant;
+            if (!scan_json_string(cursor, body, merchant)) return false;
+            if (known_count < known_merchants.size()) {
+                known_merchants[known_count++] = merchant;
+            }
+        } else {
+            ++cursor;
+        }
+    }
+    if (cursor < body.size()) ++cursor;
+
+    if (!to_next_value(cursor, body) || !to_next_value(cursor, body) || !scan_json_string(cursor, body, merchant_id)) return false;
+    if (!to_next_value(cursor, body) || !scan_mcc(cursor, body, mcc)) return false;
+    if (!to_next_value(cursor, body) || !scan_f32(cursor, body, merchant_avg_amount)) return false;
+    if (!to_next_value(cursor, body) || !to_next_value(cursor, body) || !scan_bool(cursor, body, is_online)) return false;
+    if (!to_next_value(cursor, body) || !scan_bool(cursor, body, card_present)) return false;
+    if (!to_next_value(cursor, body) || !scan_f32(cursor, body, km_from_home)) return false;
+    if (!to_next_value(cursor, body)) return false;
+    has_last_tx = cursor < body.size() && body[cursor] != 'n';
+    if (has_last_tx) {
+        if (!to_next_value(cursor, body) || !scan_iso_timestamp(cursor, body, last_timestamp)) return false;
+        if (!to_next_value(cursor, body) || !scan_f32(cursor, body, km_from_current)) return false;
+    }
+
+    bool known_merchant = false;
+    for (std::size_t index = 0; index < known_count; ++index) {
+        known_merchant = known_merchant || known_merchants[index] == merchant_id;
+    }
+
+    float minutes_since_last_tx = -1.0f;
+    float km_from_last_tx = -1.0f;
+    if (has_last_tx) {
+        const std::int64_t elapsed_minutes =
+            std::max<std::int64_t>(0, (requested_at.total_seconds - last_timestamp.total_seconds) / kSecondsPerMinute);
+        minutes_since_last_tx = clamp01(static_cast<float>(elapsed_minutes) / 1440.0f);
+        km_from_last_tx = clamp01(km_from_current / 1000.0f);
+    }
+
+    const float amount_vs_avg = customer_avg_amount <= 0.0f
+        ? (amount <= 0.0f ? 0.0f : 1.0f)
+        : (amount / customer_avg_amount) / 10.0f;
+
+    vector = {
+        clamp01(amount / 10000.0f),
+        clamp01(static_cast<float>(installments) / 12.0f),
+        clamp01(amount_vs_avg),
+        static_cast<float>(requested_at.hour) / 23.0f,
+        static_cast<float>(requested_at.weekday_monday0) / 6.0f,
+        minutes_since_last_tx,
+        km_from_last_tx,
+        clamp01(km_from_home / 1000.0f),
+        clamp01(static_cast<float>(tx_count_24h) / 20.0f),
+        is_online ? 1.0f : 0.0f,
+        card_present ? 1.0f : 0.0f,
+        known_merchant ? 0.0f : 1.0f,
+        mcc_risk_fast(mcc),
+        clamp01(merchant_avg_amount / 10000.0f),
+    };
+    return true;
+}
+
 std::uint8_t classify_body(
     std::string_view body,
     const rinha::IvfIndex& index,
     const rinha::IvfSearchConfig& config
 ) noexcept {
+    rinha::QueryVector query{};
+    if (fast_vectorize_payload(body, query)) {
+        return index.fraud_count(query, config);
+    }
+
     rinha::Payload payload;
     std::string error;
     if (!rinha::parse_payload(body, payload, error)) {
         return 0;
     }
-    rinha::QueryVector query{};
     if (!rinha::vectorize(payload, query, error)) {
         return 0;
     }

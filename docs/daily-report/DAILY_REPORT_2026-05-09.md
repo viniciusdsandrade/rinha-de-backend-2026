@@ -618,3 +618,46 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: deslocar CPU para o nginx também não melhora. O split atual parece um equilíbrio local bom entre proxy e APIs.
+
+## Ciclo 12h55: parser manual seletivo no hot path
+
+Hipótese: a comparação com `jairoblatt-rust` indicou que um diferencial estrutural possível era parser manual/HTTP loop mais agressivo. Nosso `parse_payload` via `simdjson` é robusto, mas cria objetos intermediários (`Payload`, strings, vetor de merchants) e valida mais do que o necessário para o formato oficial. Um parser seletivo que gera `QueryVector` diretamente poderia reduzir latência, desde que mantivesse fallback para `simdjson` quando o formato não casar.
+
+Alteração aplicada:
+
+```text
+manual_main.cpp:
+- adiciona fast_vectorize_payload(body, query)
+- parser percorre valores no formato oficial esperado
+- gera QueryVector diretamente
+- compara known_merchants por string_view local
+- calcula timestamp/day_of_week/minutes_since_last no próprio hot path
+- classify_body tenta fast_vectorize_payload primeiro
+- se falhar, cai no caminho antigo parse_payload + vectorize
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual seletivo #1 | 1.10ms | 0% | 5958.98 |
+| parser manual seletivo #2 | 1.12ms | 0% | 5952.33 |
+
+Comparação contra melhor evidência local anterior do dia:
+
+| Variante | Melhor p99 | Falhas | Melhor final_score |
+|---|---:|---:|---:|
+| janela estreita sem parser manual | 1.13ms | 0% | 5946.11 |
+| janela estreita + parser manual seletivo | 1.10ms | 0% | 5958.98 |
+
+Decisão: **aceito na branch experimental**.
+
+Aprendizado: esta foi a primeira melhoria end-to-end reproduzida acima da janela estreita. A manutenção do fallback para `simdjson` reduz risco de formato inesperado, enquanto o caminho rápido atende o formato oficial do k6. Próximo passo: tentar publicar imagem nova; se o GHCR continuar sem `write:packages`, a candidata fica bloqueada apenas por credencial de registry.
