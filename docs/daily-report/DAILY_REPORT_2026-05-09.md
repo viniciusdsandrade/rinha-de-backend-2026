@@ -95,3 +95,36 @@ Resultado offline:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: a ordem por variância não melhorou o early abort; provavelmente prejudicou localidade/predição do caminho quente e não reduziu trabalho suficiente. Manter ordem natural.
+
+## Ciclo 11h45: normas pré-computadas dos centroides
+
+Investigação externa: repositórios públicos recentes sugerem alternativas como HNSW, mmap e rerank fp32. HNSW é uma mudança estrutural grande demais para aplicar sem revalidar recall/build; rerank fp32 melhora acurácia, mas nosso estado atual já está em `0%` falhas. A hipótese pequena derivada dessa investigação foi atacar o custo fixo de escolher o centroide primário.
+
+Hipótese: pré-computar `||centroid||²` no carregamento e calcular a distância como `||c||² - 2*q·c` poderia ser mais barato que `sum((q-c)^2)` no `nearest_centroid_probe1`. O termo `||q||²` é constante entre centroides e não precisa entrar na comparação.
+
+Patch temporário:
+
+```text
+IvfIndex::centroid_norms_
+nearest_centroid_avx2: acc = centroid_norms; acc = fmadd(-2*q, centroid, acc)
+fallback escalar usando a mesma fórmula
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | Falhas |
+|---|---:|---:|---:|---:|
+| fórmula atual `sum((q-c)^2)` | 16696.00 | 0 | 0 | 0% |
+| normas pré-computadas + dot | 16786.10 | 0 | 0 | 0% |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: apesar de reduzir operações aritméticas aparentes, a variante com norma pré-computada não melhorou o hot path e ainda aumentaria memória/complexidade. O compilador/CPU parecem lidar muito bem com o kernel atual de subtração e multiplicação.
