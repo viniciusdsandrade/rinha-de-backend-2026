@@ -128,3 +128,28 @@ Resultado offline:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: apesar de reduzir operações aritméticas aparentes, a variante com norma pré-computada não melhorou o hot path e ainda aumentaria memória/complexidade. O compilador/CPU parecem lidar muito bem com o kernel atual de subtração e multiplicação.
+
+## Ciclo 12h10: nginx `multi_accept`
+
+Hipótese: permitir que cada worker do nginx aceite múltiplas conexões por wake-up (`multi_accept on`) poderia reduzir overhead de accept sob rajadas do k6.
+
+Procedimento:
+
+```text
+1. Reconstruir a imagem local atual com nginx baseline (`multi_accept off`).
+2. Rodar k6 local e salvar /tmp/rinha-ivf-perf/nginx-multiaccept-baseline.json.
+3. Alterar somente nginx.conf para `multi_accept on`.
+4. Recriar compose com `--no-build` e rodar k6 novamente.
+5. Reverter nginx.conf.
+```
+
+Resultados:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| baseline `multi_accept off` | 0.94ms | 0% | 6000.00 |
+| `multi_accept on` | 1.05ms | 0% | 5979.62 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: no stack atual, `multi_accept on` piora a cauda local. Provavelmente concentra bursts em um worker/socket e aumenta disputa/context switching em vez de reduzir overhead útil. Manter `multi_accept off`.
