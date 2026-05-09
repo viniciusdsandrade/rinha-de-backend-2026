@@ -184,3 +184,32 @@ Resultado offline:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: não houve ganho no caminho de busca; o risco semântico de `-ffast-math` não se justifica sem melhoria clara e reprodutível.
+
+## Ciclo 13h10: comparação com issue oficial do jairoblatt
+
+Investigação oficial via issues fechadas:
+
+```text
+issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2571
+repo-url: https://github.com/jairoblatt/rinha-2026-rust
+imagem api: jrblatt/rinha-2026-rust:v0.1.9
+imagem lb: jrblatt/so-no-forevis:v0.0.2
+p99: 1.14ms
+falhas: 0%
+final_score: 5941.57
+cpu: lb 0.40, api1 0.30, api2 0.30
+mem: lb 40MB, api1 155MB, api2 155MB
+```
+
+Hipótese: a performance oficial superior poderia estar ligada à alocação de CPU para o load balancer. Para isolar essa variável sem trocar arquitetura, testei `nginx` com a mesma divisão de CPU `0.40/0.30/0.30`.
+
+Resultado local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| baseline imediato `nginx 0.18 / APIs 0.41+0.41` | 0.94ms | 0% | 6000.00 |
+| `nginx 0.40 / APIs 0.30+0.30` | 1.26ms | 0% | 5900.55 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: a vantagem do jairoblatt não parece ser somente “dar mais CPU ao LB”. Com nginx, tirar CPU das APIs prejudica mais do que ajuda. O diferencial provável é o LB próprio (`jrblatt/so-no-forevis`) e/ou menor overhead de proxy, mas trocar o LB exige implementação e validação dedicadas, não apenas ajuste de compose.
