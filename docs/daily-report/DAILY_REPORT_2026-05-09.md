@@ -661,3 +661,11 @@ Comparação contra melhor evidência local anterior do dia:
 Decisão: **aceito na branch experimental**.
 
 Aprendizado: esta foi a primeira melhoria end-to-end reproduzida acima da janela estreita. A manutenção do fallback para `simdjson` reduz risco de formato inesperado, enquanto o caminho rápido atende o formato oficial do k6. Próximo passo: tentar publicar imagem nova; se o GHCR continuar sem `write:packages`, a candidata fica bloqueada apenas por credencial de registry.
+
+Publicação:
+
+```text
+tag candidata: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-67270c2
+caminho escolhido: GitHub Actions Publish submission image
+motivo: workflow usa GITHUB_TOKEN com packages: write, evitando bloqueio do token local sem write:packages
+```
