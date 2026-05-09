@@ -347,3 +347,27 @@ scope ausente: write:packages
 ```
 
 Decisão operacional: **não abrir issue oficial enquanto a tag pública não existir**. A candidata fica válida localmente, mas a submissão oficial precisa de token com `write:packages` ou outro registry público autenticado.
+
+## Ciclo 11h45: `ulimits nofile`
+
+Hipótese: aumentar `nofile` para APIs e nginx poderia reduzir risco de limitação de descritores sob pico, seguindo padrão visto em outras submissões.
+
+Alteração temporária:
+
+```yaml
+ulimits:
+  nofile:
+    soft: 65535
+    hard: 65535
+```
+
+Resultado local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| janela estreita sem `ulimits` | 1.13ms | 0% | 5946.11 |
+| janela estreita + `ulimits nofile` | 1.29ms | 0% | 5888.09 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: o limite de descritores não é gargalo observável neste cenário; adicionar `ulimits` não melhora latência e ainda adiciona ruído de configuração. Manter compose minimalista.
