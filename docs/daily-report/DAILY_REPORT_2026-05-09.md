@@ -237,3 +237,27 @@ Experimentos offline no nosso índice `1280`:
 | `fast=2 full=24 bbox=0 repair=2..3` | 33372.60 | 12 | 9 | 0.0129% | rejeitado |
 
 Aprendizado: a política de probes do jairoblatt não é transferível para nosso índice/kernel como simples configuração. No nosso código, `nprobe > 1` ainda carrega custo alto de seleção/scan de clusters e não zera erros sem bbox. Manter `fast=1/full=1/bbox_repair=1/repair=1..4`.
+
+## Ciclo 11h20: `seccomp:unconfined` no compose
+
+Hipótese: remover o filtro seccomp padrão do Docker poderia reduzir overhead de syscalls no caminho `nginx`/API (`epoll`, `accept`, `recv`, `send`) sem recorrer a `privileged` ou `network_mode: host`.
+
+Alteração temporária:
+
+```yaml
+security_opt:
+  - seccomp:unconfined
+```
+
+Aplicada somente em `api1/api2` e `nginx`.
+
+Resultado local com a imagem já construída:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| baseline imediato | 0.94ms | 0% | 6000.00 |
+| `seccomp:unconfined` | 1.15ms | 0% | 5938.54 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: o filtro seccomp não aparece como gargalo relevante nesta stack local. Mesmo sem erros de detecção, a latência piorou contra o baseline imediato; manter o compose dentro do perfil padrão é mais seguro e não custa performance mensurável.
