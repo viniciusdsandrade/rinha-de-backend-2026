@@ -1002,8 +1002,9 @@ resultado do workflow: success
 imagem publicada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-e950b12
 manifest: linux/amd64 presente
 branch submission: a7bec6b point submission to likely hot path image
-issue oficial: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2620
+issue oficial inicial: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2620
 status apos janela inicial de monitoramento: OPEN, sem comentario do runner
+correcao operacional: a issue #2620 foi aberta com titulo fora do padrao de trigger usado nas submissões recentes. Ela foi fechada e reenviada como https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2624 com titulo `rinha/test andrade-cpp-ivf`.
 ```
 
 Decisão operacional: **aguardar o runner oficial antes de abrir qualquer nova issue**. Localmente a candidata é a melhor do dia, mas o resultado oficial ainda não foi publicado.
