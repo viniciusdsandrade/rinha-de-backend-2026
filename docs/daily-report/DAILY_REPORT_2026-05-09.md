@@ -153,3 +153,34 @@ Resultados:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: no stack atual, `multi_accept on` piora a cauda local. Provavelmente concentra bursts em um worker/socket e aumenta disputa/context switching em vez de reduzir overhead útil. Manter `multi_accept off`.
+
+## Ciclo 12h35: `-ffast-math` no runtime
+
+Hipótese: `-ffast-math` no target manual e no benchmark poderia reduzir custo de operações float no cálculo de centroide sem mexer no índice gerado pelo `prepare-ivf-cpp`.
+
+Escopo temporário:
+
+```text
+rinha-backend-2026-cpp-manual: + -ffast-math
+benchmark-ivf-cpp: + -ffast-math
+prepare-ivf-cpp: sem alteração
+```
+
+Validação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN | Falhas |
+|---|---:|---:|---:|---:|
+| baseline imediato | 16696.00 | 0 | 0 | 0% |
+| `-ffast-math` | 16813.00 | 0 | 0 | 0% |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: não houve ganho no caminho de busca; o risco semântico de `-ffast-math` não se justifica sem melhoria clara e reprodutível.
