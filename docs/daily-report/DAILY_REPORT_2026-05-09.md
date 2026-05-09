@@ -681,3 +681,35 @@ issue oficial aberta: https://github.com/zanfranceschi/rinha-de-backend-2026/iss
 status da issue apos 10 min: OPEN, sem comentarios, sem labels
 decisão: aguardar runner oficial; não abrir issue duplicada enquanto #2601 estiver pendente
 ```
+
+## Ciclo 13h05: scanner decimal manual para floats
+
+Hipótese: dentro do parser manual seletivo, `std::from_chars` para `float` poderia ser mais caro do que um scanner decimal simples, já que os payloads do dataset usam números decimais sem expoente.
+
+Alteração temporária:
+
+```text
+scan_f32:
+- parse manual de sinal, parte inteira e parte fracionária
+- tabela kFracPowers
+- se encontrar expoente, retorna false e cai no fallback simdjson
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual com `from_chars` melhor run | 1.10ms | 0% | 5958.98 |
+| parser manual com scanner decimal | 1.11ms | 0% | 5953.55 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: o scanner decimal é correto para o dataset, mas não melhora `from_chars` no p99. Como adiciona código e não vence claramente, manter `std::from_chars`.
