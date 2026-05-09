@@ -1006,6 +1006,7 @@ issue oficial inicial: https://github.com/zanfranceschi/rinha-de-backend-2026/is
 status apos janela inicial de monitoramento: OPEN, sem comentario do runner
 correcao operacional: a issue #2620 foi aberta com titulo fora do padrao de trigger usado nas submissões recentes. Ela foi fechada e reenviada como https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2624 com titulo `rinha/test andrade-cpp-ivf`.
 segunda correcao operacional: a issue #2624 foi fechada pelo mantenedor porque o comando precisa estar na descricao da issue, nao em comentario posterior. A submissao foi reenviada corretamente como https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2625 com titulo e descricao `rinha/test andrade-cpp-ivf`.
+resultado oficial da #2625: p99 `1.20ms`, falhas `0%`, final_score `5920.45`, commit `a7bec6b`, imagem `submission-e950b12`. Resultado valido, mas nao superou o melhor oficial anterior da #2316 (`5921.80`) nem criou nova liderança interna.
 ```
 
 Decisão operacional: **aguardar o runner oficial antes de abrir qualquer nova issue**. Localmente a candidata é a melhor do dia, mas o resultado oficial ainda não foi publicado.
@@ -1039,3 +1040,34 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: a extensão de branch hints para os fallbacks não reproduziu o ganho do `[[likely]]` no caminho quente; pelo contrário, piorou bastante o p99. A hipótese provável é que hints adicionais alteraram layout/inlining de forma desfavorável ou apenas adicionaram ruído ao código gerado. Manter somente os `[[likely]]` aceitos.
+
+## Ciclo 14h03: priorizar `POST /fraud-score` antes de `/ready`
+
+Hipótese: o teste de carga é dominado por `POST /fraud-score`; testar esse caminho antes de `GET /ready` em `append_response` poderia reduzir um branch frio no hot path HTTP sem alterar o contrato.
+
+Alteração temporária:
+
+```text
+append_response:
+- antes: checa GET /ready, depois POST /fraud-score
+- teste: checa POST /fraud-score, depois GET /ready
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual + `[[likely]]` melhor run | 1.03ms | 0% | 5985.53 |
+| `POST` antes de `/ready` | 1.15ms | 0% | 5939.59 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: a inversão do branch não melhorou a cauda. O `[[likely]]` no `POST` já parece suficiente para o compilador organizar o caminho dominante; reordenar manualmente não trouxe ganho e pode ter alterado layout/inlining de forma pior.
