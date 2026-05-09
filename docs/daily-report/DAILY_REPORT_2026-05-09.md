@@ -462,3 +462,20 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: mesmo com CPU pequena, o nginx com 2 workers segue melhor neste cenário. Reduzir workers degrada p99, provavelmente por menor capacidade de absorver conexões simultâneas do k6.
+
+## Ciclo 12h05: sweep da janela geral de reparo
+
+Hipótese: depois de estreitar o `extreme_repair`, talvez a janela geral `repair_min=1` / `repair_max=4` pudesse ser reduzida para economizar bbox scans.
+
+Experimentos offline:
+
+| repair_min | repair_max | ns/query | FP | FN | repaired queries | Decisão |
+|---:|---:|---:|---:|---:|---:|---|
+| 2 | 3 | 17218.90 | 22 | 28 | 1568 | rejeitado |
+| 1 | 3 | 22370.90 | 22 | 0 | 1972 | rejeitado |
+| 2 | 4 | 19899.10 | 0 | 28 | 1952 | rejeitado |
+| 0 | 4 | 62745.80 | 0 | 0 | 31234 | rejeitado |
+
+Decisão: **manter `repair_min=1` / `repair_max=4`**.
+
+Aprendizado: a janela `1..4` é ampla, mas necessária para preservar detecção perfeita. Reduzir a janela cria erros de classificação; ampliar para `0..4` mantém acurácia, mas destrói a performance.
