@@ -780,3 +780,45 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: a hipótese era plausível, mas a troca não criou sinal melhor que a variante atual. O `memchr` duplo provavelmente está barato o suficiente por usar rotina libc vetorizada, enquanto o loop escalar introduz mais branches no caminho quente. Manter a versão atual.
+
+## Ciclo 13h43: investigacao do LB custom dos lideres e prototipo `tiny-lb`
+
+Achado externo/oficial:
+
+```text
+issue oficial analisada: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/911
+repo-url declarado: https://github.com/thiagorigonatti/rinha-2026
+resultado oficial: p99 1.00ms, 0% falhas, final_score 6000
+LB: thiagorigonatti/tornado:0.0.2
+recursos: LB 0.20 CPU / 50MB, APIs 0.40 + 0.40 CPU / 150MB + 150MB
+```
+
+Limitação da investigação:
+
+```text
+git clone https://github.com/thiagorigonatti/rinha-2026 -> Repository not found
+docker manifest inspect thiagorigonatti/tornado:0.0.2 -> unauthorized/authentication required
+```
+
+Hipótese: se o líder saiu do nginx para um LB customizado e atingiu p99 oficial de `1.00ms`, o gargalo remanescente da nossa solução pode estar no proxy/LB. Como não foi possível auditar nem reutilizar o `tornado`, foi criado um protótipo local de LB L4 mínimo em C++:
+
+```text
+tiny-lb:
+- TCP listen em 9999
+- connect para /sockets/api1.sock e /sockets/api2.sock
+- round-robin por conexão
+- epoll não bloqueante
+- sem parse HTTP
+- sem lógica de aplicação
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| nginx atual melhor run local | 1.10ms | 0% | 5958.98 |
+| prototipo `tiny-lb` | 1.19ms | 0% | 5924.99 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: a direção é tecnicamente relevante, porque a melhor submissão oficial conhecida usa LB custom, mas o primeiro protótipo ingênuo ficou pior que nginx. A diferença provável está em detalhes de implementação do proxy: número de cópias, política de eventos, buffers, wakeups e tratamento de conexão. Para valer nova rodada, o experimento precisa mirar um LB custom mais enxuto que o protótipo, possivelmente com menos `epoll_ctl` por evento, buffers menores/fixos por direção, ou modelo que minimize cópias. Não vale trocar nginx por este `tiny-lb`.
