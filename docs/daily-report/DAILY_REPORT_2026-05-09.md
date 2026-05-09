@@ -1130,3 +1130,34 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: `-fno-plt` piorou bastante o p99 neste binário. A hipótese mais provável é mudança desfavorável de layout/código ou custo indireto irrelevante frente aos demais gargalos. Não aplicar flags genéricas sem evidência local reproduzível.
+
+## Ciclo 14h20: parser numérico para `MERC-xxx`
+
+Hipótese: o parser rápido armazena `known_merchants` e `merchant.id` como `std::string_view` e depois compara strings. Como o formato oficial usa IDs como `MERC-001`, converter os IDs para um código numérico pequeno no parser rápido poderia reduzir trabalho de comparação, preservando o fallback completo caso o formato não bata.
+
+Alteração temporária:
+
+```text
+known_merchants: std::array<std::string_view, 16> -> std::array<std::uint16_t, 16>
+merchant_id: std::string_view -> std::uint16_t
+novo scan_merchant_code para strings "MERC-<digitos>"
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual + `[[likely]]` melhor run | 1.03ms | 0% | 5985.53 |
+| parser numérico `MERC-xxx` | 1.20ms | 0% | 5920.66 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: comparar `known_merchants` como string_view não aparece como gargalo dominante. A conversão numérica adiciona validação/parsing no caminho quente e não reduz p99; manter o código simples atual.
