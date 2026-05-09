@@ -496,3 +496,33 @@ Resultados k6 locais:
 Decisão: **rejeitado por ausência de ganho reproduzível**.
 
 Aprendizado: remover `reuseport` pode cair numa run boa, mas o controle posterior empatou. Isso parece ruído de benchmark, não melhoria sustentável; manter `listen 9999 reuseport backlog=4096`.
+
+## Ciclo 12h21: `connections.reserve(4096)`
+
+Hipótese: reservar o `std::unordered_map` de conexões no servidor manual poderia evitar rehash durante o ramp-up do teste e reduzir p99.
+
+Alteração temporária:
+
+```cpp
+std::unordered_map<int, std::unique_ptr<Connection>> connections;
+connections.reserve(4096);
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `connections.reserve(4096)` #1 | 1.16ms | 0% | 5936.91 |
+| `connections.reserve(4096)` #2 | 1.20ms | 0% | 5919.86 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: a mudança é segura, mas o ganho não é inquestionável contra os controles recentes. Por ser marginal e consumir mais memória upfront, não vale entrar na submissão.
