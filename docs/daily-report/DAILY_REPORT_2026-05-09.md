@@ -669,3 +669,15 @@ tag candidata: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-67270c
 caminho escolhido: GitHub Actions Publish submission image
 motivo: workflow usa GITHUB_TOKEN com packages: write, evitando bloqueio do token local sem write:packages
 ```
+
+Status de publicação/submissão:
+
+```text
+workflow: https://github.com/viniciusdsandrade/rinha-de-backend-2026/actions/runs/25605028257
+resultado do workflow: success
+manifest da imagem: linux/amd64 presente
+branch submission: 5e310ee point submission to fast parser image
+issue oficial aberta: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2601
+status da issue apos 10 min: OPEN, sem comentarios, sem labels
+decisão: aguardar runner oficial; não abrir issue duplicada enquanto #2601 estiver pendente
+```
