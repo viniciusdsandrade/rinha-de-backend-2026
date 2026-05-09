@@ -213,3 +213,27 @@ Resultado local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: a vantagem do jairoblatt não parece ser somente “dar mais CPU ao LB”. Com nginx, tirar CPU das APIs prejudica mais do que ajuda. O diferencial provável é o LB próprio (`jrblatt/so-no-forevis`) e/ou menor overhead de proxy, mas trocar o LB exige implementação e validação dedicadas, não apenas ajuste de compose.
+
+## Ciclo 13h25: política de probes inspirada no jairoblatt
+
+Investigação no código do jairoblatt:
+
+```text
+FAST_NPROBE = 8
+FULL_NPROBE = 24
+se fast_count != 2 && fast_count != 3 => retorna fast_count
+se fast_count está na fronteira 2/3 => refaz com FULL_NPROBE
+sem bbox repair
+```
+
+Hipótese: substituir nosso reparo por bbox por uma política de probes fixos em fronteira poderia reduzir custo ou simplificar o hot path.
+
+Experimentos offline no nosso índice `1280`:
+
+| Configuração | ns/query | FP | FN | Falhas | Decisão |
+|---|---:|---:|---:|---:|---|
+| `fast=8 full=24 bbox=0 repair=2..3` | 74708.20 | 3 | 6 | 0.0055% | rejeitado |
+| `fast=4 full=24 bbox=0 repair=2..3` | 47740.90 | 3 | 6 | 0.0055% | rejeitado |
+| `fast=2 full=24 bbox=0 repair=2..3` | 33372.60 | 12 | 9 | 0.0129% | rejeitado |
+
+Aprendizado: a política de probes do jairoblatt não é transferível para nosso índice/kernel como simples configuração. No nosso código, `nprobe > 1` ainda carrega custo alto de seleção/scan de clusters e não zera erros sem bbox. Manter `fast=1/full=1/bbox_repair=1/repair=1..4`.
