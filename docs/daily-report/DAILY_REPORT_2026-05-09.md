@@ -526,3 +526,33 @@ Resultados k6 locais:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: a mudança é segura, mas o ganho não é inquestionável contra os controles recentes. Por ser marginal e consumir mais memória upfront, não vale entrar na submissão.
+
+## Ciclo 12h26: fast path de resposta com `send` direto
+
+Hipótese: o servidor manual sempre copiava respostas estáticas para `conn.out` antes de chamar `send`. Tentar escrever diretamente a resposta estática e só enfileirar em caso de `EAGAIN`/partial write poderia reduzir cópia e alocação no caminho HTTP.
+
+Alteração temporária:
+
+```text
+send_or_queue(conn, response)
+append_response(...) passa a retornar bool
+process_requests(...) fecha a conexão se send falhar
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| fast path `send` direto | 1.20ms | 0% | 5921.68 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: a hipótese é funcionalmente válida, mas não trouxe ganho claro de p99. A complexidade extra de partial write não se justifica; manter `conn.out.append` + `flush_output`.
