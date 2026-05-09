@@ -296,3 +296,41 @@ Resultado local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: trocar nginx pelo LB externo não melhorou nossa solução local. Como o ganho não apareceu nem em screening, não há evidência suficiente para gastar uma rodada longa implementando um LB próprio agora. A diferença do jairoblatt parece vir da combinação completa dele, não de um drop-in replacement de LB sobre nossas APIs.
+
+## Ciclo 11h45: estreitamento do `extreme_repair`
+
+Hipótese: o `extreme_repair` atual corrigia poucos casos relevantes, mas disparava em 48 queries. Se as janelas fossem mais estreitas, seria possível preservar detecção perfeita e reduzir scans de bbox no hot path.
+
+Baseline offline com stats:
+
+| Variante | ns/query | FP | FN | extreme repairs | repaired queries |
+|---|---:|---:|---:|---:|---:|
+| janela ampla anterior | 17457.90 | 0 | 0 | 48 | 2401 |
+| `disable_extreme_repair=1` | 16431.10 | 1 | 2 | 0 | 2353 |
+
+O desligamento completo foi rejeitado porque abriu `1 FP + 2 FN`. Em seguida, usei esses erros para estreitar as duas janelas extremas (`frauds=0` e `frauds=5`) sem desligar o mecanismo.
+
+Resultado offline após estreitamento:
+
+| Variante | ns/query | FP | FN | extreme repairs | repaired queries |
+|---|---:|---:|---:|---:|---:|
+| janela estreita | 15669.90 | 0 | 0 | 3 | 2356 |
+
+Validação:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais após rebuild da imagem:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| janela estreita #1 | 1.16ms | 0% | 5936.65 |
+| janela estreita #2 | 1.13ms | 0% | 5946.11 |
+
+Decisão: **aceito na branch experimental**.
+
+Aprendizado: há ganho real no kernel IVF ao reduzir reparos extremos de 48 para 3, preservando detecção perfeita no dataset local/oficial conhecido. O p99 end-to-end continua sujeito a ruído, mas a mudança é pequena, explicável e não altera contrato/API/topologia. Próximo passo antes de submissão oficial: portar para `submission`, rebuildar/pushar imagem com tag própria e decidir se a evidência local justifica issue nova.

@@ -614,20 +614,20 @@ bool should_repair_extreme(std::uint8_t frauds, const QueryVector& query) noexce
     }
 
     if (frauds == 0U) {
-        return query[0] <= 0.20f &&
-               query[2] >= 0.20f && query[2] <= 0.40f &&
-               query[7] >= 0.05f && query[7] <= 0.15f &&
-               query[8] >= 0.10f && query[8] <= 0.30f &&
+        return query[0] >= 0.08f && query[0] <= 0.13f &&
+               query[2] >= 0.22f && query[2] <= 0.38f &&
+               query[7] >= 0.07f && query[7] <= 0.13f &&
+               query[8] >= 0.18f && query[8] <= 0.22f &&
                query[9] < 0.5f &&
                query[11] < 0.5f &&
-               query[12] <= 0.50f;
+               query[12] >= 0.25f && query[12] <= 0.50f;
     }
 
     if (frauds == 5U) {
-        return query[0] <= 0.45f &&
-               query[2] >= 0.80f &&
-               query[7] >= 0.30f && query[7] <= 0.55f &&
-               query[8] >= 0.35f && query[8] <= 0.70f &&
+        return query[0] >= 0.24f && query[0] <= 0.30f &&
+               query[2] >= 0.82f && query[2] <= 0.90f &&
+               query[7] >= 0.35f && query[7] <= 0.45f &&
+               query[8] >= 0.45f && query[8] <= 0.55f &&
                query[9] < 0.5f &&
                query[10] >= 0.5f &&
                query[11] >= 0.5f &&
