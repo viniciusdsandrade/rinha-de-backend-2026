@@ -479,3 +479,20 @@ Experimentos offline:
 Decisão: **manter `repair_min=1` / `repair_max=4`**.
 
 Aprendizado: a janela `1..4` é ampla, mas necessária para preservar detecção perfeita. Reduzir a janela cria erros de classificação; ampliar para `0..4` mantém acurácia, mas destrói a performance.
+
+## Ciclo 12h15: nginx sem `reuseport`
+
+Hipótese: com 2 workers nginx e pouco CPU, `listen ... reuseport` poderia aumentar variância/overhead; remover `reuseport` poderia deixar a aceitação mais estável.
+
+Resultados k6 locais:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| controle imediato com `reuseport` | 1.27ms | 0% | 5896.51 |
+| sem `reuseport` #1 | 1.16ms | 0% | 5937.37 |
+| sem `reuseport` #2 | 1.21ms | 0% | 5915.90 |
+| controle posterior com `reuseport` | 1.21ms | 0% | 5915.52 |
+
+Decisão: **rejeitado por ausência de ganho reproduzível**.
+
+Aprendizado: remover `reuseport` pode cair numa run boa, mas o controle posterior empatou. Isso parece ruído de benchmark, não melhoria sustentável; manter `listen 9999 reuseport backlog=4096`.
