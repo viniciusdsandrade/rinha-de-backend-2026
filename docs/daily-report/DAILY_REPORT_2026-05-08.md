@@ -550,3 +550,83 @@ version `GLIBC_2.38' not found
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: `-static-libstdc++/-static-libgcc` não resolve a dependência de `glibc`; o binário criado no trixie continua exigindo símbolo novo demais para bookworm. Se quisermos isolar codegen vs runtime com rigor, o caminho sustentável seria build contra sysroot bookworm, toolchain cruzada compatível, ou libc alternativa. Como troca simples de Dockerfile, a hipótese é inválida.
+
+## Ciclo 17h45: tuning offline do IVF antes de novo k6
+
+Objetivo: evitar novas runs pesadas sem sinal técnico. A etapa usou `benchmark-ivf-cpp` sobre `test/test-data.json` e `/tmp/rinha-ivf-perf/index-pgo.bin`, comparando variantes de reparo/`nprobe` contra o índice atual de `1280` clusters.
+
+Baseline offline atual:
+
+| Variante | ns/query | FP | FN | Falhas | Observação |
+|---|---:|---:|---:|---:|---|
+| `fast=1 full=1 bbox=1 repair=1..4` | 8604.58 | 0 | 0 | 0% | configuração segura atual |
+
+Triagens rejeitadas:
+
+| Variante | ns/query | FP | FN | Falhas | Decisão |
+|---|---:|---:|---:|---:|---|
+| `bbox_repair=0` | 7030.71 | 381 | 393 | 0.4769% | rejeitado por perder acurácia |
+| `repair=2..3` | 7726.27 | 66 | 84 | 0.0924% | rejeitado por perder acurácia |
+| `disable_extreme_repair=1` | 8352.81 | 5 | 10 | 0.0055% | rejeitado por perder acurácia |
+| `full_nprobe=2` | 8952.57 | 0 | 0 | 0% | rejeitado offline por ser mais lento que baseline |
+| `full_nprobe=3` | 9693.19 | 0 | 0 | 0% | rejeitado offline por ser mais lento |
+| `full_nprobe=4` | 8829.05 | 0 | 0 | 0% | rejeitado offline por ser mais lento |
+
+Aprendizado: o reparo por bounding box é caro, mas necessário para preservar `0%` falhas no dataset. O ganho bruto de desligar/estreitar reparo não compensa a perda de score de detecção, especialmente porque a disputa atual está no topo e a melhor submissão precisa manter `0%` falhas.
+
+## Ciclo 18h05: referência externa e clusters IVF maiores
+
+Investigação: uma submissão pública recente (`MatheusBasso99/rinha-de-backend-2026`) usa IVF com `k=2048`, `base_nprobe=8`, `retry_nprobe=16`, `mmap` e HAProxy. O insight aproveitável sem copiar arquitetura foi testar se aumentar clusters reduziria blocos escaneados no nosso motor.
+
+Experimento local:
+
+```text
+prepare-ivf-cpp resources/references.json.gz /tmp/rinha-ivf-perf/index-2048.bin 2048 65536 6
+benchmark-ivf-cpp ... index-2048.bin
+```
+
+Resultados:
+
+| Variante | ns/query | FP | FN | Falhas | Decisão |
+|---|---:|---:|---:|---:|---|
+| `2048 clusters, nprobe=1/1` | 7058.16 | 9 | 9 | 0.0111% | rápido, mas rejeitado por não ser 0 erro |
+| `2048 clusters, nprobe=1/2` | 7706.25 | 9 | 9 | 0.0111% | rejeitado; não corrige erro |
+| `2048 clusters, nprobe=2/2` | 16469.40 | 3 | 0 | 0.0018% | rejeitado; ainda erra e fica lento |
+| `2048 clusters, nprobe=4/4` | 22503.20 | 0 | 0 | 0% | rejeitado; correto, mas muito lento |
+| `2048 clusters, nprobe=8/16` | 36585.70 | 0 | 0 | 0% | rejeitado; reproduz ideia externa, mas inadequado para nosso hot path |
+
+Aprendizado: clusters maiores reduzem blocos por cluster (`~323` para `~205` no primário), mas aumentam custo de centroides/bbox e, com `nprobe=1`, introduzem erro. Para zerar erros, o aumento de `nprobe` explode custo. O ponto atual `1280 clusters + nprobe=1 + repair bbox` segue melhor para nosso desenho.
+
+Tentativa subsequente: uma triagem intermediária com `1536` e `1024` clusters foi iniciada, mas o processo não produziu artefato nem saída recuperável após a retomada da sessão. Como não há evidência confiável, fica registrada como inconclusiva e não entra na decisão técnica.
+
+## Ciclo 20h46: retorno oficial da issue `#2338`
+
+A reexecução oficial da melhor imagem antiga fechou:
+
+```text
+issue: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2338
+commit testado: f2a5b98
+imagem testada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-a477d55
+p99: 1.23ms
+falhas: 0%
+final_score: 5910.58
+```
+
+Comparação oficial consolidada:
+
+| Issue | Imagem | Commit | p99 | Falhas | final_score |
+|---|---|---|---:|---:|---:|
+| `#2316` | `submission-a477d55` | `2b25c5f` | 1.20ms | 0% | 5921.80 |
+| `#2328` | `submission-60daa3d` | `8d8a2f6` | 1.21ms | 0% | 5918.79 |
+| `#2338` | `submission-a477d55` | `f2a5b98` | 1.23ms | 0% | 5910.58 |
+
+Decisão: **não abrir nova issue de submissão** com os resultados desta rodada. A melhor evidência oficial continua sendo `#2316` (`5921.80`), e a reexecução do mesmo artefato em `#2338` mostra variação oficial negativa. O estado seguro da branch `submission` permanece apontando para a imagem `submission-a477d55`.
+
+## Encerramento pós-cutoff 03h30
+
+O corte operacional atualizado pelo usuário era `03h30` de `2026-05-09`. Na retomada, o relógio local já estava em `10:53 -03`, portanto os experimentos pesados foram interrompidos. O que ficou consolidado:
+
+- Nenhuma hipótese nova superou a melhor submissão oficial anterior.
+- Nenhuma mudança de código/infra foi mantida nesta última etapa.
+- O relatório foi atualizado com os achados positivos, negativos e inconclusivos.
+- Próxima direção sustentável: só testar mudanças estruturais que preservem `0%` erro offline antes de k6, com foco em reduzir custo do reparo bbox ou substituir a busca de centroides por uma estrutura mais barata sem alterar decisão final.
