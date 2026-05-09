@@ -894,3 +894,34 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: evitar `std::string` não melhorou p99. O custo de heap provavelmente já estava amortizado por conexão, enquanto um buffer fixo de 16KB aumenta o footprint da conexão e pode piorar cache locality. Não insistir nessa classe de mudança sem perfil que prove alocação como gargalo.
+
+## Ciclo 13h51: especializacao do repair IVF para `nprobe == 1`
+
+Hipótese: no modo atual, `nprobe` efetivo é `1`, mas o loop de repair ainda usa a checagem genérica de clusters já escaneados. Especializar o caso `nprobe == 1` para comparar diretamente com `best_clusters[0]` reduziria branches no caminho de reparo.
+
+Alteração temporária:
+
+```text
+repair loop:
+- antes: loop por best_clusters mesmo quando nprobe == 1
+- teste: single_probe + first_cluster, evitando o loop interno
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual aceito melhor run | 1.10ms | 0% | 5958.98 |
+| repair especializado `nprobe == 1` | 1.16ms | 0% | 5936.78 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: apesar de correta, a especialização não se traduziu em melhora end-to-end. O custo relevante do repair provavelmente está no scan/bbox em si, não no mini-loop de exclusão de clusters já escaneados.
