@@ -261,3 +261,38 @@ Resultado local com a imagem já construída:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: o filtro seccomp não aparece como gargalo relevante nesta stack local. Mesmo sem erros de detecção, a latência piorou contra o baseline imediato; manter o compose dentro do perfil padrão é mais seguro e não custa performance mensurável.
+
+## Ciclo 11h30: screening do LB `jrblatt/so-no-forevis`
+
+Hipótese: parte da vantagem do `jairoblatt` poderia vir do load balancer próprio `jrblatt/so-no-forevis:v0.0.2`, que usa sockets Unix e foi usado na submissão oficial dele. Testei como caixa-preta apenas para decidir se vale implementar um LB próprio equivalente.
+
+Primeira tentativa:
+
+```text
+imagem: jrblatt/so-no-forevis:v0.0.2
+UPSTREAMS=/sockets/api1.sock,/sockets/api2.sock
+PORT=9999
+BUF_SIZE=4096
+WORKERS=1
+```
+
+Resultado: falhou antes do benchmark por bloqueio de `io_uring` no seccomp padrão.
+
+Erro observado:
+
+```text
+failed to build IoUring runtime: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+```
+
+Segunda tentativa: `seccomp:unconfined` somente no LB, mantendo APIs sem essa opção.
+
+Resultado local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| baseline imediato `nginx` | 0.94ms | 0% | 6000.00 |
+| `so-no-forevis` + `seccomp:unconfined` no LB | 1.20ms | 0% | 5919.13 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: trocar nginx pelo LB externo não melhorou nossa solução local. Como o ganho não apareceu nem em screening, não há evidência suficiente para gastar uma rodada longa implementando um LB próprio agora. A diferença do jairoblatt parece vir da combinação completa dele, não de um drop-in replacement de LB sobre nossas APIs.
