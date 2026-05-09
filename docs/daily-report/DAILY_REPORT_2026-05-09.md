@@ -713,3 +713,39 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: o scanner decimal é correto para o dataset, mas não melhora `from_chars` no p99. Como adiciona código e não vence claramente, manter `std::from_chars`.
+
+## Ciclo 13h01: resultado oficial da submissão com parser manual
+
+Issue oficial:
+
+```text
+https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2601
+branch submission: 5e310ee point submission to fast parser image
+imagem: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-67270c2
+commit avaliado pelo runner: 5e310ee
+status: CLOSED
+```
+
+Resultado oficial:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| melhor oficial historico #2316 (`submission-a477d55`) | 1.20ms | 0% | 5921.80 |
+| submissao #2601 (`submission-67270c2`) | 1.20ms | 0% | 5921.79 |
+
+Breakdown da #2601:
+
+```text
+TP: 24037
+TN: 30022
+FP: 0
+FN: 0
+HTTP errors: 0
+weighted_errors_E: 0
+p99_score: 2921.79
+detection_score: 3000
+```
+
+Decisão: **validado como submissão correta, mas não é novo melhor oficial**.
+
+Aprendizado: o parser manual seletivo melhorou o benchmark local de forma reproduzível, mas no runner oficial empatou tecnicamente com a melhor submissão anterior e ficou 0.01 ponto abaixo. A conclusão prática é que a solução atual está no platô de `1.20ms` oficial; novas submissões só valem se reduzirem claramente o p99 oficial estimado para abaixo desse patamar, idealmente com local estável abaixo de `1.10ms` ou com mudança estrutural que afete diretamente o overhead de rede/proxy.
