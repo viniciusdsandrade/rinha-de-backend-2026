@@ -862,3 +862,35 @@ Comparação:
 Decisão: **rejeitado e revertido após a terceira medição**.
 
 Aprendizado: o ganho inicial de `1.09ms` não reproduziu com estabilidade. Como a terceira execução caiu para `1.17ms`, a mudança não atende o critério de melhoria sustentável/inquestionável. A hipótese continua tecnicamente plausível, mas a evidência local indica ruído ou piora de cauda; não promover para submissão oficial.
+
+## Ciclo 13h37: buffer fixo de resposta por conexão
+
+Hipótese: `Connection::out` usa `std::string`; como as respostas são pequenas e estáticas, trocar para um buffer fixo poderia reduzir alocação/heap no caminho quente.
+
+Alteração temporária:
+
+```text
+Connection::out:
+- antes: std::string com append/clear
+- teste: std::array<char, 16KB> + out_len/out_pos
+- append_output copia resposta estática para o buffer fixo
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual aceito melhor run | 1.10ms | 0% | 5958.98 |
+| buffer fixo de resposta | 1.17ms | 0% | 5930.87 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: evitar `std::string` não melhorou p99. O custo de heap provavelmente já estava amortizado por conexão, enquanto um buffer fixo de 16KB aumenta o footprint da conexão e pode piorar cache locality. Não insistir nessa classe de mudança sem perfil que prove alocação como gargalo.
