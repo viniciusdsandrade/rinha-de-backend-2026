@@ -522,7 +522,7 @@ std::uint8_t classify_body(
     const rinha::IvfSearchConfig& config
 ) noexcept {
     rinha::QueryVector query{};
-    if (fast_vectorize_payload(body, query)) {
+    if (fast_vectorize_payload(body, query)) [[likely]] {
         return index.fraud_count(query, config);
     }
 
@@ -548,7 +548,7 @@ void append_response(
         conn.out.append(kReadyResponse);
         return;
     }
-    if (request.starts_with("POST /fraud-score ")) {
+    if (request.starts_with("POST /fraud-score ")) [[likely]] {
         conn.out.append(response_for_score(classify_body(body, index, config)));
         return;
     }

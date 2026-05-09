@@ -954,3 +954,40 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: o buffer menor não gerou ganho end-to-end. O footprint por conexão não parece ser gargalo dominante, e reduzir o limite não justifica risco operacional para payloads/headers maiores no harness oficial.
+
+## Ciclo 14h20: `[[likely]]` no caminho quente HTTP/parser
+
+Hipótese: o caminho dominante em produção é `POST /fraud-score` com sucesso no parser manual seletivo. Marcar esses branches como prováveis poderia ajudar o compilador a organizar o hot path e reduzir cauda, sem alterar semântica.
+
+Alteração:
+
+```text
+if (fast_vectorize_payload(body, query)) [[likely]]
+if (request.starts_with("POST /fraud-score ")) [[likely]]
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `[[likely]]` #1 | 1.07ms | 0% | 5968.81 |
+| `[[likely]]` #2 | 1.03ms | 0% | 5985.53 |
+
+Comparação:
+
+| Variante | Melhor p99 local | Falhas | Melhor final_score local |
+|---|---:|---:|---:|
+| parser manual seletivo anterior | 1.10ms | 0% | 5958.98 |
+| parser manual + `[[likely]]` | 1.03ms | 0% | 5985.53 |
+
+Decisão: **aceito e candidato a submissão oficial**.
+
+Aprendizado: diferente das microtrocas anteriores, esta reproduziu duas vezes e levou o p99 local para a faixa mais próxima do teto de 1ms. A mudança é semanticamente neutra, pequena e de risco baixo. Próximo passo: publicar imagem versionada e abrir issue oficial somente com essa candidata.
