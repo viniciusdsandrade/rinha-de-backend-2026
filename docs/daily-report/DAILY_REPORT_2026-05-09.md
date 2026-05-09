@@ -371,3 +371,42 @@ Resultado local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: o limite de descritores não é gargalo observável neste cenário; adicionar `ulimits` não melhora latência e ainda adiciona ruído de configuração. Manter compose minimalista.
+
+## Ciclo 11h52: reuso `thread_local` de `known_merchants`
+
+Hipótese: o parser recria `std::vector<std::string> known_merchants` e `std::string merchant_id` a cada request; reusar esses buffers por thread reduziria alocação/cópia no hot path.
+
+Alteração temporária:
+
+```cpp
+thread_local std::vector<std::string> known_merchants;
+thread_local std::string merchant_id;
+known_merchants.clear();
+merchant_id.clear();
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target benchmark-ivf-cpp rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado offline:
+
+| Variante | ns/query | FP | FN |
+|---|---:|---:|---:|
+| janela estreita sem reuso parser | 15669.90 | 0 | 0 |
+| `thread_local known_merchants` | 12868.20 | 0 | 0 |
+
+Resultados k6 locais:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `thread_local` #1 | 1.26ms | 0% | 5899.73 |
+| `thread_local` #2 | 1.28ms | 0% | 5892.10 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: o microbenchmark melhorou bastante, mas o p99 end-to-end piorou de forma reproduzida. Como a pontuação é decidida por p99 e não por ns/query offline, a mudança não é sustentável para submissão.
