@@ -574,3 +574,25 @@ Amostra das issues fechadas mais recentes:
 Decisão: continuar usando `jairoblatt-rust` como referência técnica principal. As demais submissões recentes observadas estão abaixo da nossa faixa atual e não justificam troca de stack/arquitetura.
 
 Aprendizado: os diferenciais transferíveis do jairo já testados como drop-in (`LB`, `CPU split`, `probe policy`) não funcionaram na nossa solução. O que resta como hipótese estrutural é parser manual/HTTP loop mais agressivo, mas isso exige uma rodada dedicada porque é uma mudança maior.
+
+## Ciclo 12h35: CPU split `0.42/0.42/0.16`
+
+Hipótese: após estreitar o `extreme_repair`, o gargalo remanescente poderia estar mais nas APIs do que no nginx. Testei mover `0.02 CPU` do nginx para as APIs:
+
+```text
+api1: 0.42 CPU
+api2: 0.42 CPU
+nginx: 0.16 CPU
+total: 1.00 CPU
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| CPU split atual `0.41/0.41/0.18` melhor run | 1.13ms | 0% | 5946.11 |
+| CPU split `0.42/0.42/0.16` | 1.26ms | 0% | 5900.93 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: o nginx ainda precisa da fatia de `0.18 CPU`; retirar CPU dele aumenta p99. Manter o split atual.
