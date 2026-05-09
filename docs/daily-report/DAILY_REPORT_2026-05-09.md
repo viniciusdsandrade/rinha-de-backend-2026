@@ -441,3 +441,24 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: apesar de tecnicamente correto em carga local, o caminho sem cópia não trouxe ganho de p99 e aumenta a responsabilidade sobre padding do buffer HTTP. Sem melhoria mensurável, o caminho seguro com `padded_string` continua preferível.
+
+## Ciclo 12h02: `nginx worker_processes 1`
+
+Hipótese: com limite de `0.18 CPU` no nginx, reduzir de 2 workers para 1 poderia diminuir contenção e troca de contexto.
+
+Alteração temporária:
+
+```nginx
+worker_processes 1;
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| janela estreita + nginx 2 workers | 1.13ms | 0% | 5946.11 |
+| janela estreita + nginx 1 worker | 1.30ms | 0% | 5885.38 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: mesmo com CPU pequena, o nginx com 2 workers segue melhor neste cenário. Reduzir workers degrada p99, provavelmente por menor capacidade de absorver conexões simultâneas do k6.
