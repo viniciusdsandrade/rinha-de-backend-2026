@@ -596,3 +596,25 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: o nginx ainda precisa da fatia de `0.18 CPU`; retirar CPU dele aumenta p99. Manter o split atual.
+
+## Ciclo 12h42: CPU split `0.40/0.40/0.20`
+
+Hipótese: como retirar CPU do nginx piorou, talvez dar um pouco mais ao nginx reduzisse fila/latência no proxy.
+
+```text
+api1: 0.40 CPU
+api2: 0.40 CPU
+nginx: 0.20 CPU
+total: 1.00 CPU
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| CPU split atual `0.41/0.41/0.18` melhor run | 1.13ms | 0% | 5946.11 |
+| CPU split `0.40/0.40/0.20` | 1.21ms | 0% | 5918.41 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: deslocar CPU para o nginx também não melhora. O split atual parece um equilíbrio local bom entre proxy e APIs.
