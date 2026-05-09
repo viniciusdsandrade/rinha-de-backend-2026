@@ -556,3 +556,21 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: a hipótese é funcionalmente válida, mas não trouxe ganho claro de p99. A complexidade extra de partial write não se justifica; manter `conn.out.append` + `flush_output`.
+
+## Ciclo 12h30: varredura de issues oficiais recentes
+
+Objetivo: verificar se apareceu alguma submissão recente com pista técnica melhor que o nosso eixo atual.
+
+Amostra das issues fechadas mais recentes:
+
+| Issue | Participante/stack | p99 | Falhas | final_score | Repo |
+|---|---|---:|---:|---:|---|
+| #2590 | `lemesdaniel-nim` | 27.42ms | 0% | 4561.96 | `lemesdaniel/floating-finch` |
+| #2588 | `steixeira93-go-hnsw` | 2.46ms | 0% | 5609.73 | `steixeira93/rinha-backend-26` |
+| #2578 | `jordaogustavo-csharp` | 2.21ms | 0% | 5656.25 | `JordaoGustavo/rinha-backend-2026` |
+| #2572 | `itagyba-dotnet` | 2.08ms | 0% | 5681.33 | `daniloitagyba/rinha-2026-dotnet` |
+| #2571 | `jairoblatt-rust` | 1.14ms | 0% | 5941.57 | `jairoblatt/rinha-2026-rust` |
+
+Decisão: continuar usando `jairoblatt-rust` como referência técnica principal. As demais submissões recentes observadas estão abaixo da nossa faixa atual e não justificam troca de stack/arquitetura.
+
+Aprendizado: os diferenciais transferíveis do jairo já testados como drop-in (`LB`, `CPU split`, `probe policy`) não funcionaram na nossa solução. O que resta como hipótese estrutural é parser manual/HTTP loop mais agressivo, mas isso exige uma rodada dedicada porque é uma mudança maior.
