@@ -991,3 +991,19 @@ Comparação:
 Decisão: **aceito e candidato a submissão oficial**.
 
 Aprendizado: diferente das microtrocas anteriores, esta reproduziu duas vezes e levou o p99 local para a faixa mais próxima do teto de 1ms. A mudança é semanticamente neutra, pequena e de risco baixo. Próximo passo: publicar imagem versionada e abrir issue oficial somente com essa candidata.
+
+Publicação/submissão:
+
+```text
+commit da melhoria: e950b12 mark hot manual paths likely
+commit do workflow de publicação: 5bf73b7 publish likely candidate image tag
+workflow GHCR: https://github.com/viniciusdsandrade/rinha-de-backend-2026/actions/runs/25606317386
+resultado do workflow: success
+imagem publicada: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-e950b12
+manifest: linux/amd64 presente
+branch submission: a7bec6b point submission to likely hot path image
+issue oficial: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/2620
+status apos janela inicial de monitoramento: OPEN, sem comentario do runner
+```
+
+Decisão operacional: **aguardar o runner oficial antes de abrir qualquer nova issue**. Localmente a candidata é a melhor do dia, mas o resultado oficial ainda não foi publicado.
