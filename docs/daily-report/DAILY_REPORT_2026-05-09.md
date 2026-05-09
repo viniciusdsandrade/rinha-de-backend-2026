@@ -1101,3 +1101,32 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: remover o clamp não melhorou performance end-to-end. O compilador provavelmente já otimiza bem esse trecho ou o custo é irrelevante frente ao kernel de classificação/rede. Manter o clamp defensivo, pois ele evita risco sem custo mensurável.
+
+## Ciclo 14h14: `-fno-plt` no alvo manual
+
+Hipótese: o binário manual chama wrappers libc/syscall (`send`, `recv`, `epoll`, `accept4`) no hot path. Compilar o alvo manual com `-fno-plt` poderia reduzir overhead de chamadas via PLT em Linux sem alterar semântica.
+
+Alteração temporária:
+
+```text
+target_compile_options(rinha-backend-2026-cpp-manual PRIVATE ... -fno-plt)
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual + `[[likely]]` melhor run | 1.03ms | 0% | 5985.53 |
+| alvo manual com `-fno-plt` | 1.22ms | 0% | 5911.98 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: `-fno-plt` piorou bastante o p99 neste binário. A hipótese mais provável é mudança desfavorável de layout/código ou custo indireto irrelevante frente aos demais gargalos. Não aplicar flags genéricas sem evidência local reproduzível.
