@@ -925,3 +925,32 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: apesar de correta, a especialização não se traduziu em melhora end-to-end. O custo relevante do repair provavelmente está no scan/bbox em si, não no mini-loop de exclusão de clusters já escaneados.
+
+## Ciclo 14h05: reduzir `kMaxPending` de 16KB para 4KB
+
+Hipótese: cada conexão reserva um buffer de entrada de 16KB, embora os payloads oficiais sejam muito menores. Reduzir para 4KB poderia melhorar footprint/cache sem afetar payloads reais.
+
+Alteração temporária:
+
+```text
+kMaxPending: 16 * 1024 -> 4 * 1024
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual aceito melhor run | 1.10ms | 0% | 5958.98 |
+| `kMaxPending=4KB` | 1.15ms | 0% | 5937.43 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: o buffer menor não gerou ganho end-to-end. O footprint por conexão não parece ser gargalo dominante, e reduzir o limite não justifica risco operacional para payloads/headers maiores no harness oficial.
