@@ -822,3 +822,42 @@ Resultado k6 local:
 Decisão: **rejeitado e revertido**.
 
 Aprendizado: a direção é tecnicamente relevante, porque a melhor submissão oficial conhecida usa LB custom, mas o primeiro protótipo ingênuo ficou pior que nginx. A diferença provável está em detalhes de implementação do proxy: número de cópias, política de eventos, buffers, wakeups e tratamento de conexão. Para valer nova rodada, o experimento precisa mirar um LB custom mais enxuto que o protótipo, possivelmente com menos `epoll_ctl` por evento, buffers menores/fixos por direção, ou modelo que minimize cópias. Não vale trocar nginx por este `tiny-lb`.
+
+## Ciclo 13h24: caminho rapido para `Content-Length`
+
+Hipótese: o servidor manual ainda fazia parse genérico e case-insensitive de `Content-Length` em todo request. Como o cliente do teste envia header estável, um caminho rápido exato para `Content-Length: ` poderia reduzir custo no hot path, mantendo fallback para o parser genérico.
+
+Alteração:
+
+```text
+parse_content_length_fast:
+- procura "Content-Length: "
+- parseia os dígitos imediatamente após o prefixo
+- se não encontrar, cai no parse_content_length antigo
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais:
+
+| Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| `Content-Length` fast path #1 | 1.09ms | 0% | 5964.09 |
+| `Content-Length` fast path #2 | 1.12ms | 0% | 5949.78 |
+
+Comparação:
+
+| Variante | Melhor p99 local | Falhas | Melhor final_score local |
+|---|---:|---:|---:|
+| parser manual seletivo anterior | 1.10ms | 0% | 5958.98 |
+| parser manual + `Content-Length` fast path | 1.09ms | 0% | 5964.09 |
+
+Decisão: **aceito na branch experimental**.
+
+Aprendizado: o ganho é pequeno e ainda precisa de confirmação oficial, mas a mudança é sustentável: não altera contrato, mantém fallback para headers fora do padrão esperado e reduz trabalho repetitivo no caminho quente. Como o runner oficial anterior ficou preso em `1.20ms`, esta candidata só deve virar nova submissão se mais uma medição local continuar abaixo ou próxima de `1.10ms`.
