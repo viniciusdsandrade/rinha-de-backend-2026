@@ -1007,3 +1007,33 @@ status apos janela inicial de monitoramento: OPEN, sem comentario do runner
 ```
 
 Decisão operacional: **aguardar o runner oficial antes de abrir qualquer nova issue**. Localmente a candidata é a melhor do dia, mas o resultado oficial ainda não foi publicado.
+
+## Ciclo 13h56: `[[unlikely]]` nos fallbacks frios
+
+Hipótese: depois do ganho com `[[likely]]` no caminho quente, marcar explicitamente os fallbacks frios do parser completo como improváveis poderia reforçar o layout de branches e reduzir ainda mais a cauda sem alterar semântica.
+
+Alteração temporária:
+
+```text
+if (!rinha::parse_payload(...)) [[unlikely]]
+if (!rinha::vectorize(...)) [[unlikely]]
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultado k6 local:
+
+| Variante | p99 | Falhas | final_score |
+|---|---:|---:|---:|
+| parser manual + `[[likely]]` melhor run | 1.03ms | 0% | 5985.53 |
+| `[[likely]]` + fallback `[[unlikely]]` | 1.22ms | 0% | 5915.35 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: a extensão de branch hints para os fallbacks não reproduziu o ganho do `[[likely]]` no caminho quente; pelo contrário, piorou bastante o p99. A hipótese provável é que hints adicionais alteraram layout/inlining de forma desfavorável ou apenas adicionaram ruído ao código gerado. Manter somente os `[[likely]]` aceitos.
