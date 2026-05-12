@@ -737,3 +737,64 @@ Aprendizado:
 
 - O custo de um syscall extra por conexão não se paga de forma clara no cenário atual.
 - A cauda não parece ser dominada por Nagle/delay de flush da resposta.
+
+## Ciclo pós-retomada: leitura crítica do `PLANO_PERFORMANCE.md`
+
+Contexto:
+
+Foi lido o plano externo `/home/andrade/Desktop/rinha-de-backend-2026/PLANO_PERFORMANCE.md` elaborado pelo Claude Code. O documento é útil como mapa de hipóteses, mas está parcialmente defasado frente ao estado atual:
+
+- O plano ainda descreve a submissão antiga `#2625` com uWebSockets/nginx e p99 oficial `1.20ms`.
+- O estado aceito atual já é C++ manual + IVF + FD passing + `jrblatt/so-no-forevis:v1.0.0`.
+- A melhor submissão oficial conhecida é `#3537`, com `p99=1.04ms`, `failure_rate=0%` e `final_score=5983.81`.
+
+Itens do plano aproveitados no fluxo atual:
+
+- Evitar repetir itens do catálogo de não-fazer sem diferença metodológica.
+- Tratar microbench/microajuste como suspeito até sobreviver ao k6 repetido.
+- Priorizar hipóteses ligadas a zero-alloc/footprint por conexão e syscalls na cauda.
+- Comparar qualquer achado com a submissão oficial aceita, não apenas com uma run local isolada.
+
+Itens considerados já superados:
+
+- Migração para IVF como hipótese futura: já está aplicada na solução atual.
+- Troca uWS/nginx: a solução atual já saiu desse caminho e usa servidor manual + FD passing.
+- CPU split de campeões: testado na prática nesta rodada e rejeitado para o nosso stack.
+
+Decisão:
+
+- O plano seguirá como fonte de hipóteses, não como checklist literal.
+- Qualquer nova submissão só será aberta se houver resultado melhor que `#3537` com evidência repetível ou ganho material inequívoco.
+
+## Ciclo pós-retomada: reduzir `conn.out.reserve(512)` para `128`
+
+Hipótese:
+
+As respostas HTTP têm menos de 80 bytes. Reduzir a reserva inicial de `conn.out` de `512` para `128` poderia diminuir footprint/cache por conexão sem alterar o protocolo, alinhado ao princípio de zero-alloc/footprint menor do plano externo.
+
+Execução:
+
+- Alterado temporariamente `conn.out.reserve(512)` para `conn.out.reserve(128)` em `cpp/src/manual_main.cpp`.
+- Imagem reconstruída com sucesso.
+- Stack subiu corretamente; `/ready` respondeu `204` após 2s.
+- Foram feitas 3 runs consecutivas para verificar reprodutibilidade.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 0.97ms | 0% | 0 | 0 | 6000.00 |
+| 2 | 1.07ms | 0% | 0 | 0 | 5972.52 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5978.01 |
+
+Decisão:
+
+- Rejeitado e revertido para `512`.
+- A primeira run foi excelente, mas não reproduziu.
+- A média/estabilidade não supera a submissão oficial `#3537` (`5983.81`).
+- Não abrir issue com essa variante; seria aposta em outlier local.
+
+Aprendizado:
+
+- O tamanho inicial do buffer de resposta não é alavanca estável no p99 atual.
+- A regra de repetir imediatamente qualquer resultado `6000` evitou uma submissão baseada em ruído.
