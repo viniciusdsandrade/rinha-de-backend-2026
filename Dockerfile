@@ -13,10 +13,10 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY cpp ./cpp
-COPY resources ./resources
 
 ARG RINHA_DATA_REF=d501ddc1e941b24014c3ce5a6b41ccc3054ec1a0
-RUN curl -fsSL \
+RUN mkdir -p /app/resources \
+    && curl -fsSL \
         "https://raw.githubusercontent.com/zanfranceschi/rinha-de-backend-2026/${RINHA_DATA_REF}/resources/references.json.gz" \
         -o /app/resources/references.json.gz
 
