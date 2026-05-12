@@ -2126,3 +2126,54 @@ Aprendizado:
 
 - A validação local confirma que a tag pública não está quebrada e mantém o mesmo envelope competitivo.
 - O resultado oficial ainda pode cair no mesmo ruído de `1.04ms`; se isso acontecer, a versão continua tecnicamente correta, mas talvez não substitua a melhor submissão efetiva.
+
+## Fechamento 17h52: resultado oficial `#3778` e síntese do dia
+
+Resultado oficial da issue `#3778`:
+
+| Issue | Imagem | Commit | p99 | failure_rate | FP | FN | HTTP errors | final_score |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `#3778` | `submission-76fc604` | `6692f2b` | 1.02ms | 0% | 0 | 0 | 0 | 5989.78 |
+
+Ranking público após atualização:
+
+| Posição relativa | Participante | Submissão | p99 | failure_rate | final_score | Issue |
+|---:|---|---|---:|---:|---:|---|
+| 1 | `viniciusdsandrade` | `andrade-cpp-ivf` | 1.02ms | 0% | 5989.78 | `#3778` |
+| 2 | `jairoblatt` | `jairoblatt-rust` | 1.05ms | 0% | 5978.38 | `#3744` |
+
+Comparação com marcos do dia:
+
+| Marco | p99 | final_score | Delta vs `#3778` |
+|---|---:|---:|---:|
+| `#3537` melhor oficial anterior da imagem estável | 1.04ms | 5983.81 | `#3778` +5.97 pontos |
+| `#3763` repetição estável antes do patch | 1.04ms | 5983.13 | `#3778` +6.65 pontos |
+| `#3744` Jairo atual | 1.05ms | 5978.38 | `#3778` +11.40 pontos |
+| `#3778` memchr promovido | 1.02ms | 5989.78 | novo melhor oficial |
+
+Estado final publicado:
+
+- Branch `submission`: limpa e sincronizada em `origin/submission`.
+- HEAD da `submission`: `6692f2b point submission to memchr image`.
+- Código da otimização: `76fc604 use memchr header delimiter scan`.
+- Imagem pública efetiva: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-76fc604`.
+- LB efetivo: `jrblatt/so-no-forevis:v1.0.0`.
+- Recursos oficiais observados: APIs `0.42 CPU / 160MB` cada, LB `0.16 CPU / 30MB`, total `1 CPU / 350MB`.
+- Conformidade oficial observada: `instances-number-ok?=true`, `unlimited-services=null`, `Privileged=false`, `0` erros HTTP.
+
+Aprendizados consolidados do dia:
+
+- A maior alavanca estrutural continua sendo FD-passing com `so-no-forevis`; o trabalho do dia foi tirar as últimas centésimas de ms do servidor C++ em torno dessa arquitetura.
+- A imagem estável `submission-076c74a` ainda era muito competitiva, mas repetir issue é apenas gestão de variância: `#3753` caiu para `1.06ms`, enquanto `#3763` recuperou `1.04ms`.
+- Comparar com o Jairo mostrou que copiar `0.40/0.40/0.20`, `seccomp:unconfined` nas APIs, `BUF_SIZE`, `WORKERS`, `ulimits`, `mimalloc` ou política de probes não é suficiente; nosso stack responde melhor ao split `0.42/0.42/0.16`.
+- `seccomp:unconfined` nas APIs foi rejeitado: o benefício necessário está no LB com `io_uring`, não nas APIs C++ com `epoll`.
+- Encurtar JSON (`0.0 -> 0`, `1.0 -> 1`) foi rejeitado: dois bytes a menos não explicam o p99; o A/B reverso mostrou que era ruído.
+- O `memmem()` para delimiter tinha sinal local forte, mas foi instável oficialmente; a versão específica com `memchr()` para localizar `\r` preservou a ideia útil com menos generalidade e entregou ganho oficial real.
+- O resultado oficial `#3778` confirma que ainda havia trabalho relevante no parser HTTP, mesmo depois do salto estrutural do LB/FD-passing.
+- Com `p99=1.02ms`, o próximo ganho real passa a ser muito difícil: faltam apenas `0.02ms` para saturar o `p99_score` em `3000`, então qualquer nova mudança precisa ser extremamente pequena, reversível e validada por A/B, porque o ruído do runner já é da mesma ordem do ganho possível.
+
+Decisão final do ciclo:
+
+- Encerrar o goal com a submissão `#3778` como melhor resultado oficial do dia.
+- Não abrir nova issue imediatamente: a versão atual já retomou a liderança sobre o Jairo e está a apenas `0.02ms` do teto de latência.
+- Próximo ciclo, se houver, deve mirar apenas hipóteses com chance de estabilizar `p99 <= 1.00ms`; microknobs sem ganho local abaixo de `1.02ms` não justificam risco nem tempo.
