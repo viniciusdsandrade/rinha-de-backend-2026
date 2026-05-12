@@ -218,9 +218,41 @@ Decisão:
 - Commit da branch `submission`: `4e317cf tune fd passing cpu split`.
 - Nova issue oficial aberta: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3537
 - Título e descrição: `rinha/test andrade-cpp-ivf`.
-- Status no momento do registro: aguardando comentário da engine.
+- Resultado oficial: `p99=1.04ms`, `failure_rate=0%`, `FP=0`, `FN=0`, `HTTP errors=0`, `final_score=5983.81`.
+- Runtime oficial: APIs `0.42 CPU / 160MB` cada, LB `0.16 CPU / 30MB`, total `1 CPU / 350MB`, `instances-number-ok?=true`, `unlimited-services=null`, `Privileged=false`.
+- Commit avaliado pela engine: `4e317cf`.
 
 Aprendizado:
 
 - O split de CPU é uma alavanca real nessa arquitetura. O LB com FD-passing aparentemente tolera menos CPU do que os `0.20` copiados do Jairo, enquanto as APIs se beneficiam diretamente da folga adicional.
 - Esta é uma melhoria sustentável: mantém topologia, imagem pública, bridge, duas APIs, LB sem lógica de negócio, `Privileged=false`, `1 CPU` e `350MB`.
+- Em relação à submissão oficial imediatamente anterior (`#3535`, `p99=1.06ms`, `final_score=5976.27`), o ganho foi de `+7.54` pontos e `-0.02ms` no p99.
+- Em relação ao então líder `jairoblatt-rust` (`p99=1.05ms`, `final_score=5978.43`), o resultado oficial `#3537` ficou `+5.38` pontos acima.
+
+## Ciclo 01h05: limite inferior de CPU do LB
+
+Hipótese:
+
+Se `0.42/0.42/0.16` foi melhor que `0.40/0.40/0.20`, talvez deslocar mais CPU do LB para as APIs (`0.43/0.43/0.14`) reduza ainda mais o p99.
+
+Experimento:
+
+- APIs `0.43 + 0.43`, LB `0.14`, total `1.00 CPU`.
+- Mesma imagem, mesmo índice, mesmo LB, sem alteração de código.
+- `GET /ready`: `204`.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.43/0.43/0.14` | 1.07ms | 0% | 0 | 0 | 5969.32 |
+
+Decisão:
+
+- Rejeitado.
+- O compose experimental foi revertido para `0.42/0.42/0.16`.
+
+Aprendizado:
+
+- O ponto útil parece estar perto de `0.16 CPU` para o LB. Abaixo disso, a cauda volta a subir mesmo com mais CPU nas APIs.
+- Próximos splits candidatos, se necessário, devem testar a vizinhança fina (`0.415/0.415/0.17` ou `0.425/0.425/0.15`) em vez de deslocamentos maiores.
