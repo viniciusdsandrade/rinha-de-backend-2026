@@ -1636,3 +1636,38 @@ Aprendizado:
 
 - A melhor base oficial segue sendo simples: loop manual de header + `recvmsg(..., 0)` + `FD_CLOEXEC` via `fcntl()`.
 - O local ainda oscila acima de `#3537`, então não basta uma run `1.03ms`; a barra de promoção precisa ser materialmente melhor e repetível.
+
+## Ciclo 15h55: envio direto da resposta quando não há saída pendente
+
+Hipótese:
+
+No caminho comum, a resposta é uma string estática curta. Em vez de copiar para `conn.out` e chamar `flush_output()` depois do parse, poderíamos chamar `send()` diretamente quando não houvesse saída pendente. Se o socket aceitasse tudo, removeríamos uma cópia e uma passagem posterior pelo flush; se retornasse parcial/EAGAIN, o restante cairia no buffer existente.
+
+Execução:
+
+- Adicionado temporariamente `write_or_buffer(Connection&, std::string_view)`.
+- `append_response()` passou a retornar `bool` e tentar `send(MSG_NOSIGNAL)` direto quando `conn.out` estava vazio.
+- Em caso de escrita parcial/EAGAIN, o restante era preservado em `conn.out`.
+- Mantidos loop manual de header, `recvmsg(..., 0)`, `FD_CLOEXEC`, split `0.42/0.42/0.16` e IVF aceito.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.05ms | 0% | 0 | 0 | 5979.70 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5981.46 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5979.90 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Não superou a base local re-freezada nem a submissão oficial `#3537`.
+- Não promover: enviar dentro do loop de parse parece piorar a cadência, mesmo removendo uma cópia.
+
+Aprendizado:
+
+- A agregação simples em `conn.out` seguida de `flush_output()` é mais estável que `send()` imediato por resposta.
+- O gargalo remanescente não está na cópia curta da resposta.
