@@ -14,6 +14,8 @@
 #include <unordered_map>
 
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -703,6 +705,8 @@ void run_control_socket(const std::string& ctrl_path, int notify_fd) {
             if (flags >= 0) {
                 (void)fcntl(*fd, F_SETFL, flags | O_NONBLOCK);
             }
+            const int one = 1;
+            (void)setsockopt(*fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
             if (write(notify_fd, &*fd, sizeof(*fd)) != static_cast<ssize_t>(sizeof(*fd))) {
                 close(*fd);
             }

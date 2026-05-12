@@ -1351,3 +1351,43 @@ Aprendizado:
 - A última centésima de ms está extremamente sensível a scheduling/host; um `6000` isolado não basta.
 - `kReadChunk=4096` continua sendo a opção mais conservadora e estável no branch aceito.
 - A issue oficial `#3693` segue aberta sem comentário neste checkpoint.
+
+## Ciclo 13h45: `TCP_NODELAY` nos FDs recebidos
+
+Hipótese:
+
+Como o LB passa o socket TCP aceito para a API via `SCM_RIGHTS`, a API escreve respostas HTTP pequenas diretamente no socket do cliente. Se `TCP_NODELAY` não estiver ativo no FD recebido, Nagle/delayed ACK pode afetar a cauda. Ativar `TCP_NODELAY` por FD adiciona um syscall, mas pode reduzir latência de resposta pequena.
+
+Execução:
+
+- Adicionados temporariamente `#include <netinet/in.h>` e `#include <netinet/tcp.h>`.
+- Após colocar o FD recebido em `O_NONBLOCK`, executado `setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, 1)`.
+- Mantido `MSG_CMSG_CLOEXEC`.
+- Mantido `memmem()` no delimitador de headers.
+- Mantidos LB, CPU split, parser JSON e IVF.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 6 runs por haver sinal forte nas 3 primeiras.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.01ms | 0% | 0 | 0 | 5994.77 |
+| 2 | 1.02ms | 0% | 0 | 0 | 5990.69 |
+| 3 | 1.01ms | 0% | 0 | 0 | 5997.34 |
+| 4 | 1.02ms | 0% | 0 | 0 | 5993.13 |
+| 5 | 1.01ms | 0% | 0 | 0 | 5993.89 |
+| 6 | 1.03ms | 0% | 0 | 0 | 5986.68 |
+
+Decisão:
+
+- Aceito e mantido no branch experimental.
+- Promover para `submission`: é uma alteração pequena, tecnicamente plausível e todas as runs ficaram acima do melhor oficial anterior `#3537` (`5983.81`).
+- Melhor run local do dia após esta mudança: `p99=1.01ms`, `final_score=5997.34`, `0%` falhas.
+
+Aprendizado:
+
+- O FD-passing mudou o problema: a API passou a estar no caminho direto de escrita TCP para o cliente, então opções do socket importam.
+- O syscall extra de `setsockopt()` não dominou a cauda nas medições; o efeito líquido foi positivo.
+- Como a issue `#3693` ainda estava aberta sem comentário no momento da promoção, atualizar `submission` antes do runner iniciar pode fazer a própria `#3693` testar esta versão mais nova. Confirmar pelo campo `commit` no resultado oficial.
