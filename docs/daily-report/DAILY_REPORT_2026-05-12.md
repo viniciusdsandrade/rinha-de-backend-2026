@@ -540,6 +540,28 @@ Aprendizado:
 - O buffer maior não é o gargalo material.
 - A redução provavelmente aumenta sensibilidade a headers/pacotes fragmentados ou remove alguma folga benéfica do loop de leitura.
 
+## Ciclo 02h55: folga de CPU total `0.995`
+
+Hipótese:
+
+Deixar uma pequena folga de CPU total poderia reduzir throttling/cgroup contention. Configuração testada: APIs `0.42 + 0.42`, LB `0.155`, total `0.995 CPU`.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.42/0.42/0.155` | 1.07ms | 0% | 0 | 0 | 5971.38 |
+
+Decisão:
+
+- Rejeitado.
+- Restaurado LB `0.16`.
+
+Aprendizado:
+
+- A pequena folga de CPU não compensou a perda de CPU do LB.
+- O limite útil do LB continua em `0.16`, não abaixo disso.
+
 ## Ciclo 03h00: warmup sintético do índice antes do `/ready`
 
 Hipótese:
