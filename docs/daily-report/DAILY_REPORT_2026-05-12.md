@@ -798,3 +798,36 @@ Aprendizado:
 
 - O tamanho inicial do buffer de resposta não é alavanca estável no p99 atual.
 - A regra de repetir imediatamente qualquer resultado `6000` evitou uma submissão baseada em ruído.
+
+## Ciclo 10h35: `EPOLLET` nas conexões do servidor manual
+
+Hipótese:
+
+O loop do servidor manual já drena `recv()` até `EAGAIN` e tenta esvaziar `send()` até `EAGAIN`, portanto usar edge-triggered nas conexões (`EPOLLET`) poderia reduzir notificações redundantes do epoll sem mudar algoritmo, parser ou índice.
+
+Execução:
+
+- Aplicado temporariamente `EPOLLET` em `update_events()` e em `add_connection()`.
+- Mantidos listen socket e pipe de transferência em level-triggered.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204` após 2s.
+- Executadas 3 runs consecutivas para separar ganho real de variância.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.04ms | 0% | 0 | 0 | 5981.32 |
+| 2 | 1.03ms | 0% | 0 | 0 | 5985.38 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5980.47 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A segunda run superou a submissão oficial `#3537` (`5983.81`), mas o conjunto das três runs não sustentou ganho.
+- Não abrir issue: a evidência indica outlier/variância, não melhora material.
+
+Aprendizado:
+
+- `EPOLLET` é funcional no servidor manual atual, mas não melhora a cauda de forma estável.
+- O gargalo residual parece estar na faixa de jitter do ambiente/proxy/scheduler; mudanças de epoll isoladas não bastam para empurrar consistentemente abaixo de `1.04ms`.
