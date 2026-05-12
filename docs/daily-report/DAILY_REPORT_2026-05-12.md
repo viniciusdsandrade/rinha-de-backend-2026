@@ -1588,3 +1588,17 @@ Decisão:
 - Não considerar `submission-de60ac5` como novo melhor estado.
 - Não abrir outra issue com essa mesma imagem sem uma nova evidência local muito superior.
 - O próximo experimento precisa buscar ganho material acima da variância oficial, não apenas mover `1.03ms` para `1.02ms` em uma bateria local.
+
+### Restauração operacional da branch `submission`
+
+Execução:
+
+- Como a `#3712` validou uma regressão oficial, a branch `submission` foi restaurada para apontar para a melhor imagem oficial conhecida.
+- Commit no branch `submission`: `8eda2fe restore best official submission image`.
+- `docker-compose.yml` voltou para `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-076c74a`.
+- Push realizado para `origin/submission`.
+
+Decisão:
+
+- A branch `submission` volta a representar o melhor estado oficial conhecido (`#3537`, `p99=1.04ms`, `final_score=5983.81`).
+- Novas issues só devem ser abertas após promover uma imagem que supere esse patamar com evidência local materialmente melhor.
