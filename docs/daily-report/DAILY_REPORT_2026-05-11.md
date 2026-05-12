@@ -81,3 +81,39 @@ Plano de experimento recomendado:
 5. Rodar um k6 isolado e comparar contra a melhor referência local do dia 09/05 (`1.03ms`, score `5985.53`) e contra a melhor oficial interna (`5921.80`).
 
 Decisão operacional: **não executar agora**, pois o horário combinado de atuação já passou. Próxima retomada deve começar por essa hipótese ou por uma revalidação local curta do baseline aceito, dependendo da carga da máquina.
+
+## Ciclo 23h58: fast path de timestamp para 2026
+
+Hipótese: o parser manual calcula timestamps ISO com `days_from_civil_fast`, que usa divisões genéricas de calendário. Como a massa oficial usa datas de 2026, um fast path para `year == 2026` poderia trocar essas divisões por tabela fixa de início de mês, preservando fallback genérico para outros anos.
+
+Alteração temporária:
+
+```text
+days_2026_fast(month, day):
+  kDaysTo2026 = 20454
+  month_start = [0,31,59,90,120,151,181,212,243,273,304,334]
+
+scan_iso_timestamp:
+  if year == 2026 -> days_2026_fast
+  else -> days_from_civil_fast
+```
+
+Validação funcional:
+
+```text
+cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests
+ctest --test-dir cpp/build --output-on-failure
+100% tests passed, 0 tests failed out of 1
+```
+
+Resultados k6 locais:
+
+| Variante | Run | p99 | Falhas | final_score |
+|---|---:|---:|---:|---:|
+| parser manual + `[[likely]]` melhor run histórica | - | 1.03ms | 0% | 5985.53 |
+| timestamp fast path 2026 | 1 | 1.10ms | 0% | 5956.93 |
+| timestamp fast path 2026 | 2 | 1.15ms | 0% | 5938.55 |
+
+Decisão: **rejeitado e revertido**.
+
+Aprendizado: o custo do cálculo civil genérico não é gargalo dominante ou o fast path alterou layout/inlining de forma desfavorável. Mesmo correto funcionalmente, não superou a melhor referência local nem justificou promoção. Manter `days_from_civil_fast`.
