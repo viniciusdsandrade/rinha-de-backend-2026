@@ -414,3 +414,30 @@ Aprendizado:
 
 - Não há evidência de FD exhaustion na nossa stack atual; aumentar `nofile` não reduziu cauda e piorou a run local.
 - O insight útil do Zig não é `ulimit`, mas a confirmação independente de que o topo do ranking converge para LB próprio/io_uring/UDS, exatamente a direção já adotada via `so-no-forevis`.
+
+## Ciclo 02h00: buffer fixo de resposta no servidor manual
+
+Hipótese:
+
+Trocar `std::string out` por um buffer fixo por conexão poderia reduzir overhead de hot path, já que as respostas são estáticas, pequenas e quantizadas em seis variações.
+
+Validação:
+
+- `cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j$(nproc)` passou.
+- `ctest --test-dir cpp/build --output-on-failure` passou.
+- `GET /ready`: `204`.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| Buffer fixo de saída | 1.06ms | 0% | 0 | 0 | 5973.27 |
+
+Decisão:
+
+- Rejeitado e revertido.
+
+Aprendizado:
+
+- O custo de `std::string` reservada no buffer de saída não é gargalo material.
+- A piora sugere que a versão atual já está bem ajustada pelo compilador/libstdc++ ou que a mudança aumenta footprint por conexão sem reduzir o trecho crítico.
