@@ -1238,3 +1238,40 @@ Aprendizado:
 - O gargalo de parsing que importava era encontrar o fim dos headers; o custo adicional do parser antigo de `Content-Length` não apareceu no p99.
 - Manter a versão mais simples reduz risco e evita complexidade inútil.
 - A issue oficial `#3693` continua aberta sem comentário no momento deste registro.
+
+## Ciclo 13h05: fila de respostas por `string_view`
+
+Hipótese:
+
+O código do Jairo evita copiar respostas para um buffer dinâmico e escreve slices estáticos. O experimento anterior com buffer fixo piorou por footprint/cache, mas uma fila pequena de `std::string_view` por conexão poderia remover cópia de resposta sem aumentar tanto a memória.
+
+Execução:
+
+- Alterado temporariamente `Connection::out` de `std::string` para `std::array<std::string_view, 16>`.
+- `append_response()` passou a enfileirar views estáticos para as respostas pré-montadas.
+- `flush_output()` passou a enviar cada `string_view` respeitando escrita parcial.
+- Removido temporariamente `conn->out.reserve(512)`.
+- Mantidos `memmem()` no delimitador, LB, split de CPU, parser JSON e IVF.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs consecutivas.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.02ms | 0% | 0 | 0 | 5990.26 |
+| 2 | 1.02ms | 0% | 0 | 0 | 5989.93 |
+| 3 | 1.02ms | 0% | 0 | 0 | 5990.73 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- O resultado foi competitivo e estável, mas não superou materialmente o `memmem()` puro, que já teve runs melhores (`5993+` e `5994.40`).
+- Não promover: a versão aumenta complexidade e introduz limite explícito de respostas enfileiradas por conexão sem ganho claro.
+
+Aprendizado:
+
+- Evitar a cópia de resposta ajuda a manter `p99` em `1.02ms`, mas não parece ser a última barreira para saturar `1.00ms`.
+- O `std::string` reservado continua aceitável; o maior ganho confirmado permanece no parser de fim de header.
+- A issue oficial `#3693` segue aberta sem comentário neste checkpoint.
