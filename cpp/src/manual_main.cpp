@@ -659,7 +659,7 @@ std::optional<int> receive_fd(int socket_fd) noexcept {
     message.msg_control = control.data();
     message.msg_controllen = control.size();
 
-    const ssize_t received = recvmsg(socket_fd, &message, 0);
+    const ssize_t received = recvmsg(socket_fd, &message, MSG_CMSG_CLOEXEC);
     if (received <= 0) {
         return std::nullopt;
     }
@@ -704,7 +704,6 @@ void run_control_socket(const std::string& ctrl_path, int notify_fd) {
             if (flags >= 0) {
                 (void)fcntl(*fd, F_SETFL, flags | O_NONBLOCK);
             }
-            (void)fcntl(*fd, F_SETFD, FD_CLOEXEC);
             if (write(notify_fd, &*fd, sizeof(*fd)) != static_cast<ssize_t>(sizeof(*fd))) {
                 close(*fd);
             }
