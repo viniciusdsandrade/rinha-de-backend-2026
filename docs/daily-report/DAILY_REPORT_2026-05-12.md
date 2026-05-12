@@ -1501,3 +1501,37 @@ Aprendizado:
 - O gargalo atual não parece ser rehash do mapa de conexões.
 - Nessa faixa, alocação preventiva pode prejudicar mais do que ajudar se aumenta a pressão de cache/memória.
 - Próximo foco deve ser trabalho por request, não estrutura de controle por conexão.
+
+## Ciclo 14h45: evitar `epoll_ctl(EPOLL_CTL_MOD)` quando o interesse não muda
+
+Hipótese:
+
+O caminho comum do servidor é ler request, processar, enviar a resposta imediatamente e continuar interessado apenas em `EPOLLIN | EPOLLRDHUP`. O código atual chama `epoll_ctl(EPOLL_CTL_MOD)` ao fim de todo evento mesmo quando `EPOLLOUT` não precisa ser adicionado/removido. Evitar esse syscall no caminho comum poderia reduzir a cauda.
+
+Execução:
+
+- Adicionado temporariamente `had_output = !conn->out.empty()` no início do evento.
+- `update_events()` passou a rodar apenas quando havia saída pendente antes do evento ou ainda havia saída pendente depois do flush.
+- Mantidos `TCP_NODELAY`, `MSG_CMSG_CLOEXEC`, `memmem()` e configuração IVF aceita.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.08ms | 0% | 0 | 0 | 5968.20 |
+| 2 | 1.02ms | 0% | 0 | 0 | 5989.47 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5986.82 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A ideia reduz syscall no caminho comum, mas a primeira run degradou demais e a bateria não superou o candidato publicado.
+- Não promover: em p99, a previsibilidade vale mais do que remover uma chamada se o efeito observado é instável.
+
+Aprendizado:
+
+- O `epoll_ctl(MOD)` redundante não é o gargalo dominante, ou sua remoção muda a cadência do loop de forma desfavorável.
+- Ajustes de event loop precisam ser tratados com muita cautela, porque pequenas mudanças de scheduling aparecem diretamente na centésima de ms.
