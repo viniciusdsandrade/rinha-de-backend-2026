@@ -683,3 +683,27 @@ Aprendizado:
 
 - Nosso C++ manual + IVF parece mais sensível à CPU disponível nas APIs do que o stack Rust/monoio do Jairo.
 - Aumentar o LB acima de `0.16 CPU` tira capacidade útil do KNN e piora a cauda.
+
+## Ciclo 02h35: controle do baseline aceito `0.42/0.42/0.16`
+
+Objetivo:
+
+Após duas hipóteses rejeitadas, refreezar o baseline aceito para separar regressão real de ruído do runner local.
+
+Execução:
+
+- Restaurado `docker-compose.yml` com APIs `0.42 CPU / 160MB` cada e LB `0.16 CPU / 30MB`.
+- Stack recriado do zero.
+- `/ready` respondeu `204` após 2s.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| Baseline aceito `0.42/0.42/0.16` | 1.06ms | 0% | 0 | 0 | 5975.07 |
+
+Leitura:
+
+- O baseline local atual ficou abaixo da submissão oficial `#3537` (`p99=1.04ms`, `final_score=5983.81`).
+- Não há evidência suficiente para abrir nova issue com o mesmo estado.
+- A melhor execução conhecida continua sendo a submissão oficial `#3537`.
