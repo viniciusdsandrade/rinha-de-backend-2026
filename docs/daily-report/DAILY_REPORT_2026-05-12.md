@@ -654,3 +654,32 @@ Aprendizado:
 
 - A escolha GCC vs Clang não moveu a cauda de forma suficiente para justificar rebuild e nova publicação de imagem.
 - O gargalo remanescente continua mais provável em variação de proxy/scheduler/cgroup do que em geração de código do compilador.
+
+## Ciclo 02h32: split de CPU estilo Jairo `0.40/0.40/0.20`
+
+Hipótese:
+
+Como o Jairo usa o mesmo LB `jrblatt/so-no-forevis:v1.0.0` com divisão aproximada de APIs `0.40 CPU` e LB `0.20 CPU`, transferir CPU das APIs para o LB poderia reduzir cauda de aceitação/repasse de FDs.
+
+Execução:
+
+- APIs alteradas temporariamente de `0.42 CPU` para `0.40 CPU` cada.
+- LB alterado temporariamente de `0.16 CPU` para `0.20 CPU`.
+- Total preservado em `1.00 CPU`.
+- Stack subiu corretamente; `/ready` respondeu `204` após 1s.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.40/0.40/0.20` | 1.07ms | 0% | 0 | 0 | 5972.49 |
+
+Decisão:
+
+- Rejeitado.
+- Restaurado split aceito `0.42/0.42/0.16`.
+
+Aprendizado:
+
+- Nosso C++ manual + IVF parece mais sensível à CPU disponível nas APIs do que o stack Rust/monoio do Jairo.
+- Aumentar o LB acima de `0.16 CPU` tira capacidade útil do KNN e piora a cauda.
