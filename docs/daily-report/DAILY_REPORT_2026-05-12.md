@@ -2085,3 +2085,44 @@ Aprendizado:
 - O gargalo residual ainda tem componente de parsing HTTP, mas `memmem()` pareceu genérico/instável demais no runner oficial.
 - `memchr()` específico para `\r` é uma versão mais controlada da mesma ideia do Jairo: usar primitiva otimizada para saltar até o caractere candidato e manter a validação manual mínima.
 - O melhor resultado local da rodada saturou a pontuação (`p99=0.90ms`, `final_score=6000`), mas a decisão de promoção depende do runner oficial.
+
+## Promoção 17h14-17h24: imagem `submission-76fc604` com `memchr()`
+
+Contexto:
+
+- O patch `memchr()` foi aceito localmente no branch experimental com `0.90ms/6000`, `1.02ms/5990.85` e `1.01ms/5997.22`.
+- A branch `submission` estava operacionalmente apontando para a imagem estável `submission-076c74a`, mas o arquivo-fonte local de `manual_main.cpp` ainda continha a tentativa anterior com `memmem()`. Antes da promoção, isso foi corrigido para alinhar fonte e imagem.
+
+Execução na branch `submission`:
+
+- Aplicado o mesmo patch `memchr()` em `cpp/src/manual_main.cpp`.
+- Commit de código: `76fc604 use memchr header delimiter scan`.
+- Publicada imagem GHCR via workflow `Publish GHCR image`: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-76fc604`.
+- Workflow: `https://github.com/viniciusdsandrade/rinha-de-backend-2026/actions/runs/25759625983`.
+- Manifest verificado: `linux/amd64`.
+- `docker-compose.yml` atualizado para a tag imutável `submission-76fc604`.
+- Commit de compose: `6692f2b point submission to memchr image`.
+- Push realizado em `origin/submission`.
+
+Validação local da imagem pública:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| GHCR 1 | 1.04ms | 0% | 0 | 0 | 5982.99 |
+| GHCR 2 | 1.02ms | 0% | 0 | 0 | 5993.06 |
+
+Submissão oficial:
+
+- Issue aberta: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3778`.
+- Título e descrição usados exatamente como exigido: `rinha/test andrade-cpp-ivf`.
+- Estado no momento do registro: aberta, sem comentário da engine.
+
+Decisão:
+
+- Promoção justificada: a imagem pública preserva `0` falhas e produziu uma run local acima da submissão oficial atual `#3763` (`5983.13`).
+- Risco reconhecido: a primeira run GHCR (`5982.99`) ficou praticamente empatada e levemente abaixo de `#3763`. A issue oficial `#3778` precisa fechar antes de declarar ganho real no ranking.
+
+Aprendizado:
+
+- A validação local confirma que a tag pública não está quebrada e mantém o mesmo envelope competitivo.
+- O resultado oficial ainda pode cair no mesmo ruído de `1.04ms`; se isso acontecer, a versão continua tecnicamente correta, mas talvez não substitua a melhor submissão efetiva.
