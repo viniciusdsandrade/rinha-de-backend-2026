@@ -1,9 +1,7 @@
 services:
   api1: &api
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: rinha-backend-2026-cpp-api:local
+    image: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-076c74a
+    platform: linux/amd64
     environment:
       UNIX_SOCKET_PATH: /sockets/api1.sock
       IVF_FAST_NPROBE: "1"
@@ -35,6 +33,7 @@ services:
 
   lb:
     image: jrblatt/so-no-forevis:v1.0.0
+    platform: linux/amd64
     depends_on:
       - api1
       - api2
