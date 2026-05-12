@@ -469,3 +469,24 @@ Aprendizado:
 
 - A primeira run pareceu levemente positiva, mas não reproduziu.
 - Como a segunda run caiu abaixo do oficial atual, a flag não é sustentável o bastante para submissão.
+
+## Ciclo 02h30: remover `FD_CLOEXEC` dos FDs recebidos
+
+Hipótese:
+
+A solução do Jairo recebe FDs via `SCM_RIGHTS`, coloca o stream em não-bloqueante e não chama `FD_CLOEXEC`. Como nosso processo não executa `exec`, o `fcntl(F_SETFD, FD_CLOEXEC)` por conexão poderia ser um syscall desnecessário.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| Sem `FD_CLOEXEC` em FD recebido | 1.07ms | 0% | 0 | 0 | 5968.93 |
+
+Decisão:
+
+- Rejeitado e revertido.
+
+Aprendizado:
+
+- O custo de `FD_CLOEXEC` não é o limitador mensurável da cauda.
+- Manter `FD_CLOEXEC` é mais seguro e não prejudica o melhor resultado oficial conhecido.
