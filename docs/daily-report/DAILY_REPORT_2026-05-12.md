@@ -1275,3 +1275,41 @@ Aprendizado:
 - Evitar a cópia de resposta ajuda a manter `p99` em `1.02ms`, mas não parece ser a última barreira para saturar `1.00ms`.
 - O `std::string` reservado continua aceitável; o maior ganho confirmado permanece no parser de fim de header.
 - A issue oficial `#3693` segue aberta sem comentário neste checkpoint.
+
+## Ciclo 13h15: reduzir `kMaxPending` de 16KB para 8KB
+
+Hipótese:
+
+O Jairo usa buffer de leitura de `8192` bytes. Nossos payloads são pequenos, então `16KB` por conexão talvez fosse footprint desnecessário. Reduzir `Connection::in` para `8KB` poderia melhorar locality sem risco prático para o payload oficial.
+
+Execução:
+
+- Alterado temporariamente `kMaxPending` de `16 * 1024` para `8 * 1024`.
+- Mantido `kReadChunk=4096`.
+- Mantido `memmem()` no delimitador de headers.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 6 runs porque a primeira bateria teve uma run forte em `1.01ms`.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.02ms | 0% | 0 | 0 | 5992.39 |
+| 2 | 1.03ms | 0% | 0 | 0 | 5987.97 |
+| 3 | 1.01ms | 0% | 0 | 0 | 5993.79 |
+| 4 | 1.04ms | 0% | 0 | 0 | 5981.39 |
+| 5 | 1.04ms | 0% | 0 | 0 | 5982.91 |
+| 6 | 1.04ms | 0% | 0 | 0 | 5983.95 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Apesar de duas runs boas, a segunda metade degradou para `1.04ms`.
+- Não promover: instável e pior que `memmem()` puro na cauda.
+
+Aprendizado:
+
+- Menor footprint por conexão não garante melhor p99; pode haver custo de mais movimentação/limite de buffer ou apenas variância ruim.
+- O valor `16KB` permanece o melhor compromisso medido.
+- A issue oficial `#3693` segue aberta sem comentário neste checkpoint.
