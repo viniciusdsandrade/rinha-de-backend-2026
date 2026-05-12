@@ -1876,3 +1876,81 @@ Aprendizado:
 
 - O custo da flag `MSG_NOSIGNAL` não é gargalo relevante no p99.
 - O caminho de envio atual é suficientemente bom; tentar simplificar syscalls isolados não supera ruído de proxy/scheduler.
+
+## Ciclo 16h24: repetição oficial da melhor submissão e comparação com Jairo
+
+Contexto:
+
+- O ranking parcial passou a ter o `jairoblatt-rust` como único resultado à frente: `p99=1.05ms`, `failure_rate=0%`, `final_score=5978.38`, issue oficial `#3744`, timestamp `2026-05-12T18:54:15Z`.
+- A melhor submissão histórica nossa continuava sendo a issue `#3537`: `p99=1.04ms`, `failure_rate=0%`, `final_score=5983.81`, imagem `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-076c74a`.
+- A branch `submission` foi mantida no commit `8eda2fe`, apontando para a imagem `submission-076c74a` e o LB `jrblatt/so-no-forevis:v1.0.0`.
+
+Execução:
+
+- Aberta nova issue oficial com o formato correto, isto é, título e descrição exatamente `rinha/test andrade-cpp-ivf`.
+- Issue: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3753`.
+- A engine fechou a issue e atualizou o ranking público.
+
+Resultado oficial:
+
+| Issue | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `#3753` | 1.06ms | 0% | 0 | 0 | 5975.89 |
+
+Comparação direta no ranking público:
+
+| Participante | Submissão | p99 | failure_rate | final_score | Issue |
+|---|---|---:|---:|---:|---|
+| `jairoblatt` | `jairoblatt-rust` | 1.05ms | 0% | 5978.38 | `#3744` |
+| `viniciusdsandrade` | `andrade-cpp-ivf` | 1.06ms | 0% | 5975.89 | `#3753` |
+
+Decisão:
+
+- A repetição não reproduziu o pico de `#3537`; ela ficou `+0.02ms` pior em p99 e `-7.92` pontos abaixo da melhor oficial nossa.
+- Como o ranking aparenta manter o resultado mais recente por nome de submissão, repetir a mesma imagem tem risco real de substituir um resultado bom por uma run inferior.
+- Ainda assim, a diferença para o Jairo é de apenas `0.01ms` e `2.49` pontos; se nenhuma mudança sustentável aparecer até o fim do ciclo, uma nova repetição da mesma submissão pode ser justificada como tentativa de recuperar a faixa de `1.04ms`, mas deve ser tratada como aposta de variância, não como melhoria técnica.
+
+Investigação do Jairo:
+
+- A issue `#3744` usa commit `7ace6e0` na branch `submission` do repositório `jairoblatt/rinha-2026-rust`.
+- A branch pública `submission` expõe apenas artefatos de submissão; o runtime usa `jrblatt/rinha-2026-rust:v1.0.0` e `jrblatt/so-no-forevis:v1.0.0`.
+- Diferença visível de compose contra nosso estado atual: Jairo usa APIs com `0.40 CPU` cada, LB com `0.20 CPU` e `seccomp:unconfined` também nas APIs.
+- O split `0.40/0.40/0.20` já foi testado neste stack e rejeitado localmente (`p99=1.07ms`, `final_score=5972.49`), então não será repetido sem nova evidência.
+
+Aprendizado:
+
+- O gap atual não aponta para erro de acurácia nem algoritmo: ambos têm `0 FP`, `0 FN`, `0 HTTP errors`.
+- A disputa no topo virou controle de variância de p99 entre `1.04ms` e `1.06ms`.
+- A próxima hipótese de baixo risco é isolar `seccomp:unconfined` nas APIs no stack atual, porque essa diferença está presente no Jairo e ainda não foi medida isoladamente depois do FD-passing.
+
+## Ciclo 16h33: `seccomp:unconfined` também nas APIs
+
+Hipótese:
+
+O compose oficial do Jairo aplica `security_opt: seccomp:unconfined` tanto no LB quanto nas APIs. Nosso estado atual já precisa de `seccomp:unconfined` no LB `so-no-forevis` por causa de `io_uring`, mas as APIs C++ continuam com seccomp padrão. Mesmo sem `io_uring` nas APIs, remover o filtro poderia reduzir algum overhead de syscalls (`epoll`, `recvmsg`, `send`) no caminho quente.
+
+Execução:
+
+- Adicionado temporariamente `security_opt: seccomp:unconfined` ao bloco comum `api`.
+- Mantidos split `0.42/0.42/0.16`, `BUF_SIZE=4096`, `WORKERS=1`, FD-passing, parser e IVF.
+- Stack recriado a partir de imagem limpa do código revertido.
+- Smoke: `GET /ready` respondeu `204`.
+- Executadas 2 runs k6.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.06ms | 0% | 0 | 0 | 5975.00 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5982.68 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A segunda run foi boa, mas não superou a melhor oficial nossa (`#3537`, `5983.81`) nem ficou claramente acima do envelope natural da base.
+- Não promover: ampliar `seccomp:unconfined` para as APIs só adiciona permissividade sem ganho técnico sustentável.
+
+Aprendizado:
+
+- O `seccomp` nas APIs não explica o delta do Jairo.
+- A parte relevante do `seccomp:unconfined` nesta arquitetura é o LB com `io_uring`; manter isso apenas no LB continua sendo o ponto mais limpo.
