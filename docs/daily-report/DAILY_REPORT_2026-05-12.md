@@ -1535,3 +1535,56 @@ Aprendizado:
 
 - O `epoll_ctl(MOD)` redundante não é o gargalo dominante, ou sua remoção muda a cadência do loop de forma desfavorável.
 - Ajustes de event loop precisam ser tratados com muita cautela, porque pequenas mudanças de scheduling aparecem diretamente na centésima de ms.
+
+## Ciclo 15h05: evitar `memmove(..., 0)` após request completo
+
+Hipótese:
+
+Quando o request consome exatamente todo o buffer de entrada, `remaining == 0`. O código ainda chamava `std::memmove()` com tamanho zero após cada request processado. Adicionar um guard poderia remover uma chamada desnecessária do hot path sem mudar comportamento.
+
+Execução:
+
+- Adicionado temporariamente `if (remaining != 0U)` antes dos dois `std::memmove()` em `process_requests()`.
+- Mantidos `TCP_NODELAY`, `MSG_CMSG_CLOEXEC`, `memmem()` e configuração IVF aceita.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.06ms | 0% | 0 | 0 | 5974.46 |
+| 2 | 1.05ms | 0% | 0 | 0 | 5980.36 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5979.61 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Embora seja semanticamente seguro, piorou a métrica em todas as runs.
+- Não promover: a branch extra provavelmente custa mais ao preditor/código gerado do que a chamada de `memmove()` com zero bytes.
+
+Aprendizado:
+
+- Nem todo trabalho “aparentemente inútil” vale remover; em hot path de baixa latência, branch extra pode ser pior do que uma libc bem otimizada para tamanho zero.
+- O caminho atual com `memmove()` incondicional permanece a opção medida mais estável.
+
+### Resultado oficial da issue `#3712`
+
+Resultado:
+
+| Issue | Commit no resultado | Imagem no resultado | p99 | failure_rate | final_score |
+|---:|---|---|---:|---:|---:|
+| #3712 | `5bba954` | `submission-de60ac5` | 1.07ms | 0% | 5971.36 |
+
+Interpretação:
+
+- A issue `#3712` validou corretamente o compose final com a imagem `submission-de60ac5`.
+- O resultado oficial não reproduziu a melhora local observada para `TCP_NODELAY`.
+- A melhor submissão oficial continua sendo a `#3537`: `p99=1.04ms`, `final_score=5983.81`.
+
+Decisão:
+
+- Não considerar `submission-de60ac5` como novo melhor estado.
+- Não abrir outra issue com essa mesma imagem sem uma nova evidência local muito superior.
+- O próximo experimento precisa buscar ganho material acima da variância oficial, não apenas mover `1.03ms` para `1.02ms` em uma bateria local.
