@@ -919,3 +919,42 @@ Aprendizado:
 
 - Reduzir o buffer do LB abaixo de `2048/4096` não gerou ganho.
 - O tamanho de buffer do LB já foi suficientemente varrido (`1024`, `2048`, `4096`, `8192`) e `4096` permanece o melhor baseline operacional.
+
+## Ciclo 11h15: `MSG_CMSG_CLOEXEC` no recebimento de FD
+
+Hipótese:
+
+O experimento anterior de remover `FD_CLOEXEC` foi rejeitado por piorar a cauda, mas ainda havia uma variação semanticamente correta: receber o FD passado por `SCM_RIGHTS` já com close-on-exec usando `MSG_CMSG_CLOEXEC` no `recvmsg()`. Isso preserva `CLOEXEC` e remove o syscall separado `fcntl(fd, F_SETFD, FD_CLOEXEC)` por conexão.
+
+Inspiração:
+
+- O código C recente de `r-delorean/c-de-casa` usa `recvmsg(..., MSG_DONTWAIT | MSG_CMSG_CLOEXEC)` no recebimento de FDs.
+- A diferença metodológica é importante: não é remover `CLOEXEC`; é aplicar `CLOEXEC` no próprio `recvmsg`.
+
+Execução:
+
+- Alterado `recvmsg(socket_fd, &message, 0)` para `recvmsg(socket_fd, &message, MSG_CMSG_CLOEXEC)`.
+- Removido o `fcntl(*fd, F_SETFD, FD_CLOEXEC)` posterior.
+- Mantido o `fcntl(F_SETFL, O_NONBLOCK)` para preservar nonblocking.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204` após 2s.
+- Executadas 3 runs consecutivas.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.04ms | 0% | 0 | 0 | 5984.18 |
+| 2 | 1.03ms | 0% | 0 | 0 | 5986.23 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5986.44 |
+
+Decisão:
+
+- Aprovado para promoção.
+- Todas as runs superaram a submissão oficial anterior `#3537` (`p99=1.04ms`, `final_score=5983.81`).
+- Próximo passo: aplicar em `submission`, publicar nova imagem e abrir issue oficial.
+
+Aprendizado:
+
+- Esta é uma otimização sustentável porque reduz syscall preservando a propriedade de segurança desejada.
+- A melhora é pequena, mas ao contrário de `EPOLLET` e `reserve(128)`, reproduziu em 3 runs consecutivas.
