@@ -707,3 +707,33 @@ Leitura:
 - O baseline local atual ficou abaixo da submissão oficial `#3537` (`p99=1.04ms`, `final_score=5983.81`).
 - Não há evidência suficiente para abrir nova issue com o mesmo estado.
 - A melhor execução conhecida continua sendo a submissão oficial `#3537`.
+
+## Ciclo 02h40: `TCP_NODELAY` no FD recebido por `SCM_RIGHTS`
+
+Hipótese:
+
+Como a API recebe o socket TCP aceito pelo LB via FD passing, aplicar `TCP_NODELAY` no FD ao adicioná-lo no epoll poderia reduzir latência de envio da resposta.
+
+Execução:
+
+- Primeira tentativa falhou no build por include incompleto (`IPPROTO_TCP` sem `netinet/in.h`).
+- Corrigido temporariamente com `netinet/in.h` + `netinet/tcp.h`.
+- Aplicado `setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, ...)` em `add_connection`.
+- Imagem reconstruída com sucesso.
+- Stack subiu corretamente; `/ready` respondeu `204` após 2s.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `TCP_NODELAY` na API | 1.05ms | 0% | 0 | 0 | 5979.13 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- O resultado melhorou o baseline local do momento, mas não superou a submissão oficial `#3537` (`5983.81`) nem justificou rebuild/publicação.
+
+Aprendizado:
+
+- O custo de um syscall extra por conexão não se paga de forma clara no cenário atual.
+- A cauda não parece ser dominada por Nagle/delay de flush da resposta.
