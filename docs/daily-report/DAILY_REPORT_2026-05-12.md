@@ -981,3 +981,37 @@ Submissão oficial:
 - Issue aberta: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3668`.
 - Título e descrição usados exatamente como exigido: `rinha/test andrade-cpp-ivf`.
 - Resultado oficial ainda pendente no momento deste registro.
+
+## Ciclo 11h30: `MSG_CMSG_CLOEXEC + ioctl(FIONBIO)`
+
+Hipótese:
+
+Depois de aprovar `MSG_CMSG_CLOEXEC`, testar novamente `ioctl(FIONBIO)` fazia sentido porque a causa mudou: agora o FD já chega com `CLOEXEC`, então substituir `F_GETFL + F_SETFL` por um único `ioctl(FIONBIO)` reduziria mais um syscall por FD recebido.
+
+Execução:
+
+- Adicionado temporariamente `#include <sys/ioctl.h>`.
+- Substituído temporariamente o par `fcntl(F_GETFL)` + `fcntl(F_SETFL, O_NONBLOCK)` por `ioctl(fd, FIONBIO, &one)`.
+- Mantido `MSG_CMSG_CLOEXEC`.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204` após 2s.
+- Executadas 3 runs consecutivas.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5986.94 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5982.90 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5985.96 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Apesar de duas runs boas, a média ficou pior que `MSG_CMSG_CLOEXEC` puro e houve queda abaixo da submissão oficial anterior.
+- Não promover.
+
+Aprendizado:
+
+- A otimização de nonblocking por `ioctl` continua instável mesmo depois de remover o syscall de `F_SETFD`.
+- O melhor estado técnico permanece `MSG_CMSG_CLOEXEC` + `fcntl(F_GETFL/F_SETFL)` para `O_NONBLOCK`.
