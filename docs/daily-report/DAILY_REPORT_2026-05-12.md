@@ -256,3 +256,113 @@ Aprendizado:
 
 - O ponto útil parece estar perto de `0.16 CPU` para o LB. Abaixo disso, a cauda volta a subir mesmo com mais CPU nas APIs.
 - Próximos splits candidatos, se necessário, devem testar a vizinhança fina (`0.415/0.415/0.17` ou `0.425/0.425/0.15`) em vez de deslocamentos maiores.
+
+## Ciclo 01h10-01h15: ajuste fino `0.425/0.425/0.15`
+
+Hipótese:
+
+O split `0.425/0.425/0.15` fica no meio entre o aceito `0.42/0.42/0.16` e o rejeitado `0.43/0.43/0.14`. Talvez ele preserve CPU suficiente no LB e ainda entregue um pouco mais de folga às APIs.
+
+Resultados locais:
+
+| Variante | Run | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| `0.425/0.425/0.15` | 1 | 1.01ms | 0% | 0 | 0 | 5997.00 |
+| `0.425/0.425/0.15` | 2 | 1.00ms | 0% | 0 | 0 | 5999.08 |
+| `0.425/0.425/0.15` | 3 | 1.07ms | 0% | 0 | 0 | 5971.60 |
+
+Decisão:
+
+- Não promover por enquanto.
+- O split é promissor, mas instável demais para justificar nova submissão oficial contra o estado atual `#3537` (`p99=1.04ms`, `final_score=5983.81`).
+
+Aprendizado:
+
+- O teto local aparece ocasionalmente perto de `1ms`, mas a terceira run mostra que a redução adicional do LB para `0.15 CPU` ainda pode aumentar variância de cauda.
+- A próxima hipótese mais limpa é testar o lado oposto da vizinhança fina: `0.415/0.415/0.17`, priorizando um pouco mais de estabilidade no LB.
+
+## Ciclo 01h20: ajuste fino `0.415/0.415/0.17`
+
+Hipótese:
+
+O split `0.415/0.415/0.17` poderia preservar mais CPU no LB do que `0.425/0.425/0.15`, reduzindo variância de cauda, ainda com um pouco mais de CPU nas APIs do que o split original `0.40/0.40/0.20`.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.415/0.415/0.17` | 1.07ms | 0% | 0 | 0 | 5971.12 |
+
+Decisão:
+
+- Rejeitado após uma run, porque já ficou abaixo do oficial atual `#3537` e empatou a faixa ruim de `0.43/0.43/0.14`.
+
+Aprendizado:
+
+- A região boa parece estreita e não monotônica. A vizinhança útil continua centrada em `0.42/0.42/0.16`; deslocar CPU em qualquer direção maior que poucos milésimos piora a cauda.
+
+## Ciclo 01h25: ajuste fino `0.422/0.422/0.156`
+
+Hipótese:
+
+Um deslocamento microscópico a partir do melhor oficial (`0.42/0.42/0.16`) talvez preservasse estabilidade do LB e desse mais CPU às APIs.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.422/0.422/0.156` | 1.05ms | 0% | 0 | 0 | 5980.51 |
+
+Decisão:
+
+- Rejeitado.
+- Apesar de correto, ficou abaixo da submissão oficial atual (`#3537`, `p99=1.04ms`, `final_score=5983.81`).
+
+Aprendizado:
+
+- O split `0.42/0.42/0.16` continua sendo o melhor compromisso medido.
+- A próxima busca deve sair do split de CPU e mirar parâmetros do LB/servidor, mantendo o melhor split como base.
+
+## Ciclo 01h30: `BUF_SIZE=2048` no LB
+
+Hipótese:
+
+Com requisições/respostas pequenas, reduzir `BUF_SIZE` do `so-no-forevis` de `4096` para `2048` poderia reduzir trabalho/cache footprint no LB sem truncar payloads.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.42/0.42/0.16`, `BUF_SIZE=2048` | 1.05ms | 0% | 0 | 0 | 5979.91 |
+
+Decisão:
+
+- Rejeitado.
+- Resultado inferior ao oficial atual e à melhor configuração local com `BUF_SIZE=4096`.
+
+Aprendizado:
+
+- Reduzir o buffer do LB não melhora a cauda; possivelmente aumenta fragmentação/custo de leitura em alguns payloads.
+- Testar apenas o lado oposto (`8192`) antes de encerrar esta família.
+
+## Ciclo 01h35: `BUF_SIZE=8192` no LB
+
+Hipótese:
+
+Se `2048` piorou por possível fragmentação, aumentar o buffer para `8192` poderia reduzir leituras parciais e suavizar cauda.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.42/0.42/0.16`, `BUF_SIZE=8192` | 1.05ms | 0% | 0 | 0 | 5980.52 |
+
+Decisão:
+
+- Rejeitado.
+- Restaurar `BUF_SIZE=4096`.
+
+Aprendizado:
+
+- A configuração do Jairo (`BUF_SIZE=4096`) também é o melhor ponto para nossa API C++ nas medições locais.
+- A família `BUF_SIZE` não superou a submissão oficial atual; não merece nova issue.
