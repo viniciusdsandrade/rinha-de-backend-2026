@@ -1740,3 +1740,35 @@ Aprendizado:
 
 - A ordem atual `GET` antes de `POST` não é gargalo mensurável.
 - Micro-branches no roteador HTTP já estão abaixo do ruído dominante do stack local/oficial.
+
+## Ciclo 15h45: tornar o listener do socket de controle bloqueante
+
+Hipótese:
+
+O listener `/sockets/apiN.sock.ctrl` é criado por `listen_unix_socket()` como `SOCK_NONBLOCK`. A thread auxiliar chama `accept4()` e, quando não há conexão nova, dorme `usleep(1000)`. Tornar apenas esse listener bloqueante poderia eliminar wakeups periódicos inúteis nas duas APIs e reduzir jitter de scheduler, sem mudar o loop epoll principal nem o protocolo de FD passing.
+
+Execução:
+
+- Adicionado temporariamente `fcntl(ctrl_fd, F_GETFL)` seguido de `F_SETFL` removendo `O_NONBLOCK` logo após criar o listener de controle.
+- Mantidos loop manual de header, `recvmsg(..., 0)`, `FD_CLOEXEC`, split `0.42/0.42/0.16`, IVF aceito e LB `jrblatt/so-no-forevis:v1.0.0`.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 2 runs. A terceira foi dispensada porque a hipótese já não superava o baseline e a orientação operacional é poupar a máquina quando o sinal inicial é fraco.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.06ms | 0% | 0 | 0 | 5974.71 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5982.24 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A primeira run piorou claramente; a segunda apenas empatou com a base restaurada.
+- Não promover: bloquear o listener de controle não reduziu a cauda e pode alterar a cadência de handoff do LB sem benefício mensurável.
+
+Aprendizado:
+
+- O `usleep(1000)` da thread de controle não aparece como gargalo dominante no p99.
+- A parte crítica do stack continua no caminho de dados cliente -> LB -> fd transferido -> epoll principal, não no listener auxiliar ocioso.
