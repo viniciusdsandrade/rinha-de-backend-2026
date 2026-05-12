@@ -1091,3 +1091,41 @@ Aprendizado:
 - `std::string` com `reserve(512)` não é gargalo dominante neste estado.
 - Em p99 próximo de `1ms`, reduzir alocação aparente pode piorar locality. O hot path atual com resposta curta e string reservada é suficientemente competitivo.
 - A issue oficial `#3668` da submissão `submission-00ee6c1` segue aberta sem comentário do runner neste checkpoint.
+
+## Ciclo 12h05: remover `unordered_map` do ownership de conexões
+
+Hipótese:
+
+O loop epoll já usa `event.data.ptr` com `Connection*`; o `unordered_map<int, unique_ptr<Connection>>` servia principalmente como ownership e para `erase()` no fechamento. Remover o mapa poderia eliminar hash/insert/erase por conexão sem mudar protocolo, parser, índice ou LB.
+
+Execução:
+
+- Removido temporariamente `#include <unordered_map>`.
+- `add_connection()` passou a criar `Connection` e liberar ownership para o ponteiro registrado no epoll.
+- `close_connection()` passou a fazer `delete conn` após `epoll_ctl(DEL)` e `close(fd)`.
+- `drain_transferred_fds()` e accept local passaram a chamar `add_connection(epoll_fd, fd)` sem mapa.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 5 runs porque a primeira bateria teve sinal misto.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.05ms | 0% | 0 | 0 | 5980.35 |
+| 2 | 1.02ms | 0% | 0 | 0 | 5989.29 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5986.21 |
+| 4 | 1.04ms | 0% | 0 | 0 | 5982.53 |
+| 5 | 1.03ms | 0% | 0 | 0 | 5988.26 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A melhor run isolada foi excelente, mas a distribuição não melhora de forma sustentável o estado aceito.
+- Não promover: a variação inclui runs piores que a submissão oficial anterior e não sustenta vantagem clara sobre o baseline re-freezado (`1.03ms`, `5987.23`).
+
+Aprendizado:
+
+- O custo de `unordered_map` não é o limitador estável da cauda.
+- A conexão direta por ponteiro não quebrou funcionalidade, mas também não reduziu a dispersão do p99.
+- O próximo caminho deve focar em decisões que alterem menos a locality/memória por conexão ou em evidência externa de stacks que estão abaixo de `1.03ms`.
