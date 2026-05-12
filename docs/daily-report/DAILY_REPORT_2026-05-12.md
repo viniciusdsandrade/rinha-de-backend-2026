@@ -624,3 +624,33 @@ Aprendizado:
 
 - Preparação de FD por conexão não explica o p99 atual.
 - A economia teórica de syscall não apareceu no teste k6.
+
+## Ciclo 02h31: build com Clang no runtime C++
+
+Hipótese:
+
+Compilar o binário C++ manual com Clang poderia gerar código mais favorável para o hot path de parse + IVF/KNN do que o GCC atual, sem mudar o comportamento de runtime.
+
+Execução:
+
+- Adicionado `clang` temporariamente no estágio builder do `Dockerfile`.
+- Configuração temporária: `CC=clang CXX=clang++ cmake ... -DCMAKE_BUILD_TYPE=Release`.
+- Imagem `rinha-backend-2026-cpp-api:local` recompilada com sucesso.
+- Stack subiu corretamente; `/ready` respondeu `204` após 2s.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| Build Clang | 1.04ms | 0% | 0 | 0 | 5981.26 |
+
+Decisão:
+
+- Rejeitado.
+- Apesar de correto e competitivo, não superou a melhor submissão oficial atual `#3537`, que obteve `p99=1.04ms` e `final_score=5983.81`.
+- Patch do `Dockerfile` revertido para manter a branch no baseline aceito.
+
+Aprendizado:
+
+- A escolha GCC vs Clang não moveu a cauda de forma suficiente para justificar rebuild e nova publicação de imagem.
+- O gargalo remanescente continua mais provável em variação de proxy/scheduler/cgroup do que em geração de código do compilador.
