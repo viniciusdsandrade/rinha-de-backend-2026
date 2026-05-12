@@ -1707,3 +1707,36 @@ Aprendizado:
 
 - Remover uma branch do parser não move o p99 de forma determinística.
 - O critério de 6 runs evitou abrir issue com mais um candidato que provavelmente dependeria de sorte no runner oficial.
+
+## Ciclo 15h36: testar rota quente `POST /fraud-score` antes de `GET /ready`
+
+Hipótese:
+
+O endpoint quente do teste é `POST /fraud-score`. Como `/ready` só é usado para prontidão, testar `POST` antes de `GET` no roteador manual poderia evitar uma comparação/prefix check no caminho dominante.
+
+Execução:
+
+- Alterado temporariamente `append_response()` para testar `request.starts_with("POST /fraud-score ")` antes de `GET /ready`.
+- Mantidos loop manual de header, `recvmsg(..., 0)`, `FD_CLOEXEC`, split `0.42/0.42/0.16` e IVF aceito.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.02ms | 0% | 0 | 0 | 5989.89 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5981.21 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5979.42 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A primeira run foi boa, mas a sequência não sustentou ganho contra a base restaurada (`1.04ms`, `1.04ms`, `1.03ms`) nem contra a submissão oficial `#3537`.
+- Não promover: a mudança é pequena demais e amplia a variância em vez de reduzir o p99 de forma estável.
+
+Aprendizado:
+
+- A ordem atual `GET` antes de `POST` não é gargalo mensurável.
+- Micro-branches no roteador HTTP já estão abaixo do ruído dominante do stack local/oficial.
