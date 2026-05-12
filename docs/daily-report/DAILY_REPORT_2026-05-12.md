@@ -133,3 +133,55 @@ Aceito como melhor candidato técnico do ciclo até agora. Esta é a primeira ro
 Aprendizado:
 
 A leitura dos líderes estava correta: o gap remanescente não estava no KNN, no parser JSON ou em microflags, mas no caminho de proxy/servidor. O `so-no-forevis` não era drop-in porque exigia o protocolo de FD-passing; ao implementar esse contrato na API C++, o ganho apareceu imediatamente e com margem suficiente para justificar preparação de nova submissão oficial.
+
+## Ciclo 00h35-00h45: promoção da candidata FD-passing para `submission`
+
+Objetivo:
+
+- Transformar o melhor resultado parcial do ciclo (`FD-passing + so-no-forevis`) em uma submissão oficial reproduzível.
+- Evitar o erro operacional anterior: a issue oficial precisa ter `rinha/test andrade-cpp-ivf` na descrição da issue, não apenas em comentário posterior.
+
+Execução:
+
+- A branch `submission` recebeu a implementação C++ FD-passing e o compose com `jrblatt/so-no-forevis:v1.0.0`.
+- O `Dockerfile` da `submission` foi ajustado para baixar `resources/references.json.gz` do repositório oficial durante o build, porque a branch enxuta de submissão não carrega `resources/`.
+- A publicação local via `docker buildx --push` falhou por falta de escopo efetivo `write:packages` na credencial Docker/GHCR.
+- A publicação foi refeita com o workflow `Publish GHCR image`, que usa `GITHUB_TOKEN` com `packages: write`.
+- Imagem publicada: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-076c74a`.
+- `docker-compose.yml` da branch `submission` passou a apontar para essa imagem pública e para o LB público `jrblatt/so-no-forevis:v1.0.0`, ambos com `platform: linux/amd64`.
+- Commit da branch `submission`: `9bca93f point submission to fd passing image`.
+
+Validação:
+
+- `docker manifest inspect ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-076c74a`: manifest `linux/amd64` confirmado.
+- `docker compose pull` na branch `submission`: imagem da API e LB baixadas com sucesso.
+- `docker compose up -d` na branch `submission`: APIs e LB subiram.
+- `GET /ready`: `204` após 2s.
+
+Benchmark oficial-like:
+
+| Fonte do teste | Dataset | p99 | failure_rate | FP | FN | final_score | Decisão |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Checkout antigo `/home/andrade/Desktop/rinha-de-backend-2026` em `submission-2` | 14.500 reqs | 1.22ms | 1.67% | 123 | 117 | 3590.41 | Descartado: dataset/referências antigos e divergentes |
+| Worktree atual `perf/noon-tuning` | 54.100 reqs | 1.03ms | 0% | 0 | 0 | 5986.72 | Aceito |
+| Worktree atual `perf/noon-tuning` | 54.100 reqs | 1.04ms | 0% | 0 | 0 | 5982.64 | Aceito |
+
+Aprendizado:
+
+- O resultado ruim inicial não veio da imagem publicada, mas de executar `./run.sh` em um checkout antigo com `test/test-data.json` e `resources/references.json.gz` divergentes.
+- Para esta rodada, o benchmark de referência local deve ser o worktree atualizado `perf/noon-tuning`, cujo dataset tem 54.100 requisições e bate com a linha de investigação recente.
+- A candidata FD-passing continua forte: duas runs atualizadas mantiveram `0%` de falhas e score local próximo do teto.
+
+Submissão oficial:
+
+- Issue aberta no repositório oficial: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3535
+- Título: `rinha/test andrade-cpp-ivf`
+- Descrição: `rinha/test andrade-cpp-ivf`
+- Resultado oficial: `p99=1.06ms`, `failure_rate=0%`, `FP=0`, `FN=0`, `HTTP errors=0`, `final_score=5976.27`.
+- Runtime oficial: `cpu=1`, `mem=350`, duas APIs `0.40 CPU / 160MB`, LB `0.20 CPU / 30MB`, `instances-number-ok?=true`, `unlimited-services=null`, `Privileged=false`.
+- Commit avaliado pela engine: `9bca93f`.
+
+Decisão:
+
+- Submissão válida e superior à submissão anterior `andrade-cpp-ivf` registrada no ranking parcial (`p99=2.83ms`, `final_score=5548.91`).
+- O ganho oficial em score foi de `+427.36` pontos e a latência oficial caiu de `2.83ms` para `1.06ms`.
