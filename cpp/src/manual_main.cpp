@@ -165,13 +165,12 @@ int listen_unix_socket(const std::string& path, std::string& error) {
 }
 
 std::optional<std::size_t> find_header_end(const char* buffer, std::size_t len) {
-    for (std::size_t index = 0; index + 3U < len; ++index) {
-        if (buffer[index] == '\r' && buffer[index + 1U] == '\n' &&
-            buffer[index + 2U] == '\r' && buffer[index + 3U] == '\n') {
-            return index;
-        }
+    static constexpr char kHeaderEnd[] = "\r\n\r\n";
+    const void* match = memmem(buffer, len, kHeaderEnd, 4);
+    if (match == nullptr) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return static_cast<std::size_t>(static_cast<const char*>(match) - buffer);
 }
 
 std::optional<std::size_t> find_byte(std::string_view value, char needle) {

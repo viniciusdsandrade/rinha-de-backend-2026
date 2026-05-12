@@ -1129,3 +1129,40 @@ Aprendizado:
 - O custo de `unordered_map` não é o limitador estável da cauda.
 - A conexão direta por ponteiro não quebrou funcionalidade, mas também não reduziu a dispersão do p99.
 - O próximo caminho deve focar em decisões que alterem menos a locality/memória por conexão ou em evidência externa de stacks que estão abaixo de `1.03ms`.
+
+## Ciclo 12h20: `memmem()` para detectar fim dos headers HTTP
+
+Hipótese:
+
+A revisão do código do Jairo mostrou parsing de HTTP mais agressivo com `memchr/memmem`. Nosso `find_header_end()` ainda fazia loop manual byte a byte procurando `\r\n\r\n`. Trocar para `memmem()` da libc poderia reduzir instruções no hot path sem mudar contrato HTTP, parser JSON, IVF ou infraestrutura.
+
+Execução:
+
+- Alterado `find_header_end()` para usar `memmem(buffer, len, "\r\n\r\n", 4)`.
+- Mantidos `Content-Length`, roteamento, respostas, LB, split de CPU e índice inalterados.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 6 runs porque as 3 primeiras já indicaram melhora, mas ainda com uma run em `1.04ms`.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5987.67 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5983.16 |
+| 3 | 1.02ms | 0% | 0 | 0 | 5993.43 |
+| 4 | 1.02ms | 0% | 0 | 0 | 5992.63 |
+| 5 | 1.01ms | 0% | 0 | 0 | 5994.40 |
+| 6 | 1.02ms | 0% | 0 | 0 | 5992.47 |
+
+Decisão:
+
+- Aceito e mantido no branch experimental.
+- Promover para `submission`: a alteração é pequena, sem risco de acurácia, sem relaxar regra de negócio, e melhorou a janela local de maneira material.
+- Melhor run local do ciclo até agora: `p99=1.01ms`, `final_score=5994.40`, `0%` falhas.
+
+Aprendizado:
+
+- O parsing HTTP ainda tinha margem real mesmo depois das otimizações de LB/FD-passing.
+- Ao contrário de mexidas em ownership ou buffer de resposta, a troca por `memmem()` reduz trabalho sem aumentar footprint por conexão.
+- A meta teórica local agora se aproxima do teto de `6000`; qualquer próximo ganho precisa mirar a última centésima de ms ou estabilidade para saturar `p99<=1ms`.
