@@ -185,3 +185,42 @@ Decisão:
 
 - Submissão válida e superior à submissão anterior `andrade-cpp-ivf` registrada no ranking parcial (`p99=2.83ms`, `final_score=5548.91`).
 - O ganho oficial em score foi de `+427.36` pontos e a latência oficial caiu de `2.83ms` para `1.06ms`.
+
+## Ciclo 00h55: redistribuição de CPU entre API e LB
+
+Contexto:
+
+- O ranking preview atualizado após a issue `#3535` colocou nossa submissão em 2º lugar: `p99=1.06ms`, `final_score=5976.27`.
+- O 1º lugar no momento é `jairoblatt-rust`, com `p99=1.05ms`, `final_score=5978.43`.
+- A diferença é de apenas `2.16` pontos; a única margem útil está em reduzir a cauda de `1.06ms` para `<=1.05ms` ou, idealmente, abaixo de `1ms`.
+
+Hipótese:
+
+Com FD-passing ativo, o LB deixa de fazer proxy HTTP tradicional e passa a ser menos custoso. A cauda residual pode estar mais no processamento das APIs do que no LB. Portanto, mover uma pequena fatia de CPU do LB para as APIs pode melhorar p99 sem quebrar o limite total de `1 CPU`.
+
+Experimento:
+
+- Antes: APIs `0.40 + 0.40`, LB `0.20`, total `1.00 CPU`.
+- Depois: APIs `0.42 + 0.42`, LB `0.16`, total `1.00 CPU`.
+- Memória mantida: APIs `160MB + 160MB`, LB `30MB`, total `350MB`.
+- Nenhuma alteração de código nem imagem.
+
+Resultados locais no worktree atualizado:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.42/0.42/0.16` run 1 | 0.83ms | 0% | 0 | 0 | 6000 |
+| `0.42/0.42/0.16` run 2 | 0.89ms | 0% | 0 | 0 | 6000 |
+
+Decisão:
+
+- Aceito e promovido para a branch `submission`.
+- Commit da branch `submission`: `4e317cf tune fd passing cpu split`.
+- Nova issue oficial aberta: https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3537
+- Título e descrição: `rinha/test andrade-cpp-ivf`.
+- Status no momento do registro: aguardando comentário da engine.
+
+Aprendizado:
+
+- O split de CPU é uma alavanca real nessa arquitetura. O LB com FD-passing aparentemente tolera menos CPU do que os `0.20` copiados do Jairo, enquanto as APIs se beneficiam diretamente da folga adicional.
+- Esta é uma melhoria sustentável: mantém topologia, imagem pública, bridge, duas APIs, LB sem lógica de negócio, `Privileged=false`, `1 CPU` e `350MB`.
