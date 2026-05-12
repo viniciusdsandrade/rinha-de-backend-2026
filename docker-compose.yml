@@ -1,7 +1,9 @@
 services:
   api1: &api
-    image: ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-e950b12
-    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rinha-backend-2026-cpp-api:local
     environment:
       UNIX_SOCKET_PATH: /sockets/api1.sock
       IVF_FAST_NPROBE: "1"
@@ -17,8 +19,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.41"
-          memory: "165MB"
+          cpus: "0.40"
+          memory: "160MB"
 
   api2:
     <<: *api
@@ -31,24 +33,29 @@ services:
       IVF_REPAIR_MIN_FRAUDS: "1"
       IVF_REPAIR_MAX_FRAUDS: "4"
 
-  nginx:
-    image: nginx:1.27-alpine
-    platform: linux/amd64
+  lb:
+    image: jrblatt/so-no-forevis:v1.0.0
     depends_on:
       - api1
       - api2
+    environment:
+      UPSTREAMS: /sockets/api1.sock,/sockets/api2.sock
+      PORT: "9999"
+      BUF_SIZE: "4096"
+      WORKERS: "1"
     ports:
       - "9999:9999"
     networks:
       - backend
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - sockets:/sockets
+    security_opt:
+      - seccomp:unconfined
     deploy:
       resources:
         limits:
-          cpus: "0.18"
-          memory: "20MB"
+          cpus: "0.20"
+          memory: "30MB"
 
 networks:
   backend:
