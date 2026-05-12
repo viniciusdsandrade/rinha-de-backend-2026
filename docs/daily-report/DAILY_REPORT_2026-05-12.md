@@ -1203,3 +1203,38 @@ Decisão:
 
 - Vale submeter apesar da validação GHCR local mais modesta que o build local: as 3 runs publicadas ficaram acima do melhor oficial anterior `#3537` (`5983.81`) e a alteração é tecnicamente segura.
 - Risco reconhecido: a issue `#3668` mostrou que o runner oficial pode variar bastante. O resultado oficial de `#3693` precisa ser aguardado antes de considerar esta versão como nova melhor submissão.
+
+## Ciclo 12h50: parser direto de `Content-Length`
+
+Hipótese:
+
+Depois do ganho com `memmem()` no delimitador de headers, o próximo ponto parecido era o parser de `Content-Length`. O código ainda percorria linhas, usava `find(':')`, normalização case-insensitive e trim; uma busca direta por `content-length:` poderia reduzir custo por request.
+
+Execução:
+
+- Alterado temporariamente `parse_content_length()` para buscar `c/C` com `memchr()` e comparar `content-length:` de forma case-insensitive.
+- Mantido requisito de início de linha (`pos == 0` ou caractere anterior `\n`) para evitar casar valores de outros headers.
+- Mantido `memmem()` em `find_header_end()`.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs consecutivas.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5985.73 |
+| 2 | 1.03ms | 0% | 0 | 0 | 5986.57 |
+| 3 | 1.04ms | 0% | 0 | 0 | 5984.52 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Não superou o `memmem()` puro e ainda introduziu warnings de helpers mortos durante o build.
+- Não promover.
+
+Aprendizado:
+
+- O gargalo de parsing que importava era encontrar o fim dos headers; o custo adicional do parser antigo de `Content-Length` não apareceu no p99.
+- Manter a versão mais simples reduz risco e evita complexidade inútil.
+- A issue oficial `#3693` continua aberta sem comentário no momento deste registro.
