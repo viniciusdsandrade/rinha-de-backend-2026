@@ -1166,3 +1166,40 @@ Aprendizado:
 - O parsing HTTP ainda tinha margem real mesmo depois das otimizações de LB/FD-passing.
 - Ao contrário de mexidas em ownership ou buffer de resposta, a troca por `memmem()` reduz trabalho sem aumentar footprint por conexão.
 - A meta teórica local agora se aproxima do teto de `6000`; qualquer próximo ganho precisa mirar a última centésima de ms ou estabilidade para saturar `p99<=1ms`.
+
+## Promoção 12h35: submissão `memmem()` para headers HTTP
+
+Contexto:
+
+A issue `#3668`, aberta para a imagem `submission-00ee6c1` com `MSG_CMSG_CLOEXEC`, fechou com regressão no runner oficial:
+
+| Issue | Imagem | p99 | failure_rate | FP | FN | final_score | Decisão |
+|---|---|---:|---:|---:|---:|---:|---|
+| `#3668` | `submission-00ee6c1` | 1.07ms | 0% | 0 | 0 | 5972.53 | Não substitui `#3537` |
+
+Promoção:
+
+- Branch `submission` recebeu o patch `memmem()` em `cpp/src/manual_main.cpp`.
+- Commit do código: `754954e use memmem for header delimiter`.
+- Imagem publicada via workflow `Publish GHCR image`: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-754954e`.
+- `docker-compose.yml` da branch `submission` atualizado para a nova imagem.
+- Commit do compose: `22cdc06 point submission to memmem image`.
+
+Validação local da imagem publicada:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.04ms | 0% | 0 | 0 | 5984.28 |
+| 2 | 1.03ms | 0% | 0 | 0 | 5987.45 |
+| 3 | 1.04ms | 0% | 0 | 0 | 5984.88 |
+
+Submissão oficial:
+
+- Issue aberta: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3693`.
+- Título e descrição usados exatamente como exigido: `rinha/test andrade-cpp-ivf`.
+- Resultado oficial pendente neste checkpoint.
+
+Decisão:
+
+- Vale submeter apesar da validação GHCR local mais modesta que o build local: as 3 runs publicadas ficaram acima do melhor oficial anterior `#3537` (`5983.81`) e a alteração é tecnicamente segura.
+- Risco reconhecido: a issue `#3668` mostrou que o runner oficial pode variar bastante. O resultado oficial de `#3693` precisa ser aguardado antes de considerar esta versão como nova melhor submissão.
