@@ -1391,3 +1391,45 @@ Aprendizado:
 - O FD-passing mudou o problema: a API passou a estar no caminho direto de escrita TCP para o cliente, então opções do socket importam.
 - O syscall extra de `setsockopt()` não dominou a cauda nas medições; o efeito líquido foi positivo.
 - Como a issue `#3693` ainda estava aberta sem comentário no momento da promoção, atualizar `submission` antes do runner iniciar pode fazer a própria `#3693` testar esta versão mais nova. Confirmar pelo campo `commit` no resultado oficial.
+
+### Promoção 13h55: publicação da imagem `submission-de60ac5`
+
+Execução:
+
+- Commit de código no branch `submission`: `de60ac5 set tcp nodelay on accepted fds`.
+- Workflow GHCR concluído com sucesso e publicou `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-de60ac5`.
+- Commit de compose no branch `submission`: `5bba954 point submission to tcp nodelay image`.
+- `docker-compose.yml` da submissão passou a apontar para `submission-de60ac5`.
+- Stack publicada recriada localmente a partir da imagem GHCR; `/ready` respondeu `204`.
+- A issue `#3693` fechou antes do compose final ser observado pelo runner.
+
+Resultado oficial da `#3693`:
+
+| Issue | Commit no resultado | Imagem no resultado | p99 | failure_rate | final_score |
+|---:|---|---|---:|---:|---:|
+| #3693 | `de60ac5` | `submission-754954e` | 1.04ms | 0% | 5981.29 |
+
+Interpretação:
+
+- O runner pegou o commit intermediário `de60ac5`, mas a imagem ainda era `submission-754954e`.
+- Portanto, a `#3693` não validou oficialmente a imagem final `submission-de60ac5`.
+- Como `submission-de60ac5` foi o melhor candidato local sustentável desta rodada, foi necessário abrir uma nova issue limpa.
+
+Validação local da imagem GHCR `submission-de60ac5`:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5987.52 |
+| 2 | 1.02ms | 0% | 0 | 0 | 5992.32 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5987.14 |
+
+Submissão oficial:
+
+- Aberta a issue `#3712` com título e descrição exatamente `rinha/test andrade-cpp-ivf`.
+- URL: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3712`.
+- Motivo: validar oficialmente o compose final `5bba954` apontando para a imagem `submission-de60ac5`.
+
+Decisão:
+
+- Submeter novamente foi adequado: as 3 runs locais da imagem publicada ficaram acima da melhor submissão oficial anterior `#3537` (`p99=1.04ms`, `final_score=5983.81`).
+- O resultado oficial pode oscilar, mas a evidência local é melhor do que a da submissão anterior e a mudança é mínima/sustentável.
