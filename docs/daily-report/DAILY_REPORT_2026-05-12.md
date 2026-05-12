@@ -1671,3 +1671,39 @@ Aprendizado:
 
 - A agregação simples em `conn.out` seguida de `flush_output()` é mais estável que `send()` imediato por resposta.
 - O gargalo remanescente não está na cópia curta da resposta.
+
+## Ciclo 16h10: remover `trim_cr()` da primeira linha HTTP
+
+Hipótese:
+
+O roteamento usa `starts_with("POST /fraud-score ")` e `starts_with("GET /ready ")`. O `\r` no fim da primeira linha não interfere nesses prefixos, então remover `trim_cr()` evitaria uma chamada/branch por request sem alterar o contrato dos endpoints.
+
+Execução:
+
+- Alterado temporariamente `first_line = trim_cr(header.substr(...))` para `first_line = header.substr(...)`.
+- Mantidos loop manual de header, `recvmsg(..., 0)`, `FD_CLOEXEC`, split `0.42/0.42/0.16` e IVF aceito.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 6 runs porque as 3 primeiras pareciam boas, mas a margem contra `#3537` era pequena.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5986.38 |
+| 2 | 1.03ms | 0% | 0 | 0 | 5987.82 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5986.47 |
+| 4 | 1.05ms | 0% | 0 | 0 | 5980.77 |
+| 5 | 1.05ms | 0% | 0 | 0 | 5979.37 |
+| 6 | 1.02ms | 0% | 0 | 0 | 5992.98 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A primeira metade e a última run foram boas, mas duas runs intermediárias ficaram abaixo de `#3537`.
+- Não promover: é uma micro-otimização pequena demais e altamente sensível à variância.
+
+Aprendizado:
+
+- Remover uma branch do parser não move o p99 de forma determinística.
+- O critério de 6 runs evitou abrir issue com mais um candidato que provavelmente dependeria de sorte no runner oficial.
