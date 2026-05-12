@@ -1772,3 +1772,39 @@ Aprendizado:
 
 - O `usleep(1000)` da thread de controle não aparece como gargalo dominante no p99.
 - A parte crítica do stack continua no caminho de dados cliente -> LB -> fd transferido -> epoll principal, não no listener auxiliar ocioso.
+
+## Ciclo 15h58: remover o listener UDS de dados do epoll
+
+Hipótese:
+
+Com o LB `jrblatt/so-no-forevis:v1.0.0`, o caminho quente usa FD-passing via `/sockets/apiN.sock.ctrl`. Se o listener UDS de dados (`/sockets/apiN.sock`) estiver servindo apenas como compatibilidade, deixar de registrá-lo no epoll poderia remover um watcher e uma checagem de `event.data.fd == listen_fd` em todo evento do loop principal.
+
+Execução:
+
+- Removido temporariamente o `epoll_ctl(EPOLL_CTL_ADD)` do `listen_fd`.
+- Removido temporariamente o branch que aceitava conexões diretamente no UDS de dados.
+- Mantido o socket de dados criado para preservar o path usado pelo LB em `UPSTREAMS`.
+- Mantidos socket de controle `.ctrl`, FD-passing, pipe interno, parser, IVF e compose.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`, confirmando que o tráfego local ainda chegava via FD-passing.
+- Executadas 3 runs.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.07ms | 0% | 0 | 0 | 5972.59 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5984.75 |
+| 3 | 1.06ms | 0% | 0 | 0 | 5976.46 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Funcionalmente, o caminho por FD-passing independe do accept direto no UDS de dados nesta configuração.
+- Performance, porém, piorou a estabilidade e não sustentou ganho contra a base restaurada.
+- Não promover: remover uma peça compatível do servidor não melhora o hot path e ainda reduz robustez contra fallback do LB.
+
+Aprendizado:
+
+- O listener UDS de dados pode não ser usado no caminho comum do `so-no-forevis`, mas mantê-lo registrado não é o gargalo.
+- Otimizar branches administrativos do event loop continua rendendo menos que o ruído de proxy/scheduler.
