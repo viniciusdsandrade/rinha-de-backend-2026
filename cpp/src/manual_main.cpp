@@ -14,8 +14,6 @@
 #include <unordered_map>
 
 #include <fcntl.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -167,12 +165,13 @@ int listen_unix_socket(const std::string& path, std::string& error) {
 }
 
 std::optional<std::size_t> find_header_end(const char* buffer, std::size_t len) {
-    static constexpr char kHeaderEnd[] = "\r\n\r\n";
-    const void* match = memmem(buffer, len, kHeaderEnd, 4);
-    if (match == nullptr) {
-        return std::nullopt;
+    for (std::size_t index = 0; index + 3U < len; ++index) {
+        if (buffer[index] == '\r' && buffer[index + 1U] == '\n' &&
+            buffer[index + 2U] == '\r' && buffer[index + 3U] == '\n') {
+            return index;
+        }
     }
-    return static_cast<std::size_t>(static_cast<const char*>(match) - buffer);
+    return std::nullopt;
 }
 
 std::optional<std::size_t> find_byte(std::string_view value, char needle) {
@@ -660,7 +659,7 @@ std::optional<int> receive_fd(int socket_fd) noexcept {
     message.msg_control = control.data();
     message.msg_controllen = control.size();
 
-    const ssize_t received = recvmsg(socket_fd, &message, MSG_CMSG_CLOEXEC);
+    const ssize_t received = recvmsg(socket_fd, &message, 0);
     if (received <= 0) {
         return std::nullopt;
     }
@@ -705,8 +704,7 @@ void run_control_socket(const std::string& ctrl_path, int notify_fd) {
             if (flags >= 0) {
                 (void)fcntl(*fd, F_SETFL, flags | O_NONBLOCK);
             }
-            const int one = 1;
-            (void)setsockopt(*fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+            (void)fcntl(*fd, F_SETFD, FD_CLOEXEC);
             if (write(notify_fd, &*fd, sizeof(*fd)) != static_cast<ssize_t>(sizeof(*fd))) {
                 close(*fd);
             }

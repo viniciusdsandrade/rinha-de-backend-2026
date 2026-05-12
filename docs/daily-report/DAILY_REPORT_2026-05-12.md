@@ -1602,3 +1602,37 @@ Decisão:
 
 - A branch `submission` volta a representar o melhor estado oficial conhecido (`#3537`, `p99=1.04ms`, `final_score=5983.81`).
 - Novas issues só devem ser abertas após promover uma imagem que supere esse patamar com evidência local materialmente melhor.
+
+## Ciclo 15h30: re-freeze do runtime do melhor oficial `#3537`
+
+Motivo:
+
+As submissões posteriores (`#3668`, `#3693`, `#3712`) não substituíram a `#3537` oficialmente. Para evitar otimizar em cima de uma base local enganosa, o runtime experimental foi restaurado para o hot path do commit `4e317cf`.
+
+Execução:
+
+- Removido `memmem()` do delimitador de headers; restaurado loop manual.
+- Removido `MSG_CMSG_CLOEXEC` no `recvmsg()`; restaurado `recvmsg(..., 0)`.
+- Removido `TCP_NODELAY` no FD recebido; restaurado `fcntl(fd, F_SETFD, FD_CLOEXEC)`.
+- Mantido compose experimental com build local para continuar os testes.
+- Imagem local reconstruída com cache válido.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs para re-freezar o baseline.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.04ms | 0% | 0 | 0 | 5981.84 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5984.09 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5988.20 |
+
+Decisão:
+
+- Aceito como nova base de experimentação.
+- Commitar a restauração no branch experimental para que os próximos testes partam do melhor oficial, não dos candidatos que regrediram no runner.
+
+Aprendizado:
+
+- A melhor base oficial segue sendo simples: loop manual de header + `recvmsg(..., 0)` + `FD_CLOEXEC` via `fcntl()`.
+- O local ainda oscila acima de `#3537`, então não basta uma run `1.03ms`; a barra de promoção precisa ser materialmente melhor e repetível.
