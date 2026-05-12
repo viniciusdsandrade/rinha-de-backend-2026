@@ -165,11 +165,18 @@ int listen_unix_socket(const std::string& path, std::string& error) {
 }
 
 std::optional<std::size_t> find_header_end(const char* buffer, std::size_t len) {
-    for (std::size_t index = 0; index + 3U < len; ++index) {
-        if (buffer[index] == '\r' && buffer[index + 1U] == '\n' &&
-            buffer[index + 2U] == '\r' && buffer[index + 3U] == '\n') {
-            return index;
+    const char* cursor = buffer;
+    const char* const stop = len >= 4U ? buffer + len - 3U : buffer;
+    while (cursor < stop) {
+        const void* match = std::memchr(cursor, '\r', static_cast<std::size_t>(stop - cursor));
+        if (match == nullptr) {
+            break;
         }
+        const char* pos = static_cast<const char*>(match);
+        if (pos[1] == '\n' && pos[2] == '\r' && pos[3] == '\n') {
+            return static_cast<std::size_t>(pos - buffer);
+        }
+        cursor = pos + 1;
     }
     return std::nullopt;
 }

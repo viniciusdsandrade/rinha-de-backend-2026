@@ -2032,3 +2032,56 @@ Aprendizado:
 
 - O tamanho de resposta já é pequeno demais para explicar o delta de p99.
 - A cauda atual é dominada por variância de runner/LB/scheduler, não por dois bytes em respostas extremas.
+
+## Ciclo 17h07-17h12: `memchr()` para localizar `\r` no fim de headers
+
+Hipótese:
+
+O `memmem()` para localizar `\r\n\r\n` foi muito forte localmente, mas não sustentou no runner oficial. O loop manual atual compara quatro bytes a cada posição do header. Um meio-termo mais barato seria usar `memchr()` apenas para encontrar `\r` e validar os próximos três bytes manualmente. Isso reduz comparações no caminho comum, evita a busca genérica de substring do `memmem()` e preserva exatamente a semântica do parser HTTP.
+
+Patch:
+
+```text
+loop byte a byte:
+  testa buffer[i], buffer[i+1], buffer[i+2], buffer[i+3]
+
+memchr:
+  procura próximo '\r'
+  valida '\r\n\r\n'
+  continua após o '\r' se não casou
+```
+
+Execução:
+
+- Alterado apenas `find_header_end()` em `cpp/src/manual_main.cpp`.
+- Mantidos respostas, `Content-Length`, parser JSON, IVF, FD-passing, split `0.42/0.42/0.16`, `BUF_SIZE=4096` e `WORKERS=1`.
+- Stack recriado a partir da imagem local com o patch.
+- Smoke: `GET /ready` respondeu `204`.
+- Executadas 3 runs k6.
+
+Resultados locais da variante:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 0.90ms | 0% | 0 | 0 | 6000.00 |
+| 2 | 1.02ms | 0% | 0 | 0 | 5990.85 |
+| 3 | 1.01ms | 0% | 0 | 0 | 5997.22 |
+
+A/B reverso com loop manual:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| base 1 | 1.08ms | 0% | 0 | 0 | 5966.09 |
+| base 2 | 1.02ms | 0% | 0 | 0 | 5990.55 |
+
+Decisão:
+
+- Aceito no branch experimental.
+- Diferente da resposta JSON curta, o A/B reverso não reproduziu o mesmo patamar da variante: a base teve uma run ruim em `1.08ms`, enquanto a variante fez `0.90/1.02/1.01`.
+- A alteração é pequena, isolada e semanticamente segura; merece promoção para `submission` com tag imutável própria e submissão oficial separada.
+
+Aprendizado:
+
+- O gargalo residual ainda tem componente de parsing HTTP, mas `memmem()` pareceu genérico/instável demais no runner oficial.
+- `memchr()` específico para `\r` é uma versão mais controlada da mesma ideia do Jairo: usar primitiva otimizada para saltar até o caractere candidato e manter a validação manual mínima.
+- O melhor resultado local da rodada saturou a pontuação (`p99=0.90ms`, `final_score=6000`), mas a decisão de promoção depende do runner oficial.
