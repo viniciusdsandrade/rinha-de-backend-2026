@@ -582,3 +582,24 @@ Aprendizado:
 
 - Warmup genérico não ajudou; pode inclusive poluir cache com padrões diferentes dos payloads reais.
 - Se a linha de warmup voltar, precisa usar payloads reais do `test-data` ou uma seleção representativa empacotada no build, não queries sintéticas arbitrárias.
+
+## Ciclo 02h25: fast path para `Content-Length`
+
+Hipótese:
+
+Adicionar um caminho rápido para `Content-Length: ` exato evitaria a varredura genérica case-insensitive dos headers em toda requisição.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| Fast path `Content-Length: ` | 1.06ms | 0% | 0 | 0 | 5975.06 |
+
+Decisão:
+
+- Rejeitado e revertido.
+
+Aprendizado:
+
+- O parsing genérico de header não é gargalo material no p99 atual.
+- A cauda remanescente está mais associada a proxy/scheduler/cgroup ou variação do runner do que a microcustos de header.
