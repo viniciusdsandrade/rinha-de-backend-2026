@@ -862,3 +862,31 @@ Aprendizado:
 
 - `EPOLLRDHUP` não é custo dominante.
 - A remoção não melhora a estabilidade; manter o comportamento explícito de fechamento é mais seguro.
+
+## Ciclo 11h00: `connections.reserve(4096)`
+
+Hipótese:
+
+A `std::unordered_map<int, std::unique_ptr<Connection>>` que mantém conexões ativas não reservava buckets no startup. Reservar `4096` entradas poderia evitar rehash/allocation durante ramp ou churn de conexões.
+
+Execução:
+
+- Adicionado temporariamente `connections.reserve(4096)` logo após a criação do mapa.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204` após 2s.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `connections.reserve(4096)` | 1.04ms | 0% | 0 | 0 | 5982.19 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Não superou a submissão oficial `#3537` (`5983.81`).
+
+Aprendizado:
+
+- Rehash do mapa de conexões não aparece como causa material da cauda atual.
+- O gargalo residual não está no crescimento inicial da tabela de conexões.
