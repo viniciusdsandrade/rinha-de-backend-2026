@@ -1313,3 +1313,41 @@ Aprendizado:
 - Menor footprint por conexão não garante melhor p99; pode haver custo de mais movimentação/limite de buffer ou apenas variância ruim.
 - O valor `16KB` permanece o melhor compromisso medido.
 - A issue oficial `#3693` segue aberta sem comentário neste checkpoint.
+
+## Ciclo 13h30: aumentar `kReadChunk` de 4096 para 8192
+
+Hipótese:
+
+Com `kMaxPending=16KB` preservado, aumentar apenas o chunk de leitura para `8192` poderia reduzir chamadas `recv()` quando houvesse mais de um request disponível no socket, sem reduzir margem de buffer. É uma variação próxima ao `RX_CAP=8192` observado no código do Jairo.
+
+Execução:
+
+- Alterado temporariamente `kReadChunk` de `4096` para `8192`.
+- Mantido `kMaxPending=16KB`.
+- Mantido `memmem()` no delimitador de headers.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 6 runs porque apareceu uma run com teto local `6000`.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5986.55 |
+| 2 | 1.01ms | 0% | 0 | 0 | 5994.23 |
+| 3 | 1.00ms | 0% | 0 | 0 | 6000.00 |
+| 4 | 1.04ms | 0% | 0 | 0 | 5983.27 |
+| 5 | 1.02ms | 0% | 0 | 0 | 5989.69 |
+| 6 | 1.02ms | 0% | 0 | 0 | 5992.87 |
+
+Decisão:
+
+- Rejeitado e revertido por instabilidade.
+- A run `6000` é real localmente, mas a mesma janela inclui `5983.27`, abaixo do melhor oficial anterior `#3537`.
+- Não promover: a evidência sugere outlier/variância, não ganho sustentável.
+
+Aprendizado:
+
+- A última centésima de ms está extremamente sensível a scheduling/host; um `6000` isolado não basta.
+- `kReadChunk=4096` continua sendo a opção mais conservadora e estável no branch aceito.
+- A issue oficial `#3693` segue aberta sem comentário neste checkpoint.
