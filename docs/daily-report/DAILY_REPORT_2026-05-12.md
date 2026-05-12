@@ -1015,3 +1015,37 @@ Aprendizado:
 
 - A otimização de nonblocking por `ioctl` continua instável mesmo depois de remover o syscall de `F_SETFD`.
 - O melhor estado técnico permanece `MSG_CMSG_CLOEXEC` + `fcntl(F_GETFL/F_SETFL)` para `O_NONBLOCK`.
+
+## Ciclo 11h40: drenagem em lote do pipe de FDs
+
+Hipótese:
+
+Depois de reduzir um syscall no recebimento do FD, outro possível custo de conexão era a drenagem do pipe de notificação. O código lia um `int` por syscall; ler até 64 FDs por `read()` poderia reduzir overhead em bursts de conexões.
+
+Execução:
+
+- Alterado temporariamente `drain_transferred_fds()` para usar `std::array<int, 64>`.
+- Cada `read()` consumia até `64 * sizeof(int)` bytes.
+- Mantido o mesmo pipe e o mesmo `add_connection()`.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204` após 2s.
+- Executadas 3 runs consecutivas.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5987.15 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5983.21 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5986.66 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Embora duas runs tenham sido fortes, uma run ficou abaixo da submissão oficial anterior e o ganho médio ficou praticamente empatado com `MSG_CMSG_CLOEXEC` puro.
+- Não promover por margem insuficiente.
+
+Aprendizado:
+
+- Há algum sinal de que o caminho de FD handoff ainda influencia a cauda, mas a drenagem em lote não é estável o bastante.
+- A alteração também aumenta risco de lidar mal com leituras parciais do pipe; sem ganho claro, o caminho simples permanece melhor.
