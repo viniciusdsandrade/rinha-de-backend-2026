@@ -441,3 +441,31 @@ Aprendizado:
 
 - O custo de `std::string` reservada no buffer de saída não é gargalo material.
 - A piora sugere que a versão atual já está bem ajustada pelo compilador/libstdc++ ou que a mudança aumenta footprint por conexão sem reduzir o trecho crítico.
+
+## Ciclo 02h15: `-ffast-math` no runtime manual
+
+Hipótese:
+
+Aplicar `-ffast-math -fno-math-errno` apenas no target `rinha-backend-2026-cpp-manual` poderia reduzir custo do kernel IVF sem alterar a imagem/infra.
+
+Validação:
+
+- `cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j$(nproc)` passou.
+- `ctest --test-dir cpp/build --output-on-failure` passou.
+- `GET /ready`: `204`.
+
+Resultados locais:
+
+| Variante | Run | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|---:|
+| `-ffast-math` runtime | 1 | 1.04ms | 0% | 0 | 0 | 5984.94 |
+| `-ffast-math` runtime | 2 | 1.08ms | 0% | 0 | 0 | 5967.81 |
+
+Decisão:
+
+- Rejeitado e revertido.
+
+Aprendizado:
+
+- A primeira run pareceu levemente positiva, mas não reproduziu.
+- Como a segunda run caiu abaixo do oficial atual, a flag não é sustentável o bastante para submissão.
