@@ -1467,3 +1467,37 @@ Aprendizado:
 - `TCP_NODELAY` é o limite seguro dessa família de socket tuning por enquanto.
 - `TCP_QUICKACK` é sensível ao kernel/caminho TCP e não se comportou como melhoria determinística no cenário local.
 - Próximas hipóteses devem voltar para reduzir trabalho no hot path ou investigar o LB/FD-passing, não adicionar mais knobs de TCP sem evidência externa forte.
+
+## Ciclo 14h25: pré-reserva do mapa de conexões
+
+Hipótese:
+
+Durante o ramp-up do k6, o `std::unordered_map<int, std::unique_ptr<Connection>>` poderia sofrer rehash e afetar a cauda. Pré-reservar capacidade para `4096` conexões parecia uma mudança pequena para reduzir instabilidade de alocação.
+
+Execução:
+
+- Adicionado temporariamente `connections.reserve(4096)` após a criação do mapa.
+- Mantidos `TCP_NODELAY`, `MSG_CMSG_CLOEXEC`, `memmem()` e configuração IVF aceita.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.07ms | 0% | 0 | 0 | 5970.01 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5981.53 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5979.99 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Todas as runs ficaram abaixo do candidato publicado `submission-de60ac5`.
+- Não promover: a reserva aumentou footprint/cache sem evidência de remover gargalo real.
+
+Aprendizado:
+
+- O gargalo atual não parece ser rehash do mapa de conexões.
+- Nessa faixa, alocação preventiva pode prejudicar mais do que ajudar se aumenta a pressão de cache/memória.
+- Próximo foco deve ser trabalho por request, não estrutura de controle por conexão.
