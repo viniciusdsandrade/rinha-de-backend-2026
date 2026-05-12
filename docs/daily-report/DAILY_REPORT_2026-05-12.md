@@ -958,3 +958,26 @@ Aprendizado:
 
 - Esta é uma otimização sustentável porque reduz syscall preservando a propriedade de segurança desejada.
 - A melhora é pequena, mas ao contrário de `EPOLLET` e `reserve(128)`, reproduziu em 3 runs consecutivas.
+
+## Promoção 11h20: submissão `MSG_CMSG_CLOEXEC`
+
+Promoção aplicada:
+
+- Branch `submission` atualizada com o patch `MSG_CMSG_CLOEXEC`.
+- Commit de código na `submission`: `00ee6c1 use cloexec on fd recvmsg`.
+- Imagem publicada via workflow `Publish GHCR image`: `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-00ee6c1`.
+- `docker-compose.yml` da `submission` atualizado para a nova tag.
+- Commit de compose na `submission`: `f6dec96 point submission to cloexec image`.
+- Stack publicado validado localmente com a imagem GHCR puxada.
+
+Validação local da imagem publicada:
+
+| Estado | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `submission-00ee6c1` via GHCR | 1.04ms | 0% | 0 | 0 | 5984.50 |
+
+Submissão oficial:
+
+- Issue aberta: `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3668`.
+- Título e descrição usados exatamente como exigido: `rinha/test andrade-cpp-ivf`.
+- Resultado oficial ainda pendente no momento deste registro.
