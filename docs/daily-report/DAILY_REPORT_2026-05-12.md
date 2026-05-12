@@ -539,3 +539,24 @@ Aprendizado:
 
 - O buffer maior não é o gargalo material.
 - A redução provavelmente aumenta sensibilidade a headers/pacotes fragmentados ou remove alguma folga benéfica do loop de leitura.
+
+## Ciclo 03h00: warmup sintético do índice antes do `/ready`
+
+Hipótese:
+
+Inspirado pelo `knn::warmup()` do Jairo, executar algumas consultas sintéticas no índice antes de aceitar tráfego poderia reduzir cold-cache nas primeiras centenas de requisições e melhorar o p99.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| Warmup sintético de 256 queries | 1.07ms | 0% | 0 | 0 | 5970.31 |
+
+Decisão:
+
+- Rejeitado e revertido.
+
+Aprendizado:
+
+- Warmup genérico não ajudou; pode inclusive poluir cache com padrões diferentes dos payloads reais.
+- Se a linha de warmup voltar, precisa usar payloads reais do `test-data` ou uma seleção representativa empacotada no build, não queries sintéticas arbitrárias.
