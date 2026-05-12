@@ -831,3 +831,34 @@ Aprendizado:
 
 - `EPOLLET` é funcional no servidor manual atual, mas não melhora a cauda de forma estável.
 - O gargalo residual parece estar na faixa de jitter do ambiente/proxy/scheduler; mudanças de epoll isoladas não bastam para empurrar consistentemente abaixo de `1.04ms`.
+
+## Ciclo 10h50: remover `EPOLLRDHUP` das conexões
+
+Hipótese:
+
+Durante keep-alive, `EPOLLRDHUP` não deveria ser necessário para o hot path: fechamento real também é detectado por `recv()==0`. Remover o interesse e a máscara fatal de `EPOLLRDHUP` poderia reduzir notificações extras de half-close.
+
+Execução:
+
+- Removido temporariamente `EPOLLRDHUP` de `update_events()` e `add_connection()`.
+- Removido temporariamente `EPOLLRDHUP` da máscara fatal `(EPOLLERR | EPOLLHUP | EPOLLRDHUP)`.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204` após 2s.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.04ms | 0% | 0 | 0 | 5983.40 |
+| 2 | 1.06ms | 0% | 0 | 0 | 5976.00 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A primeira run quase empatou com a submissão oficial `#3537`, mas ainda ficou abaixo; a segunda confirmou ausência de ganho sustentável.
+- Não abrir issue.
+
+Aprendizado:
+
+- `EPOLLRDHUP` não é custo dominante.
+- A remoção não melhora a estabilidade; manter o comportamento explícito de fechamento é mais seguro.
