@@ -1433,3 +1433,37 @@ Decisão:
 
 - Submeter novamente foi adequado: as 3 runs locais da imagem publicada ficaram acima da melhor submissão oficial anterior `#3537` (`p99=1.04ms`, `final_score=5983.81`).
 - O resultado oficial pode oscilar, mas a evidência local é melhor do que a da submissão anterior e a mudança é mínima/sustentável.
+
+## Ciclo 14h05: `TCP_QUICKACK` nos FDs recebidos
+
+Hipótese:
+
+Depois que `TCP_NODELAY` mostrou impacto positivo, testar `TCP_QUICKACK` no mesmo FD recebido via `SCM_RIGHTS` poderia reduzir efeitos de delayed ACK na ponta da API. O custo é um `setsockopt()` adicional por conexão recebida.
+
+Execução:
+
+- Adicionado temporariamente `setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, 1)` logo após `TCP_NODELAY`.
+- Mantidos `MSG_CMSG_CLOEXEC`, `memmem()` e configuração IVF aceita.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5988.36 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5982.52 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5977.99 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A primeira run foi aceitável, mas a segunda e a terceira ficaram abaixo do candidato publicado `submission-de60ac5`.
+- Não promover: o syscall extra não trouxe ganho sustentável e possivelmente piorou a cauda.
+
+Aprendizado:
+
+- `TCP_NODELAY` é o limite seguro dessa família de socket tuning por enquanto.
+- `TCP_QUICKACK` é sensível ao kernel/caminho TCP e não se comportou como melhoria determinística no cenário local.
+- Próximas hipóteses devem voltar para reduzir trabalho no hot path ou investigar o LB/FD-passing, não adicionar mais knobs de TCP sem evidência externa forte.
