@@ -512,3 +512,30 @@ Aprendizado:
 
 - O split oficial atual continua sendo o melhor ponto medido.
 - O mapeamento local ficou coerente: `0.41/0.18`, `0.415/0.17`, `0.422/0.156`, `0.425/0.15` e `0.43/0.14` não sustentaram melhora sobre `0.42/0.16`.
+
+## Ciclo 02h50: reduzir `kMaxPending` de 16KB para 2KB
+
+Investigação:
+
+- Payload oficial médio: aproximadamente `435` bytes.
+- Payload oficial máximo: `469` bytes.
+- Nenhum payload oficial passa de `2048` bytes.
+
+Hipótese:
+
+Reduzir o buffer pendente por conexão de `16KB` para `2KB` poderia diminuir footprint/cache por conexão sem afetar os payloads oficiais.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `kMaxPending=2048` | 1.06ms | 0% | 0 | 0 | 5974.89 |
+
+Decisão:
+
+- Rejeitado e revertido para `16KB`.
+
+Aprendizado:
+
+- O buffer maior não é o gargalo material.
+- A redução provavelmente aumenta sensibilidade a headers/pacotes fragmentados ou remove alguma folga benéfica do loop de leitura.
