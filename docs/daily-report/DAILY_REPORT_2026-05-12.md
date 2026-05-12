@@ -490,3 +490,25 @@ Aprendizado:
 
 - O custo de `FD_CLOEXEC` não é o limitador mensurável da cauda.
 - Manter `FD_CLOEXEC` é mais seguro e não prejudica o melhor resultado oficial conhecido.
+
+## Ciclo 02h40: split conservador `0.41/0.41/0.18`
+
+Hipótese:
+
+Se o LB estivesse ocasionalmente no limite com `0.16 CPU`, devolver parte da CPU para ele (`0.18`) poderia reduzir variância mesmo com APIs ligeiramente menores.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.41/0.41/0.18` | 1.05ms | 0% | 0 | 0 | 5980.12 |
+
+Decisão:
+
+- Rejeitado.
+- Restaurado `0.42/0.42/0.16`.
+
+Aprendizado:
+
+- O split oficial atual continua sendo o melhor ponto medido.
+- O mapeamento local ficou coerente: `0.41/0.18`, `0.415/0.17`, `0.422/0.156`, `0.425/0.15` e `0.43/0.14` não sustentaram melhora sobre `0.42/0.16`.
