@@ -388,3 +388,29 @@ Decisão:
 Aprendizado:
 
 - `WORKERS=2` não é uma otimização segura para a nossa integração FD-passing atual. Pode haver acoplamento interno do LB com sockets de controle/entrega de FDs que funciona corretamente com `WORKERS=1`, que é também a configuração do líder Jairo.
+
+## Ciclo 01h45: `ulimits.nofile=65535`
+
+Investigação externa:
+
+- O 3º colocado no ranking preview, `steixeira93-zig-v2`, usa um LB próprio em Zig com `io_uring`, APIs também em Zig e `ulimits.nofile=65535` nos serviços.
+- O compose dele mantém o split clássico `0.40/0.40/0.20` e `seccomp:unconfined`.
+
+Hipótese:
+
+Aumentar `nofile` poderia ajudar nossa integração FD-passing sob alta concorrência, reduzindo risco de limite de file descriptors no LB/API.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `0.42/0.42/0.16` + `ulimits.nofile=65535` | 1.06ms | 0% | 0 | 0 | 5974.79 |
+
+Decisão:
+
+- Rejeitado e removido.
+
+Aprendizado:
+
+- Não há evidência de FD exhaustion na nossa stack atual; aumentar `nofile` não reduziu cauda e piorou a run local.
+- O insight útil do Zig não é `ulimit`, mas a confirmação independente de que o topo do ranking converge para LB próprio/io_uring/UDS, exatamente a direção já adotada via `so-no-forevis`.
