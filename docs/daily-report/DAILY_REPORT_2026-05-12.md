@@ -1808,3 +1808,37 @@ Aprendizado:
 
 - O listener UDS de dados pode não ser usado no caminho comum do `so-no-forevis`, mas mantê-lo registrado não é o gargalo.
 - Otimizar branches administrativos do event loop continua rendendo menos que o ruído de proxy/scheduler.
+
+## Ciclo 16h08: `mimalloc` no stack manual com FD-passing
+
+Hipótese:
+
+`mimalloc` já tinha sido rejeitado em stacks anteriores, mas o estado atual é estruturalmente diferente: servidor manual C++/epoll, parser seletivo, respostas constantes e FD-passing via `so-no-forevis`. Como ainda há alocações por conexão e uso de `std::string`/`unordered_map`, valia um screening final nesta arquitetura antes de encerrar a família de allocator.
+
+Execução:
+
+- Alterado temporariamente o `Dockerfile` runtime para instalar `libmimalloc3`.
+- Adicionado `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.3`.
+- Mantidos código C++, compose, limites, LB, parser, IVF e imagem base `debian:trixie-slim`.
+- Imagem local reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.04ms | 0% | 0 | 0 | 5983.83 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5982.39 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5979.21 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Não superou a base restaurada nem a submissão oficial `#3537`.
+- Não promover: o ganho esperado de allocator não aparece no p99 quando o hot path já evita alocação por request.
+
+Aprendizado:
+
+- Na arquitetura manual + FD-passing, o gargalo remanescente não está no allocator geral.
+- A família `mimalloc` fica encerrada também para o estado atual; só reabriria com uma mudança que introduzisse alocação significativa no caminho quente, o que não é desejável.
