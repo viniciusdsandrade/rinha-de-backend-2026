@@ -890,3 +890,32 @@ Aprendizado:
 
 - Rehash do mapa de conexões não aparece como causa material da cauda atual.
 - O gargalo residual não está no crescimento inicial da tabela de conexões.
+
+## Ciclo 11h05: `BUF_SIZE=1024` no `so-no-forevis`
+
+Hipótese:
+
+O maior entry serializado do `test/test-data.json` tem cerca de 533 bytes. Reduzir o buffer do LB de `4096` para `1024` poderia diminuir footprint/cache no `so-no-forevis` sem truncar payloads reais.
+
+Execução:
+
+- Confirmado tamanho máximo de entry local: `533` bytes.
+- Alterado temporariamente `BUF_SIZE` de `4096` para `1024`.
+- Stack recriado sem rebuild de API.
+- `/ready` respondeu `204` após 2s.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `BUF_SIZE=1024` | 1.04ms | 0% | 0 | 0 | 5982.46 |
+
+Decisão:
+
+- Rejeitado e revertido para `4096`.
+- Não superou a submissão oficial `#3537` (`5983.81`).
+
+Aprendizado:
+
+- Reduzir o buffer do LB abaixo de `2048/4096` não gerou ganho.
+- O tamanho de buffer do LB já foi suficientemente varrido (`1024`, `2048`, `4096`, `8192`) e `4096` permanece o melhor baseline operacional.
