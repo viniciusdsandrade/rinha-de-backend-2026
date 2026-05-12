@@ -366,3 +366,25 @@ Aprendizado:
 
 - A configuração do Jairo (`BUF_SIZE=4096`) também é o melhor ponto para nossa API C++ nas medições locais.
 - A família `BUF_SIZE` não superou a submissão oficial atual; não merece nova issue.
+
+## Ciclo 01h40: `WORKERS=2` no LB
+
+Hipótese:
+
+Mais um worker no `so-no-forevis` poderia melhorar distribuição/aceitação em paralelo e reduzir cauda.
+
+Resultado:
+
+- Configuração: split `0.42/0.42/0.16`, `BUF_SIZE=4096`, `WORKERS=2`.
+- Os containers subiram, mas `GET /ready` via `localhost:9999` ficou pendurado em vez de retornar `204`.
+- Não houve logs úteis no compose.
+- O teste foi abortado antes de k6 para evitar run inválida.
+
+Decisão:
+
+- Rejeitado.
+- Restaurado `WORKERS=1`.
+
+Aprendizado:
+
+- `WORKERS=2` não é uma otimização segura para a nossa integração FD-passing atual. Pode haver acoplamento interno do LB com sockets de controle/entrega de FDs que funciona corretamente com `WORKERS=1`, que é também a configuração do líder Jairo.
