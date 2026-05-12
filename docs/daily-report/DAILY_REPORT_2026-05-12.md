@@ -1049,3 +1049,45 @@ Aprendizado:
 
 - Há algum sinal de que o caminho de FD handoff ainda influencia a cauda, mas a drenagem em lote não é estável o bastante.
 - A alteração também aumenta risco de lidar mal com leituras parciais do pipe; sem ganho claro, o caminho simples permanece melhor.
+
+## Ciclo 11h50: baseline re-freeze e buffer fixo de resposta
+
+Hipótese:
+
+O servidor manual ainda mantinha `std::string out` por conexão, com `reserve(512)` no `add_connection()` e `append()` para cada resposta. Substituir isso por um buffer fixo poderia remover alocação heap e reduzir trabalho no hot path de resposta HTTP.
+
+Baseline antes do patch:
+
+| Estado | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `MSG_CMSG_CLOEXEC` puro, rebuild limpo | 1.03ms | 0% | 0 | 0 | 5987.23 |
+
+Execução:
+
+- Alterado temporariamente `Connection::out` de `std::string` para `std::array<char, 4096>`.
+- Adicionado `out_len/out_pos` e `append_output()` com `memcpy()`.
+- Removido temporariamente `conn->out.reserve(512)`.
+- Mantidos LB, CPU split, IVF, parser e `MSG_CMSG_CLOEXEC` inalterados.
+- Imagem reconstruída com sucesso.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 3 runs consecutivas.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.05ms | 0% | 0 | 0 | 5978.90 |
+| 2 | 1.06ms | 0% | 0 | 0 | 5976.45 |
+| 3 | 1.03ms | 0% | 0 | 0 | 5987.32 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- Correto funcionalmente, mas pior em 2 de 3 runs.
+- Não promover: o ganho de remover heap não compensou o aumento de footprint/cache por conexão.
+
+Aprendizado:
+
+- `std::string` com `reserve(512)` não é gargalo dominante neste estado.
+- Em p99 próximo de `1ms`, reduzir alocação aparente pode piorar locality. O hot path atual com resposta curta e string reservada é suficientemente competitivo.
+- A issue oficial `#3668` da submissão `submission-00ee6c1` segue aberta sem comentário do runner neste checkpoint.
