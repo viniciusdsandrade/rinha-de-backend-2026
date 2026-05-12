@@ -603,3 +603,24 @@ Aprendizado:
 
 - O parsing genérico de header não é gargalo material no p99 atual.
 - A cauda remanescente está mais associada a proxy/scheduler/cgroup ou variação do runner do que a microcustos de header.
+
+## Ciclo 02h35: `ioctl(FIONBIO)` para nonblocking em FD recebido
+
+Hipótese:
+
+Substituir `F_GETFL` + `F_SETFL` por `ioctl(FIONBIO)` reduziria de dois para um syscall ao preparar cada FD recebido por `SCM_RIGHTS`.
+
+Resultado local:
+
+| Variante | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `ioctl(FIONBIO)` | 1.06ms | 0% | 0 | 0 | 5976.38 |
+
+Decisão:
+
+- Rejeitado e revertido.
+
+Aprendizado:
+
+- Preparação de FD por conexão não explica o p99 atual.
+- A economia teórica de syscall não apareceu no teste k6.
