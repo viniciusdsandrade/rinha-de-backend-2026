@@ -1954,3 +1954,81 @@ Aprendizado:
 
 - O `seccomp` nas APIs não explica o delta do Jairo.
 - A parte relevante do `seccomp:unconfined` nesta arquitetura é o LB com `io_uring`; manter isso apenas no LB continua sendo o ponto mais limpo.
+
+## Ciclo 16h37-16h56: nova repetição oficial e resposta JSON curta
+
+### Repetição oficial `#3763`
+
+Contexto:
+
+- A issue `#3753` tinha atualizado o ranking para `p99=1.06ms`, `final_score=5975.89`, deixando o `jairoblatt-rust` novamente à frente com `p99=1.05ms`, `final_score=5978.38`.
+- Como a imagem `submission-076c74a` já havia produzido `#3537` com `p99=1.04ms`, `final_score=5983.81`, a melhor ação prática era repetir exatamente a submissão estável sem tocar na branch `submission` enquanto a engine processava.
+
+Execução:
+
+- Confirmado que não havia issue aberta do usuário.
+- Aberta a issue `https://github.com/zanfranceschi/rinha-de-backend-2026/issues/3763`.
+- Título e descrição usados exatamente como exigido: `rinha/test andrade-cpp-ivf`.
+- A branch `submission` permaneceu em `8eda2fe`, imagem `ghcr.io/viniciusdsandrade/rinha-de-backend-2026:submission-076c74a`.
+
+Resultado oficial:
+
+| Issue | p99 | failure_rate | FP | FN | final_score |
+|---|---:|---:|---:|---:|---:|
+| `#3763` | 1.04ms | 0% | 0 | 0 | 5983.13 |
+
+Ranking público após atualização:
+
+| Participante | Submissão | p99 | failure_rate | final_score | Issue |
+|---|---|---:|---:|---:|---|
+| `viniciusdsandrade` | `andrade-cpp-ivf` | 1.04ms | 0% | 5983.13 | `#3763` |
+| `jairoblatt` | `jairoblatt-rust` | 1.05ms | 0% | 5978.38 | `#3744` |
+
+Decisão:
+
+- A repetição recuperou a posição contra o Jairo, embora ainda não tenha igualado o pico histórico `#3537` (`5983.81`).
+- Não houve mudança de código nem de compose na submissão; foi uma repetição limpa da melhor imagem estável.
+
+Aprendizado:
+
+- O resultado oficial confirma que a imagem `submission-076c74a` continua válida e competitiva.
+- Nesta faixa, repetir uma submissão estável pode recuperar `~7` pontos apenas por variância do runner, mas isso deve ser usado com cautela porque a repetição anterior (`#3753`) também mostrou que a mesma imagem pode cair para `1.06ms`.
+
+### Experimento local: `fraud_score` extremo encurtado
+
+Hipótese:
+
+Trocar apenas os extremos JSON de `fraud_score` por representações numéricas semanticamente idênticas (`0.0 -> 0`, `1.0 -> 1`) reduziria 2 bytes em respostas frequentes, preservando `approved`, `fraud_score` numérico e acurácia.
+
+Patch temporário:
+
+```text
+{"approved":true,"fraud_score":0.0}  -> {"approved":true,"fraud_score":0}
+{"approved":false,"fraud_score":1.0} -> {"approved":false,"fraud_score":1}
+```
+
+Resultados locais da variante:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.03ms | 0% | 0 | 0 | 5985.35 |
+| 2 | 1.03ms | 0% | 0 | 0 | 5985.82 |
+| 3 | 1.05ms | 0% | 0 | 0 | 5979.09 |
+
+A/B reverso com resposta original:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| base 1 | 1.04ms | 0% | 0 | 0 | 5983.75 |
+| base 2 | 1.02ms | 0% | 0 | 0 | 5989.56 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- O A/B reverso superou a variante, então o sinal positivo inicial era ruído/estado da máquina, não efeito causal dos bytes removidos.
+- Manter `0.0` e `1.0` preserva aderência mais literal ao formato já usado nos exemplos e nos líderes, sem custo mensurável.
+
+Aprendizado:
+
+- O tamanho de resposta já é pequeno demais para explicar o delta de p99.
+- A cauda atual é dominada por variância de runner/LB/scheduler, não por dois bytes em respostas extremas.
