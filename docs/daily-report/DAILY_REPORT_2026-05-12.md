@@ -1842,3 +1842,37 @@ Aprendizado:
 
 - Na arquitetura manual + FD-passing, o gargalo remanescente não está no allocator geral.
 - A família `mimalloc` fica encerrada também para o estado atual; só reabriria com uma mudança que introduzisse alocação significativa no caminho quente, o que não é desejável.
+
+## Ciclo 16h16: `write()` com `SIGPIPE` ignorado no envio de resposta
+
+Hipótese:
+
+O hot path de resposta usa `send(..., MSG_NOSIGNAL)` em `flush_output()`. Trocar para `write()` e ignorar `SIGPIPE` no processo poderia usar um syscall mais simples no caminho comum, mantendo fechamento correto em `EPIPE` sem matar o processo.
+
+Execução:
+
+- Adicionado temporariamente `#include <csignal>`.
+- Chamado `std::signal(SIGPIPE, SIG_IGN)` no início do `main()`.
+- Substituído temporariamente `send(fd, ..., MSG_NOSIGNAL)` por `write(fd, ...)` em `flush_output()`.
+- Mantidos buffer de saída, parser, IVF, FD-passing, LB e compose.
+- Imagem local reconstruída sem `mimalloc`, voltando à base correta.
+- Stack recriado; `/ready` respondeu `204`.
+- Executadas 2 runs; a terceira foi dispensada porque o sinal inicial não superou a base.
+
+Resultados locais:
+
+| Run | p99 | failure_rate | FP | FN | final_score |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.06ms | 0% | 0 | 0 | 5973.28 |
+| 2 | 1.04ms | 0% | 0 | 0 | 5984.05 |
+
+Decisão:
+
+- Rejeitado e revertido.
+- A primeira run piorou; a segunda só empatou com o envelope do baseline.
+- Não promover: `write()` não trouxe vantagem mensurável e `send(MSG_NOSIGNAL)` preserva semântica local sem configurar sinal global.
+
+Aprendizado:
+
+- O custo da flag `MSG_NOSIGNAL` não é gargalo relevante no p99.
+- O caminho de envio atual é suficientemente bom; tentar simplificar syscalls isolados não supera ruído de proxy/scheduler.
