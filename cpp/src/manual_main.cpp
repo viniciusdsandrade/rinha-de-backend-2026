@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 
 #include <fcntl.h>
@@ -629,6 +630,110 @@ void close_connection(int epoll_fd, std::unordered_map<int, std::unique_ptr<Conn
     connections.erase(conn->fd);
 }
 
+bool add_connection(int epoll_fd, std::unordered_map<int, std::unique_ptr<Connection>>& connections, int fd) {
+    auto conn = std::make_unique<Connection>();
+    conn->fd = fd;
+    conn->out.reserve(512);
+
+    epoll_event conn_event{};
+    conn_event.events = EPOLLIN | EPOLLRDHUP;
+    conn_event.data.ptr = conn.get();
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &conn_event) != 0) {
+        close(fd);
+        return false;
+    }
+    connections.emplace(fd, std::move(conn));
+    return true;
+}
+
+std::optional<int> receive_fd(int socket_fd) noexcept {
+    char byte = 0;
+    iovec iov{};
+    iov.iov_base = &byte;
+    iov.iov_len = sizeof(byte);
+
+    alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int))> control{};
+    msghdr message{};
+    message.msg_iov = &iov;
+    message.msg_iovlen = 1;
+    message.msg_control = control.data();
+    message.msg_controllen = control.size();
+
+    const ssize_t received = recvmsg(socket_fd, &message, 0);
+    if (received <= 0) {
+        return std::nullopt;
+    }
+
+    cmsghdr* cmsg = CMSG_FIRSTHDR(&message);
+    if (cmsg == nullptr || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
+        return std::nullopt;
+    }
+
+    int fd = -1;
+    std::memcpy(&fd, CMSG_DATA(cmsg), sizeof(fd));
+    return fd >= 0 ? std::optional<int>{fd} : std::nullopt;
+}
+
+void run_control_socket(const std::string& ctrl_path, int notify_fd) {
+    std::string error;
+    const int ctrl_fd = listen_unix_socket(ctrl_path, error);
+    if (ctrl_fd < 0) {
+        std::cerr << error << '\n';
+        return;
+    }
+
+    while (true) {
+        const int conn_fd = accept4(ctrl_fd, nullptr, nullptr, SOCK_CLOEXEC);
+        if (conn_fd < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                usleep(1000);
+                continue;
+            }
+            break;
+        }
+
+        while (true) {
+            std::optional<int> fd = receive_fd(conn_fd);
+            if (!fd) {
+                break;
+            }
+            const int flags = fcntl(*fd, F_GETFL, 0);
+            if (flags >= 0) {
+                (void)fcntl(*fd, F_SETFL, flags | O_NONBLOCK);
+            }
+            (void)fcntl(*fd, F_SETFD, FD_CLOEXEC);
+            if (write(notify_fd, &*fd, sizeof(*fd)) != static_cast<ssize_t>(sizeof(*fd))) {
+                close(*fd);
+            }
+        }
+        close(conn_fd);
+    }
+
+    close(ctrl_fd);
+}
+
+void drain_transferred_fds(
+    int notify_fd,
+    int epoll_fd,
+    std::unordered_map<int, std::unique_ptr<Connection>>& connections
+) {
+    while (true) {
+        int fd = -1;
+        const ssize_t read_bytes = read(notify_fd, &fd, sizeof(fd));
+        if (read_bytes == static_cast<ssize_t>(sizeof(fd))) {
+            add_connection(epoll_fd, connections, fd);
+            continue;
+        }
+        if (read_bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return;
+        }
+        return;
+    }
+}
+
 int run_server(const std::string& socket_path, const rinha::IvfIndex& index, const rinha::IvfSearchConfig& config) {
     std::string error;
     const int listen_fd = listen_unix_socket(socket_path, error);
@@ -637,9 +742,19 @@ int run_server(const std::string& socket_path, const rinha::IvfIndex& index, con
         return 1;
     }
 
+    std::array<int, 2> notify_pipe{-1, -1};
+    if (pipe2(notify_pipe.data(), O_NONBLOCK | O_CLOEXEC) != 0) {
+        std::cerr << "falha ao criar pipe de controle\n";
+        close(listen_fd);
+        return 1;
+    }
+    std::thread(run_control_socket, socket_path + ".ctrl", notify_pipe[1]).detach();
+
     const int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd < 0) {
         std::cerr << "falha ao criar epoll\n";
+        close(notify_pipe[0]);
+        close(notify_pipe[1]);
         close(listen_fd);
         return 1;
     }
@@ -650,6 +765,20 @@ int run_server(const std::string& socket_path, const rinha::IvfIndex& index, con
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &listen_event) != 0) {
         std::cerr << "falha ao registrar listen fd\n";
         close(epoll_fd);
+        close(notify_pipe[0]);
+        close(notify_pipe[1]);
+        close(listen_fd);
+        return 1;
+    }
+
+    epoll_event notify_event{};
+    notify_event.events = EPOLLIN;
+    notify_event.data.fd = notify_pipe[0];
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, notify_pipe[0], &notify_event) != 0) {
+        std::cerr << "falha ao registrar pipe de controle\n";
+        close(epoll_fd);
+        close(notify_pipe[0]);
+        close(notify_pipe[1]);
         close(listen_fd);
         return 1;
     }
@@ -676,19 +805,12 @@ int run_server(const std::string& socket_path, const rinha::IvfIndex& index, con
                         }
                         continue;
                     }
-                    auto conn = std::make_unique<Connection>();
-                    conn->fd = fd;
-                    conn->out.reserve(512);
-
-                    epoll_event conn_event{};
-                    conn_event.events = EPOLLIN | EPOLLRDHUP;
-                    conn_event.data.ptr = conn.get();
-                    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &conn_event) == 0) {
-                        connections.emplace(fd, std::move(conn));
-                    } else {
-                        close(fd);
-                    }
+                    add_connection(epoll_fd, connections, fd);
                 }
+                continue;
+            }
+            if (event.data.fd == notify_pipe[0]) {
+                drain_transferred_fds(notify_pipe[0], epoll_fd, connections);
                 continue;
             }
 
@@ -743,6 +865,8 @@ int run_server(const std::string& socket_path, const rinha::IvfIndex& index, con
     }
 
     close(epoll_fd);
+    close(notify_pipe[0]);
+    close(notify_pipe[1]);
     close(listen_fd);
     return 1;
 }

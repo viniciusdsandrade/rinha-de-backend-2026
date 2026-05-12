@@ -48,3 +48,88 @@ Rejeitado e revertido antes de rodar k6. O LB `so-no-forevis:v1.0.0` não é um 
 Aprendizado:
 
 O diferencial do `so-no-forevis` está acoplado ao protocolo interno da API do Jairo, com FD-passing. Para aproveitar essa linha seria necessário implementar compatibilidade de recebimento de file descriptors no nosso servidor, o que equivale a uma mudança estrutural de servidor/LB. Não faz sentido tratar como micro-otimização isolada nem substituir o nginx diretamente.
+
+## Ciclo 00h15: política de probes e desempate do top-5
+
+Investigação:
+
+- O `jairoblatt/rinha-2026-rust` recente usa `FAST_NPROBE=5`, `FULL_NPROBE=24`, retry seletivo apenas quando o fast retorna `2/5` ou `3/5`, e não possui reparo por bounding box equivalente ao nosso.
+- Nossa submissão atual usa `FAST_NPROBE=1`, `FULL_NPROBE=1`, `BBOX_REPAIR=1`, `repair_min=1`, `repair_max=4`, além de reparos extremos pontuais para preservar `0%` falhas.
+
+Screening offline de configuração no índice atual `index-1280.bin`:
+
+| Configuração | ns/query | FP | FN | failure_rate |
+|---|---:|---:|---:|---:|
+| Atual `1/1 + bbox + repair 1..4` | 12442.5 | 0 | 0 | 0% |
+| Jairo-like `5/24 sem bbox repair 2..3` | 38201.1 | 1 | 2 | 0.0055% |
+| Jairo-like `5/24 + bbox repair 2..3` | 38995.8 | 0 | 0 | 0% |
+| `1/1 + bbox + repair 2..3` | 10161.9 | 22 | 28 | 0.0924% |
+| `1/1 + bbox + repair 1..3` | 10206.7 | 22 | 0 | 0.0407% |
+| `1/1 + bbox + repair 2..4` | 10158.6 | 0 | 28 | 0.0518% |
+| `1/1 + bbox + repair 1..4` sem reparo extremo | 7599.21 | 1 | 2 | 0.0055% |
+
+Decisão de configuração:
+
+Rejeitado. Copiar `FAST=5/FULL=24` do Jairo é muito mais caro no nosso índice. Reduzir janela de reparo melhora tempo offline, mas introduz FP/FN; pela fórmula oficial, erros derrubam score de detecção e não compensam ganhos pequenos de p99. Manter `1/1 + bbox + repair 1..4 + reparo extremo`.
+
+Hipótese adicional:
+
+O desempate por `orig_id` no `Top5` custa comparações no hot path. Como o dataset rotulado usa kNN exato e distâncias quantizadas podem empatar raramente, talvez remover o desempate preservasse acurácia e reduzisse cauda.
+
+Experimento:
+
+- Patch temporário: `Top5::better()` passou a comparar apenas `distance < worst`, e `refresh_worst()` deixou de desempatar por `orig_id`.
+- Validação: `ctest --test-dir cpp/build --output-on-failure` passou.
+- Benchmark offline: `fp=0`, `fn=0`, `failure_rate=0%`, `ns_per_query=9325.23`.
+- k6 local run 1: `p99=1.10ms`, `final_score=5959.83`, `0%` falhas.
+- k6 local run 2: `p99=1.13ms`, `final_score=5947.56`, `0%` falhas.
+
+Decisão:
+
+Rejeitado e revertido. Embora correto nos testes e aparentemente melhor no microbenchmark, o k6 não reproduziu ganho sobre as melhores runs locais recentes do estado já submetido (`1.03ms` e `1.07ms`). Sem margem reproduzível, não justifica nova submissão nem risco de mudar ordenação de empate.
+
+Aprendizado:
+
+O gargalo atual não parece estar no desempate do top-5 nem na janela de probes. A diferença para `jairoblatt` continua apontando para arquitetura de servidor/LB (`FD-passing + io_uring`) e/ou para layout/kernel de índice mais estrutural, não para microajustes de seleção.
+
+## Ciclo 00h45: FD-passing compatível com `so-no-forevis:v1.0.0`
+
+Hipótese:
+
+O ganho recente do `jairoblatt-rust` (`p99=1.05ms`, `final_score=5978.43`) não vem de trocar nginx por um LB qualquer, mas do protocolo específico do `jrblatt/so-no-forevis:v1.0.0`: o LB aceita TCP na porta `9999`, usa `io_uring` e entrega file descriptors já aceitos para as APIs por sockets Unix de controle (`<api.sock>.ctrl`) via `SCM_RIGHTS`. Se a nossa API C++ suportar esse protocolo, podemos reduzir overhead de proxy sem trocar o kernel KNN nem o parser de fraude.
+
+Implementação experimental:
+
+- Mantido o listener Unix normal `/sockets/apiN.sock` para compatibilidade.
+- Adicionado listener de controle `/sockets/apiN.sock.ctrl`.
+- A thread de controle recebe FDs por `recvmsg(... SCM_RIGHTS ...)`.
+- Os FDs recebidos são colocados em modo não-bloqueante e repassados ao loop epoll principal por pipe interno.
+- O loop epoll passa a aceitar conexões tanto pelo UDS tradicional quanto pelo pipe de FDs transferidos.
+- Compose temporário trocado para `jrblatt/so-no-forevis:v1.0.0`, com `UPSTREAMS=/sockets/api1.sock,/sockets/api2.sock`, `WORKERS=1`, `BUF_SIZE=4096`, `0.20 CPU / 30MB`.
+- `security_opt: seccomp:unconfined` foi necessário no LB; sem isso o binário panica ao criar runtime `io_uring` com `Operation not permitted`, exatamente o tipo de requisito observado na solução do Jairo.
+
+Correções durante a investigação:
+
+- Primeira tentativa com `.ctrl` falhou porque o listener de controle herdou `SOCK_NONBLOCK`; a thread saía em `EAGAIN` antes do LB conectar.
+- Corrigido para tratar `EAGAIN/EWOULDBLOCK` com espera curta e continuar aceitando.
+
+Validação:
+
+- `cmake --build cpp/build --target rinha-backend-2026-cpp-manual rinha-backend-2026-cpp-tests -j$(nproc)` passou.
+- `ctest --test-dir cpp/build --output-on-failure` passou.
+- Smoke com `jrblatt/so-no-forevis:v1.0.0`: `GET /ready` respondeu `204`.
+
+Resultados k6 locais:
+
+| Variante | p99 | failure_rate | final_score |
+|---|---:|---:|---:|
+| FD-passing + `so-no-forevis:v1.0.0` run 1 | 0.98ms | 0% | 6000 |
+| FD-passing + `so-no-forevis:v1.0.0` run 2 | 0.96ms | 0% | 6000 |
+
+Decisão:
+
+Aceito como melhor candidato técnico do ciclo até agora. Esta é a primeira rodada desde a submissão anterior que melhora de forma material e reproduzível: o p99 local caiu abaixo de `1ms`, saturando `p99_score=3000` sem introduzir FP, FN ou erro HTTP.
+
+Aprendizado:
+
+A leitura dos líderes estava correta: o gap remanescente não estava no KNN, no parser JSON ou em microflags, mas no caminho de proxy/servidor. O `so-no-forevis` não era drop-in porque exigia o protocolo de FD-passing; ao implementar esse contrato na API C++, o ganho apareceu imediatamente e com margem suficiente para justificar preparação de nova submissão oficial.
